@@ -129,5 +129,22 @@ class ResearchRun(BaseRecord):
     def can_promote(self) -> bool:
         return self.status == ResearchTerminalState.COMPLETED.value
 
+    @model_validator(mode="after")
+    def receipt_matches_run(self) -> "ResearchRun":
+        if not self.receipt:
+            return self
+        expected = {
+            "version": 2,
+            "run_id": self.id,
+            "status": self.status,
+            "promotion_allowed": self.can_promote,
+        }
+        for field, value in expected.items():
+            if self.receipt.get(field) != value:
+                raise ValueError(f"research receipt {field} does not match canonical run")
+        if not self.receipt.get("finished_at"):
+            raise ValueError("terminal research receipt requires finished_at")
+        return self
+
 
 RECORD_MODELS = (BaseRecord, SourceItem, Claim, CandidatePatch, ResearchRun)

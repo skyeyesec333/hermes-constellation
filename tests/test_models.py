@@ -70,6 +70,29 @@ def test_partial_research_runs_cannot_promote():
     assert run.can_promote is False
 
 
+def test_canonical_research_receipt_must_match_its_terminal_run():
+    run_id = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    receipt = {
+        "version": 2,
+        "run_id": run_id,
+        "status": "partial",
+        "promotion_allowed": False,
+        "finished_at": "2026-01-02T00:00:00+00:00",
+    }
+    run = ResearchRun(
+        **common(status=ResearchTerminalState.PARTIAL),
+        id=run_id,
+        receipt=receipt,
+    )
+    assert run.receipt["run_id"] == run.id
+    with pytest.raises(ValidationError, match="status does not match"):
+        ResearchRun(
+            **common(status=ResearchTerminalState.COMPLETED),
+            id=run_id,
+            receipt=receipt,
+        )
+
+
 def test_schema_and_note_template_generation_are_deterministic():
     first = json_schema_text(SourceItem)
     second = json_schema_text(SourceItem)
