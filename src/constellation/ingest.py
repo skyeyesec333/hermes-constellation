@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import importlib.metadata
 import importlib.util
+import io
 import json
 import mimetypes
 import platform
+import zipfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
 import yaml
@@ -28,6 +31,22 @@ _ULID_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 MAX_SOURCE_BYTES = 50 * 1024 * 1024
 MAX_EXTRACTED_CHARS = 5_000_000
 MAX_PDF_PAGES = 500
+MAX_IMAGE_PIXELS = 40_000_000
+MAX_OFFICE_UNCOMPRESSED_BYTES = 200 * 1024 * 1024
+MAX_OFFICE_ARCHIVE_ENTRIES = 10_000
+MAX_OFFICE_COMPRESSION_RATIO = 1_000
+OCR_MIN_CONFIDENCE = 0.45
+OCR_MIN_CHARACTERS = 3
+
+OOXML_MAIN_CONTENT_TYPES = {
+    ".docx": (
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"
+    ),
+    ".pptx": (
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"
+    ),
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml",
+}
 
 
 class IngestError(RuntimeError):
@@ -112,6 +131,428 @@ def _text_extraction(data: bytes, text: str, media_type: str) -> ExtractedSource
     )
 
 
+def _detect_media_type(data: bytes) -> str:
+    try:
+        import magic  # type: ignore[import-not-found]
+    except ImportError as exc:
+        raise CapabilityError("MIME detection requires the python-magic capability") from exc
+
+    try:
+        detected = str(magic.from_buffer(data, mime=True)).strip().lower()
+    except Exception as exc:
+        raise IngestError("MIME detection failed") from exc
+    if not detected:
+        raise IngestError("MIME detection returned no media type")
+    return detected
+
+
+def _validate_ooxml_archive(data: bytes, suffix: str) -> None:
+    expected_content_type = OOXML_MAIN_CONTENT_TYPES[suffix]
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            members = archive.infolist()
+            if len(members) > MAX_OFFICE_ARCHIVE_ENTRIES:
+                raise IngestError("OOXML archive exceeds the configured entry limit")
+            expanded_bytes = 0
+            for member in members:
+                normalized = PurePosixPath(member.filename.replace("\\", "/"))
+                if normalized.is_absolute() or ".." in normalized.parts:
+                    raise IngestError("OOXML archive contains an unsafe member path")
+                if member.flag_bits & 0x1:
+                    raise IngestError("encrypted OOXML archives are not supported")
+                expanded_bytes += member.file_size
+                if expanded_bytes > MAX_OFFICE_UNCOMPRESSED_BYTES:
+                    raise IngestError("OOXML archive exceeds the configured expanded size")
+                ratio = member.file_size / max(member.compress_size, 1)
+                if member.file_size > 1_000_000 and ratio > MAX_OFFICE_COMPRESSION_RATIO:
+                    raise IngestError("OOXML archive contains a suspicious compression ratio")
+            try:
+                content_types = archive.read("[Content_Types].xml")
+            except KeyError as exc:
+                raise IngestError("OOXML archive is missing its content-type manifest") from exc
+    except IngestError:
+        raise
+    except zipfile.BadZipFile as exc:
+        raise IngestError("OOXML source is not a valid ZIP archive") from exc
+    if expected_content_type.encode("ascii") not in content_types:
+        raise IngestError("file extension and OOXML content type do not match")
+
+
+def _docx_extraction(data: bytes) -> ExtractedSource:
+    if importlib.util.find_spec("docx") is None:
+        raise CapabilityError("DOCX extraction requires the optional python-docx capability")
+    import docx  # type: ignore[import-not-found]
+
+    try:
+        document = docx.Document(io.BytesIO(data))
+        sections: list[str] = []
+        units: list[dict[str, Any]] = []
+        paragraph_index = 0
+        table_index = 0
+        for block in document.iter_inner_content():
+            if isinstance(block, docx.text.paragraph.Paragraph):
+                value = block.text.strip()
+                if not value:
+                    continue
+                paragraph_index += 1
+                anchor = f"PARA{paragraph_index:04d}"
+                sections.append(f"[{anchor}] {value}")
+                units.append(
+                    {
+                        "kind": "paragraph",
+                        "index": paragraph_index,
+                        "status": "extracted",
+                        "anchor": anchor,
+                        "style": block.style.name if block.style else None,
+                        "characters": len(value),
+                        "text_sha256": sha256_bytes(value.encode("utf-8")),
+                    }
+                )
+                continue
+            table_index += 1
+            for row_index, row in enumerate(block.rows, start=1):
+                for column_index, cell in enumerate(row.cells, start=1):
+                    value = cell.text.strip()
+                    if not value:
+                        continue
+                    anchor = f"TABLE{table_index:04d}:R{row_index:04d}:C{column_index:04d}"
+                    sections.append(f"[{anchor}] {value}")
+                    units.append(
+                        {
+                            "kind": "table-cell",
+                            "index": len(units) + 1,
+                            "status": "extracted",
+                            "anchor": anchor,
+                            "table": table_index,
+                            "row": row_index,
+                            "column": column_index,
+                            "characters": len(value),
+                            "text_sha256": sha256_bytes(value.encode("utf-8")),
+                        }
+                    )
+        if not sections:
+            raise IngestError("DOCX contains no extractable text")
+        text = "\n".join(sections) + "\n"
+        if len(text) > MAX_EXTRACTED_CHARS:
+            raise IngestError("extracted text exceeds the configured size limit")
+        return ExtractedSource(
+            data=data,
+            text=text,
+            media_type=(
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            ),
+            extraction={
+                "schema_version": "0.1",
+                "status": "complete",
+                "engine": {
+                    "name": "python-docx",
+                    "version": str(getattr(docx, "__version__", "unknown")),
+                    "options": {"method": "iter_inner_content"},
+                },
+                "source_sha256": sha256_bytes(data),
+                "extracted_text_sha256": sha256_bytes(text.encode("utf-8")),
+                "characters": len(text),
+                "expected_units": len(units),
+                "extracted_units": len(units),
+                "blank_units": 0,
+                "failed_units": 0,
+                "truncated_units": 0,
+                "warnings": [],
+                "units": units,
+            },
+        )
+    except (IngestError, CapabilityError):
+        raise
+    except Exception as exc:
+        raise IngestError("DOCX extraction failed") from exc
+
+
+def _pptx_extraction(data: bytes) -> ExtractedSource:
+    if importlib.util.find_spec("pptx") is None:
+        raise CapabilityError("PPTX extraction requires the optional python-pptx capability")
+    import pptx  # type: ignore[import-not-found]
+
+    try:
+        presentation = pptx.Presentation(io.BytesIO(data))
+        sections: list[str] = []
+        units: list[dict[str, Any]] = []
+        blank_units = 0
+        for slide_index, slide in enumerate(presentation.slides, start=1):
+            slide_lines: list[str] = []
+            text_index = 0
+            table_index = 0
+            for shape in slide.shapes:
+                if getattr(shape, "has_text_frame", False):
+                    value = shape.text.strip()
+                    if value:
+                        text_index += 1
+                        anchor = f"SLIDE{slide_index:04d}:TEXT{text_index:04d}"
+                        slide_lines.append(f"[{anchor}] {value}")
+                if getattr(shape, "has_table", False):
+                    table_index += 1
+                    for row_index, row in enumerate(shape.table.rows, start=1):
+                        for column_index, cell in enumerate(row.cells, start=1):
+                            value = cell.text.strip()
+                            if not value:
+                                continue
+                            anchor = (
+                                f"SLIDE{slide_index:04d}:TABLE{table_index:04d}:"
+                                f"R{row_index:04d}:C{column_index:04d}"
+                            )
+                            slide_lines.append(f"[{anchor}] {value}")
+            notes_text = slide.notes_slide.notes_text_frame.text.strip()
+            if notes_text:
+                slide_lines.append(f"[SLIDE{slide_index:04d}:NOTES] {notes_text}")
+            slide_text = "\n".join(slide_lines)
+            if slide_text:
+                sections.append(slide_text)
+                status = "extracted"
+            else:
+                blank_units += 1
+                sections.append(f"[SLIDE{slide_index:04d}]")
+                status = "blank"
+            units.append(
+                {
+                    "kind": "slide",
+                    "index": slide_index,
+                    "status": status,
+                    "anchor": f"SLIDE{slide_index:04d}",
+                    "notes": bool(notes_text),
+                    "tables": table_index,
+                    "characters": len(slide_text),
+                    "text_sha256": sha256_bytes(slide_text.encode("utf-8")),
+                }
+            )
+        if not units or blank_units == len(units):
+            raise IngestError("PPTX contains no extractable text")
+        text = "\n\n".join(sections) + "\n"
+        if len(text) > MAX_EXTRACTED_CHARS:
+            raise IngestError("extracted text exceeds the configured size limit")
+        status = "complete-with-gaps" if blank_units else "complete"
+        warnings = [f"{blank_units} slide(s) contain no extractable text"] if blank_units else []
+        return ExtractedSource(
+            data=data,
+            text=text,
+            media_type=(
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            ),
+            extraction={
+                "schema_version": "0.1",
+                "status": status,
+                "engine": {
+                    "name": "python-pptx",
+                    "version": str(getattr(pptx, "__version__", "unknown")),
+                    "options": {"include": ["text", "tables", "speaker-notes"]},
+                },
+                "source_sha256": sha256_bytes(data),
+                "extracted_text_sha256": sha256_bytes(text.encode("utf-8")),
+                "characters": len(text),
+                "expected_units": len(units),
+                "extracted_units": len(units) - blank_units,
+                "blank_units": blank_units,
+                "failed_units": 0,
+                "truncated_units": 0,
+                "warnings": warnings,
+                "units": units,
+            },
+        )
+    except (IngestError, CapabilityError):
+        raise
+    except Exception as exc:
+        raise IngestError("PPTX extraction failed") from exc
+
+
+def _xlsx_extraction(data: bytes) -> ExtractedSource:
+    if importlib.util.find_spec("openpyxl") is None:
+        raise CapabilityError("XLSX extraction requires the optional openpyxl capability")
+    import openpyxl  # type: ignore[import-not-found]
+
+    workbook = None
+    try:
+        workbook = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=False)
+        sections: list[str] = []
+        units: list[dict[str, Any]] = []
+        for sheet_index, worksheet in enumerate(workbook.worksheets, start=1):
+            sheet_anchor = f"SHEET{sheet_index:04d}"
+            sections.append(f"[{sheet_anchor}] {worksheet.title}")
+            for row in worksheet.iter_rows():
+                for cell in row:
+                    if cell.value is None:
+                        continue
+                    serializer = getattr(cell.value, "isoformat", None)
+                    value = str(serializer()) if callable(serializer) else str(cell.value)
+                    anchor = f"{sheet_anchor}:{cell.coordinate}"
+                    sections.append(f"[{anchor}] {value}")
+                    units.append(
+                        {
+                            "kind": "cell",
+                            "index": len(units) + 1,
+                            "status": "extracted",
+                            "anchor": anchor,
+                            "sheet": worksheet.title,
+                            "coordinate": cell.coordinate,
+                            "formula": isinstance(cell.value, str) and cell.value.startswith("="),
+                            "characters": len(value),
+                            "text_sha256": sha256_bytes(value.encode("utf-8")),
+                        }
+                    )
+        if not units:
+            raise IngestError("XLSX contains no extractable cells")
+        text = "\n".join(sections) + "\n"
+        if len(text) > MAX_EXTRACTED_CHARS:
+            raise IngestError("extracted text exceeds the configured size limit")
+        return ExtractedSource(
+            data=data,
+            text=text,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            extraction={
+                "schema_version": "0.1",
+                "status": "complete",
+                "engine": {
+                    "name": "openpyxl",
+                    "version": str(getattr(openpyxl, "__version__", "unknown")),
+                    "options": {"read_only": True, "data_only": False},
+                },
+                "source_sha256": sha256_bytes(data),
+                "extracted_text_sha256": sha256_bytes(text.encode("utf-8")),
+                "characters": len(text),
+                "expected_units": len(units),
+                "extracted_units": len(units),
+                "blank_units": 0,
+                "failed_units": 0,
+                "truncated_units": 0,
+                "warnings": [],
+                "units": units,
+            },
+        )
+    except (IngestError, CapabilityError):
+        raise
+    except Exception as exc:
+        raise IngestError("XLSX extraction failed") from exc
+    finally:
+        if workbook is not None:
+            workbook.close()
+
+
+def _rapidocr_engine() -> Any:
+    if importlib.util.find_spec("rapidocr_onnxruntime") is None:
+        raise CapabilityError("OCR requires the optional RapidOCR capability")
+    from rapidocr_onnxruntime import RapidOCR  # type: ignore[import-not-found]
+
+    return RapidOCR()
+
+
+def _rapidocr_regions(data: bytes, *, engine: Any | None = None) -> list[dict[str, Any]]:
+    active_engine = engine or _rapidocr_engine()
+    raw_result, _ = active_engine(data)
+    regions: list[dict[str, Any]] = []
+    for item in raw_result or []:
+        box, raw_text, raw_confidence = item
+        value = str(raw_text).strip()
+        confidence = float(raw_confidence)
+        if not value or confidence < OCR_MIN_CONFIDENCE:
+            continue
+        regions.append(
+            {
+                "text": value,
+                "confidence": round(confidence, 6),
+                "bounding_box": [
+                    [round(float(coordinate), 3) for coordinate in point] for point in box
+                ],
+            }
+        )
+    if sum(len(region["text"]) for region in regions) < OCR_MIN_CHARACTERS:
+        raise CapabilityError("OCR produced no reliable text; use the configured vision fallback")
+    return regions
+
+
+def _image_extraction(data: bytes, suffix: str) -> ExtractedSource:
+    if importlib.util.find_spec("PIL") is None:
+        raise CapabilityError("image extraction requires the optional Pillow capability")
+    from PIL import Image  # type: ignore[import-not-found]
+
+    try:
+        with Image.open(io.BytesIO(data)) as image:
+            width, height = image.size
+            detected_format = str(image.format or "unknown").upper()
+            expected_format = {
+                ".png": "PNG",
+                ".jpg": "JPEG",
+                ".jpeg": "JPEG",
+                ".webp": "WEBP",
+                ".tif": "TIFF",
+                ".tiff": "TIFF",
+                ".bmp": "BMP",
+            }[suffix]
+            if detected_format != expected_format:
+                raise IngestError("file extension and image signature do not match")
+            if width * height > MAX_IMAGE_PIXELS:
+                raise IngestError("image exceeds the configured pixel limit")
+            image.verify()
+        regions = _rapidocr_regions(data)
+        units: list[dict[str, Any]] = []
+        sections: list[str] = []
+        for index, region in enumerate(regions, start=1):
+            value = str(region["text"])
+            anchor = f"OCR:R{index:04d}"
+            sections.append(f"[{anchor}] {value}")
+            units.append(
+                {
+                    "kind": "ocr-region",
+                    "index": index,
+                    "status": "extracted",
+                    "anchor": anchor,
+                    "confidence": region["confidence"],
+                    "bounding_box": region["bounding_box"],
+                    "characters": len(value),
+                    "text_sha256": sha256_bytes(value.encode("utf-8")),
+                }
+            )
+        text = "\n".join(sections) + "\n"
+        average_confidence = round(
+            sum(float(unit["confidence"]) for unit in units) / len(units), 6
+        )
+        warnings = []
+        status = "complete"
+        if average_confidence < 0.65:
+            status = "complete-low-confidence"
+            warnings.append("average OCR confidence is below 0.65; verify with vision")
+        media_type = mimetypes.types_map.get(suffix, f"image/{detected_format.lower()}")
+        return ExtractedSource(
+            data=data,
+            text=text,
+            media_type=media_type,
+            extraction={
+                "schema_version": "0.1",
+                "status": status,
+                "engine": {
+                    "name": "RapidOCR",
+                    "version": importlib.metadata.version("rapidocr-onnxruntime"),
+                    "options": {
+                        "minimum_confidence": OCR_MIN_CONFIDENCE,
+                        "minimum_characters": OCR_MIN_CHARACTERS,
+                    },
+                },
+                "source_sha256": sha256_bytes(data),
+                "extracted_text_sha256": sha256_bytes(text.encode("utf-8")),
+                "characters": len(text),
+                "image": {"format": detected_format, "width": width, "height": height},
+                "average_confidence": average_confidence,
+                "expected_units": len(units),
+                "extracted_units": len(units),
+                "blank_units": 0,
+                "failed_units": 0,
+                "truncated_units": 0,
+                "warnings": warnings,
+                "units": units,
+            },
+        )
+    except (IngestError, CapabilityError):
+        raise
+    except Exception as exc:
+        raise IngestError("image OCR extraction failed") from exc
+
+
 def _pdf_extraction(data: bytes) -> ExtractedSource:
     if importlib.util.find_spec("fitz") is None:
         raise CapabilityError("PDF extraction requires the optional PyMuPDF capability")
@@ -126,46 +567,113 @@ def _pdf_extraction(data: bytes) -> ExtractedSource:
             raise IngestError("PDF contains no pages")
         sections: list[str] = []
         units: list[dict[str, Any]] = []
+        warnings: list[str] = []
         extracted_units = 0
         blank_units = 0
+        ocr_attempted = 0
+        ocr_extracted = 0
+        ocr_confidences: list[float] = []
+        ocr_engine: Any | None = None
         for page_index in range(1, document.page_count + 1):
             page = document.load_page(page_index - 1)
-            page_text = cast(str, page.get_text("text"))
+            native_text = cast(str, page.get_text("text"))
             marker = f"[P{page_index:04d}]"
-            sections.append(f"{marker}\n{page_text.rstrip()}" if page_text.strip() else marker)
-            if page_text.strip():
+            if native_text.strip():
+                page_text = native_text.rstrip()
+                sections.append(f"{marker}\n{page_text}")
                 extracted_units += 1
-                lines = _line_count(page_text)
-                status = "extracted"
-                anchor = f"P{page_index:04d}:L0001-L{lines:04d}"
-            else:
+                lines = _line_count(native_text)
+                units.append(
+                    {
+                        "kind": "page",
+                        "index": page_index,
+                        "status": "extracted",
+                        "method": "native-text",
+                        "anchor": f"P{page_index:04d}:L0001-L{lines:04d}",
+                        "line_start": 1,
+                        "line_end": lines,
+                        "regions": [],
+                        "characters": len(native_text),
+                        "text_sha256": sha256_bytes(native_text.encode("utf-8")),
+                    }
+                )
+                continue
+
+            ocr_attempted += 1
+            try:
+                if ocr_engine is None:
+                    ocr_engine = _rapidocr_engine()
+                pixmap = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
+                detected = _rapidocr_regions(pixmap.tobytes("png"), engine=ocr_engine)
+                regions: list[dict[str, Any]] = []
+                page_lines: list[str] = []
+                for region_index, region in enumerate(detected, start=1):
+                    anchor = f"P{page_index:04d}:OCR:R{region_index:04d}"
+                    value = str(region["text"])
+                    page_lines.append(f"[{anchor}] {value}")
+                    regions.append({"anchor": anchor, **region})
+                    ocr_confidences.append(float(region["confidence"]))
+                page_text = "\n".join(page_lines)
+                average_confidence = round(
+                    sum(float(region["confidence"]) for region in regions) / len(regions), 6
+                )
+                sections.append(f"{marker}\n{page_text}")
+                extracted_units += 1
+                ocr_extracted += 1
+                units.append(
+                    {
+                        "kind": "page",
+                        "index": page_index,
+                        "status": "ocr-extracted",
+                        "method": "rapidocr",
+                        "anchor": f"P{page_index:04d}:OCR",
+                        "line_start": None,
+                        "line_end": None,
+                        "regions": regions,
+                        "average_confidence": average_confidence,
+                        "characters": sum(len(str(region["text"])) for region in regions),
+                        "text_sha256": sha256_bytes(page_text.encode("utf-8")),
+                    }
+                )
+            except CapabilityError:
                 blank_units += 1
-                lines = 0
-                status = "blank-needs-ocr"
-                anchor = f"P{page_index:04d}"
-            units.append(
-                {
-                    "kind": "page",
-                    "index": page_index,
-                    "status": status,
-                    "anchor": anchor,
-                    "line_start": 1 if lines else None,
-                    "line_end": lines or None,
-                    "characters": len(page_text),
-                    "text_sha256": sha256_bytes(page_text.encode("utf-8")),
-                }
-            )
+                sections.append(marker)
+                units.append(
+                    {
+                        "kind": "page",
+                        "index": page_index,
+                        "status": "blank-needs-vision",
+                        "method": "none",
+                        "anchor": f"P{page_index:04d}",
+                        "line_start": None,
+                        "line_end": None,
+                        "regions": [],
+                        "characters": 0,
+                        "text_sha256": sha256_bytes(b""),
+                    }
+                )
         if extracted_units == 0:
-            raise CapabilityError("PDF contains no native text and requires OCR")
+            raise CapabilityError(
+                "PDF contains no reliable native or OCR text; requires OCR or vision fallback"
+            )
         text = "\n\n".join(sections) + "\n"
         if len(text) > MAX_EXTRACTED_CHARS:
             raise IngestError("extracted text exceeds the configured size limit")
-        warnings = []
         status = "complete"
         if blank_units:
             status = "complete-with-gaps"
-            warnings.append(f"{blank_units} page(s) contain no native text and require OCR")
+            warnings.append(f"{blank_units} page(s) need vision verification")
+        average_ocr_confidence = (
+            round(sum(ocr_confidences) / len(ocr_confidences), 6)
+            if ocr_confidences
+            else None
+        )
+        if average_ocr_confidence is not None and average_ocr_confidence < 0.65:
+            if not blank_units:
+                status = "complete-low-confidence"
+            warnings.append("average PDF OCR confidence is below 0.65; verify with vision")
         version = str(getattr(fitz, "VersionBind", getattr(fitz, "__version__", "unknown")))
+        engine_name = "PyMuPDF+RapidOCR" if ocr_extracted else "PyMuPDF"
         return ExtractedSource(
             data=data,
             text=text,
@@ -174,9 +682,19 @@ def _pdf_extraction(data: bytes) -> ExtractedSource:
                 "schema_version": "0.1",
                 "status": status,
                 "engine": {
-                    "name": "PyMuPDF",
+                    "name": engine_name,
                     "version": version,
-                    "options": {"method": "page.get_text", "mode": "text"},
+                    "ocr_version": (
+                        importlib.metadata.version("rapidocr-onnxruntime")
+                        if ocr_extracted
+                        else None
+                    ),
+                    "options": {
+                        "native_method": "page.get_text",
+                        "native_mode": "text",
+                        "ocr_render_scale": 2,
+                        "ocr_minimum_confidence": OCR_MIN_CONFIDENCE,
+                    },
                 },
                 "source_sha256": sha256_bytes(data),
                 "extracted_text_sha256": sha256_bytes(text.encode("utf-8")),
@@ -186,6 +704,11 @@ def _pdf_extraction(data: bytes) -> ExtractedSource:
                 "blank_units": blank_units,
                 "failed_units": 0,
                 "truncated_units": 0,
+                "ocr": {
+                    "attempted_pages": ocr_attempted,
+                    "extracted_pages": ocr_extracted,
+                    "average_confidence": average_ocr_confidence,
+                },
                 "warnings": warnings,
                 "units": units,
             },
@@ -206,7 +729,12 @@ def _read_source(path: Path) -> ExtractedSource:
     data = path.read_bytes()
     if len(data) > MAX_SOURCE_BYTES:
         raise IngestError("source exceeds the configured size limit")
+    detected_media_type = _detect_media_type(data)
+    if suffix in OOXML_MAIN_CONTENT_TYPES:
+        _validate_ooxml_archive(data, suffix)
     if suffix in {".txt", ".md", ".markdown"}:
+        if not detected_media_type.startswith("text/"):
+            raise IngestError("file extension and detected text media type do not match")
         if b"\x00" in data:
             raise IngestError("text source contains binary NUL bytes")
         try:
@@ -216,13 +744,26 @@ def _read_source(path: Path) -> ExtractedSource:
         if len(text) > MAX_EXTRACTED_CHARS:
             raise IngestError("extracted text exceeds the configured size limit")
         media_type = "text/markdown" if suffix in {".md", ".markdown"} else "text/plain"
-        return _text_extraction(data, text, media_type)
-    if suffix == ".pdf":
-        if not data.startswith(b"%PDF-"):
+        extracted = _text_extraction(data, text, media_type)
+    elif suffix == ".pdf":
+        if detected_media_type != "application/pdf" or not data.startswith(b"%PDF-"):
             raise IngestError("file extension and PDF signature do not match")
-        return _pdf_extraction(data)
-    guessed, _ = mimetypes.guess_type(path.name)
-    raise IngestError(f"unsupported source type: {guessed or suffix or 'unknown'}")
+        extracted = _pdf_extraction(data)
+    elif suffix == ".docx":
+        extracted = _docx_extraction(data)
+    elif suffix == ".pptx":
+        extracted = _pptx_extraction(data)
+    elif suffix == ".xlsx":
+        extracted = _xlsx_extraction(data)
+    elif suffix in {".png", ".jpg", ".jpeg", ".webp", ".tif", ".tiff", ".bmp"}:
+        if not detected_media_type.startswith("image/"):
+            raise IngestError("file extension and detected image media type do not match")
+        extracted = _image_extraction(data, suffix)
+    else:
+        guessed, _ = mimetypes.guess_type(path.name)
+        raise IngestError(f"unsupported source type: {guessed or suffix or 'unknown'}")
+    extracted.extraction["detected_media_type"] = detected_media_type
+    return extracted
 
 
 def _stage_source_extraction_upgrade(

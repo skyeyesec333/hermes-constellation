@@ -1,4 +1,6 @@
+import io
 import json
+import zipfile
 from datetime import UTC, datetime
 
 import pytest
@@ -195,7 +197,7 @@ def test_native_pdf_records_page_anchors_and_rejects_an_all_blank_pdf(tmp_path):
     assert extraction["blank_units"] == 1
     assert extraction["units"][0]["anchor"].startswith("P0001:L0001-L")
     assert extraction["units"][1]["anchor"] == "P0002"
-    assert extraction["units"][1]["status"] == "blank-needs-ocr"
+    assert extraction["units"][1]["status"] == "blank-needs-vision"
 
     blank = root / "Inbox/blank.pdf"
     document = fitz.open()
@@ -204,3 +206,212 @@ def test_native_pdf_records_page_anchors_and_rejects_an_all_blank_pdf(tmp_path):
     document.close()
     with pytest.raises(CapabilityError, match="requires OCR"):
         ingest_file(root, "Inbox/blank.pdf", now=NOW)
+
+
+def test_docx_extracts_paragraphs_and_table_cells_with_anchors(tmp_path):
+    docx = pytest.importorskip("docx")
+    root = make_vault(tmp_path)
+    source = root / "Inbox/brief.docx"
+    document = docx.Document()
+    document.add_heading("Project Signal", level=1)
+    document.add_paragraph("Fictional partnership evidence.")
+    table = document.add_table(rows=2, cols=2)
+    table.cell(0, 0).text = "Field"
+    table.cell(0, 1).text = "Value"
+    table.cell(1, 0).text = "Region"
+    table.cell(1, 1).text = "Thailand"
+    document.save(source)
+
+    result = ingest_file(root, source, now=NOW)
+
+    text = (root / result["text_path"]).read_text(encoding="utf-8")
+    manifest = json.loads((root / result["manifest_path"]).read_text(encoding="utf-8"))
+    assert "[PARA0001] Project Signal" in text
+    assert "[PARA0002] Fictional partnership evidence." in text
+    assert "[TABLE0001:R0002:C0002] Thailand" in text
+    assert manifest["media_type"] == (
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+    assert manifest["extraction"]["engine"]["name"] == "python-docx"
+    assert [unit["kind"] for unit in manifest["extraction"]["units"]] == [
+        "paragraph",
+        "paragraph",
+        "table-cell",
+        "table-cell",
+        "table-cell",
+        "table-cell",
+    ]
+
+
+def test_ooxml_rejects_extension_content_type_mismatch(tmp_path):
+    docx = pytest.importorskip("docx")
+    root = make_vault(tmp_path)
+    source = root / "Inbox/not-a-deck.pptx"
+    document = docx.Document()
+    document.add_paragraph("Fictional Word content")
+    document.save(source)
+
+    with pytest.raises(IngestError, match="OOXML content type do not match"):
+        ingest_file(root, source, now=NOW)
+
+
+def test_ooxml_rejects_oversized_expanded_archive(tmp_path, monkeypatch):
+    root = make_vault(tmp_path)
+    source = root / "Inbox/oversized.docx"
+    content_types = (
+        '<?xml version="1.0"?>'
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        '<Override PartName="/word/document.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+        "</Types>"
+    )
+    with zipfile.ZipFile(source, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("[Content_Types].xml", content_types)
+        archive.writestr("word/document.xml", "x" * 1024)
+    monkeypatch.setattr("constellation.ingest.MAX_OFFICE_UNCOMPRESSED_BYTES", 512)
+
+    with pytest.raises(IngestError, match="expanded size"):
+        ingest_file(root, source, now=NOW)
+
+
+def test_pptx_extracts_slide_text_tables_and_speaker_notes_with_anchors(tmp_path):
+    pptx = pytest.importorskip("pptx")
+    root = make_vault(tmp_path)
+    source = root / "Inbox/deck.pptx"
+    presentation = pptx.Presentation()
+    slide = presentation.slides.add_slide(presentation.slide_layouts[5])
+    slide.shapes.title.text = "Project Atlas"
+    text_box = slide.shapes.add_textbox(pptx.util.Inches(1), pptx.util.Inches(1), pptx.util.Inches(4), pptx.util.Inches(1))
+    text_box.text = "Fictional market evidence"
+    table = slide.shapes.add_table(2, 2, pptx.util.Inches(1), pptx.util.Inches(2), pptx.util.Inches(4), pptx.util.Inches(1)).table
+    table.cell(0, 0).text = "Market"
+    table.cell(0, 1).text = "Signal"
+    table.cell(1, 0).text = "Thailand"
+    table.cell(1, 1).text = "Positive"
+    slide.notes_slide.notes_text_frame.text = "Fictional speaker note"
+    presentation.save(source)
+
+    result = ingest_file(root, source, now=NOW)
+
+    text = (root / result["text_path"]).read_text(encoding="utf-8")
+    manifest = json.loads((root / result["manifest_path"]).read_text(encoding="utf-8"))
+    assert "[SLIDE0001:TEXT0001] Project Atlas" in text
+    assert "[SLIDE0001:TABLE0001:R0002:C0002] Positive" in text
+    assert "[SLIDE0001:NOTES] Fictional speaker note" in text
+    assert manifest["extraction"]["engine"]["name"] == "python-pptx"
+    assert manifest["extraction"]["expected_units"] == 1
+    assert manifest["extraction"]["units"][0]["anchor"] == "SLIDE0001"
+    assert manifest["extraction"]["units"][0]["notes"] is True
+
+
+def test_xlsx_extracts_sheet_cells_and_formulas_with_anchors(tmp_path):
+    openpyxl = pytest.importorskip("openpyxl")
+    root = make_vault(tmp_path)
+    source = root / "Inbox/signals.xlsx"
+    workbook = openpyxl.Workbook()
+    worksheet = workbook.active
+    worksheet.title = "Pipeline"
+    worksheet["A1"] = "Company"
+    worksheet["B1"] = "Signal"
+    worksheet["A2"] = "Fictional Co"
+    worksheet["B2"] = "=1+1"
+    workbook.save(source)
+    workbook.close()
+
+    result = ingest_file(root, source, now=NOW)
+
+    text = (root / result["text_path"]).read_text(encoding="utf-8")
+    manifest = json.loads((root / result["manifest_path"]).read_text(encoding="utf-8"))
+    assert "[SHEET0001] Pipeline" in text
+    assert "[SHEET0001:A2] Fictional Co" in text
+    assert "[SHEET0001:B2] =1+1" in text
+    assert manifest["extraction"]["engine"]["name"] == "openpyxl"
+    assert [unit["anchor"] for unit in manifest["extraction"]["units"]] == [
+        "SHEET0001:A1",
+        "SHEET0001:B1",
+        "SHEET0001:A2",
+        "SHEET0001:B2",
+    ]
+    assert manifest["extraction"]["units"][-1]["formula"] is True
+
+
+def test_png_uses_rapidocr_and_records_region_confidence(tmp_path):
+    image_module = pytest.importorskip("PIL.Image")
+    draw_module = pytest.importorskip("PIL.ImageDraw")
+    font_module = pytest.importorskip("PIL.ImageFont")
+    root = make_vault(tmp_path)
+    source = root / "Inbox/business-card.png"
+    image = image_module.new("RGB", (1200, 420), "white")
+    draw = draw_module.Draw(image)
+    font = font_module.truetype(
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 64
+    )
+    draw.text((50, 60), "BRYAN TEST CARD", fill="black", font=font)
+    draw.text((50, 180), "THAILAND 12345", fill="black", font=font)
+    image.save(source)
+
+    result = ingest_file(root, source, now=NOW)
+
+    text = (root / result["text_path"]).read_text(encoding="utf-8")
+    manifest = json.loads((root / result["manifest_path"]).read_text(encoding="utf-8"))
+    extraction = manifest["extraction"]
+    assert all(word in text for word in ("BRYAN", "TEST CARD", "THAILAND", "12345"))
+    assert extraction["engine"]["name"] == "RapidOCR"
+    assert extraction["detected_media_type"] == "image/png"
+    assert extraction["average_confidence"] >= 0.5
+    assert extraction["units"][0]["anchor"] == "OCR:R0001"
+    assert len(extraction["units"][0]["bounding_box"]) == 4
+    assert extraction["units"][0]["confidence"] >= 0.5
+
+
+def test_image_rejects_extension_signature_mismatch(tmp_path):
+    image_module = pytest.importorskip("PIL.Image")
+    root = make_vault(tmp_path)
+    source = root / "Inbox/renamed.jpg"
+    image = image_module.new("RGB", (100, 100), "white")
+    image.save(source, format="PNG")
+
+    with pytest.raises(IngestError, match="image signature do not match"):
+        ingest_file(root, source, now=NOW)
+
+
+def test_mixed_pdf_uses_native_text_then_rapidocr_with_page_region_anchors(tmp_path):
+    fitz = pytest.importorskip("fitz")
+    image_module = pytest.importorskip("PIL.Image")
+    draw_module = pytest.importorskip("PIL.ImageDraw")
+    font_module = pytest.importorskip("PIL.ImageFont")
+    root = make_vault(tmp_path)
+    source = root / "Inbox/mixed.pdf"
+
+    scanned = image_module.new("RGB", (1200, 420), "white")
+    draw = draw_module.Draw(scanned)
+    font = font_module.truetype(
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 64
+    )
+    draw.text((50, 100), "SCANNED PROJECT SIGNAL", fill="black", font=font)
+    image_bytes = io.BytesIO()
+    scanned.save(image_bytes, format="PNG")
+
+    document = fitz.open()
+    native_page = document.new_page()
+    native_page.insert_text((72, 72), "Native project evidence")
+    scanned_page = document.new_page(width=1200, height=420)
+    scanned_page.insert_image(scanned_page.rect, stream=image_bytes.getvalue())
+    document.save(source)
+    document.close()
+
+    result = ingest_file(root, source, now=NOW)
+
+    text = (root / result["text_path"]).read_text(encoding="utf-8")
+    manifest = json.loads((root / result["manifest_path"]).read_text(encoding="utf-8"))
+    extraction = manifest["extraction"]
+    assert "[P0001]\nNative project evidence" in text
+    assert all(word in text for word in ("SCANNED", "PROJECT", "SIGNAL"))
+    assert "[P0002:OCR:R0001]" in text
+    assert extraction["engine"]["name"] == "PyMuPDF+RapidOCR"
+    assert [unit["status"] for unit in extraction["units"]] == [
+        "extracted",
+        "ocr-extracted",
+    ]
+    assert extraction["units"][1]["regions"][0]["anchor"] == "P0002:OCR:R0001"
+    assert extraction["units"][1]["average_confidence"] >= 0.5

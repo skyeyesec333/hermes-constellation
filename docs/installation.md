@@ -21,10 +21,10 @@ python -m pip install dist/hermes_constellation-0.1.0a1-py3-none-any.whl
 constellation --help
 ```
 
-Install the `pdf` extra when native-text PDF extraction is required:
+Install the document extras when PDF, Office, spreadsheet, image, or scanned-PDF extraction is required:
 
 ```bash
-python -m pip install 'hermes-constellation[pdf] @ file:///absolute/path/to/hermes_constellation-0.1.0a1-py3-none-any.whl'
+python -m pip install 'hermes-constellation[pdf,office,ocr] @ file:///absolute/path/to/hermes_constellation-0.1.0a1-py3-none-any.whl'
 ```
 
 ## Enable the Hermes plugin

@@ -62,7 +62,10 @@ The filesystem plugin entry point is the repository root. When installed as a He
 - Strict versioned Python record models and generated JSON Schema/templates.
 - Safe vault initialization, contained paths, expected hashes, and atomic local writes.
 - Deterministic text/Markdown ingestion with SHA-256 manifests, preserved originals, and configurable reviewed or automatic mechanical source registration.
-- Optional native-text PDF extraction through PyMuPDF, with page anchors and explicit rejection of image-only PDFs.
+- Optional PDF extraction through PyMuPDF with native page anchors and local RapidOCR fallback for scanned pages.
+- Optional local DOCX, PPTX, and XLSX extraction with paragraph, table, slide, speaker-note, sheet, and cell anchors.
+- Optional local image/business-card OCR with confidence scores and region bounding boxes.
+- Required libmagic MIME detection plus bounded OOXML entry count, expanded size, compression ratio, member paths, encryption, and internal content-type checks.
 - Automatic source registration through the same validation/action-ledger/index path, or create-only source review by policy; meaning-bearing updates remain conflict-safe candidates.
 - Exact-ID and SQLite FTS5 retrieval with sensitivity ceilings and page/line-aware evidence packets.
 - Strict entity kinds, evidence state, and conflict-safe merge metadata; automatic entity matching is not included.
@@ -75,7 +78,7 @@ The filesystem plugin entry point is the repository root. When installed as a He
 
 ## Integrations and roadmap
 
-Only PyMuPDF is an implemented optional adapter in this release. OCRmyPDF/Tesseract, Docling, Hermes Camofox/browser capture, Firecrawl, SearXNG, scholarly APIs, automatic model-driven Stage 1, and semantic/vector retrieval are **planned, not shipped**.
+Implemented optional local adapters are PyMuPDF, RapidOCR/Pillow, python-docx, python-pptx, openpyxl, and MarkItDown for manual PPTX fallback. Docling/Marker, Hermes Camofox/browser capture, Firecrawl, SearXNG, scholarly APIs, automatic model-driven Stage 1, and semantic/vector retrieval are **planned, not shipped** in the public package.
 
 See [`docs/integrations.md`](docs/integrations.md) for the supported/optional/planned capability matrix and the local-versus-network privacy boundary for each tool.
 

@@ -13,10 +13,21 @@ authors = [{name = "Hermes Constellation contributors"}]
 dependencies = [
   "pydantic>=2.7,<3",
   "PyYAML>=6,<7",
+  "python-magic>=0.4.27,<0.5",
 ]
 
 [project.optional-dependencies]
 pdf = ["PyMuPDF>=1.24"]
+office = [
+  "python-docx>=1.1,<2",
+  "python-pptx>=1.0,<2",
+  "openpyxl>=3.1,<4",
+  "markitdown[pptx]>=0.1,<0.2",
+]
+ocr = [
+  "Pillow>=10,<13",
+  "rapidocr-onnxruntime>=1.4,<2",
+]
 dev = ["pytest>=8", "pytest-cov>=5", "build>=1.2", "hatchling>=1.25", "ruff>=0.5"]
 
 [project.scripts]

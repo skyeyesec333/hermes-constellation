@@ -18,20 +18,23 @@ A planned tool is not a promise that it is bundled or safe to use with private d
 | SQLite FTS5 | Supported now | Rebuildable canonical-only full-text retrieval | Local; SQLite is part of Python on supported builds |
 | Research receipt ledger | Supported now | Budget enforcement and accountable provider/model/token/evidence records | Local accounting only; it does not call a model provider |
 | Model egress policy | Supported now | Deny-by-default exact provider/model/purpose/sensitivity authorization and durable decisions | Local gate; an allowed external adapter would still transmit data |
-| PyMuPDF | Optional now | Native-text PDF extraction with page anchors and blank-page detection | Local; install with `pip install -e '.[pdf]'` for development |
+| libmagic + OOXML archive guards | Supported now | Detect actual media type and reject mismatched, encrypted, traversing, oversized, or suspiciously compressed Office packages | Local; `python-magic` is a core dependency |
+| PyMuPDF + RapidOCR | Optional now | Native PDF extraction first, then local OCR for scanned pages with page/region anchors and confidence metadata | Local; install with `pip install -e '.[pdf,ocr]'` |
+| python-docx | Optional now | DOCX paragraph and table-cell extraction with stable anchors | Local; install with the `office` extra |
+| python-pptx | Optional now | PPTX slide text, table cells, and speaker notes with stable anchors | Local; install with the `office` extra |
+| openpyxl | Optional now | XLSX sheet/cell extraction with formulas preserved | Local; install with the `office` extra |
+| Pillow + RapidOCR | Optional now | Image and business-card text regions with confidence and bounding boxes | Local; install with the `ocr` extra |
 
-Native-text PDF support is not OCR. A scanned or image-only PDF is rejected instead of being recorded as successfully extracted.
+PDF extraction uses native text first. Pages without native text are rendered locally and passed to RapidOCR; pages still lacking reliable text are marked `blank-needs-vision`, and an all-unreadable PDF fails closed.
 
-## Planned document and media adapters
+## Deferred document and media adapters
 
-These are not implemented in this release:
+These remain deliberately deferred because the lightweight local adapters above now cover the minimum path:
 
 | Tool | Intended role | Expected data boundary |
 |---|---|---|
-| OCRmyPDF and Tesseract | OCR for scanned PDFs while retaining page structure | Local when installed locally |
-| Docling | Richer extraction from PDFs, Office documents, tables, and layout | Local when installed locally; model downloads may require network access |
-| Image/screenshot analysis | Extract text and visual evidence from screenshots, charts, and diagrams | Not selected; boundary depends on the future vision provider |
-| DOCX/PPTX adapters | Preserve originals and extract paragraphs, tables, slides, and anchors | Local adapter planned |
+| Marker or Docling | Richer extraction when RapidOCR quality proves inadequate on representative sources | Local when installed locally; model downloads may require network access |
+| Vision verification | Interpret diagrams or low-confidence regions after local OCR | Provider boundary depends on the private deployment; no provider is bundled |
 
 ## Planned web and research adapters
 

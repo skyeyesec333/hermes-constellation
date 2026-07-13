@@ -24,6 +24,9 @@ def _fts5_available() -> bool:
 def doctor_report(root: Path | str) -> dict[str, object]:
     target = Path(root).absolute()
     initialized = is_initialized(target)
+    rapidocr = importlib.util.find_spec("rapidocr_onnxruntime") is not None
+    pymupdf = importlib.util.find_spec("fitz") is not None
+    pillow = importlib.util.find_spec("PIL") is not None
     return {
         "schema_version": SCHEMA_VERSION,
         "vault": {
@@ -34,8 +37,16 @@ def doctor_report(root: Path | str) -> dict[str, object]:
         },
         "capabilities": {
             "sqlite_fts5": _fts5_available(),
-            "pdf_pymupdf": importlib.util.find_spec("fitz") is not None,
             "text_ingest": True,
+            "pdf_pymupdf": pymupdf,
+            "pdf_scanned_rapidocr": pymupdf and rapidocr,
+            "docx_python_docx": importlib.util.find_spec("docx") is not None,
+            "pptx_python_pptx": importlib.util.find_spec("pptx") is not None,
+            "pptx_markitdown": importlib.util.find_spec("markitdown") is not None,
+            "xlsx_openpyxl": importlib.util.find_spec("openpyxl") is not None,
+            "image_rapidocr": pillow and rapidocr,
+            "mime_libmagic": importlib.util.find_spec("magic") is not None,
+            "ooxml_archive_safety": True,
         },
     }
 

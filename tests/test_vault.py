@@ -93,4 +93,17 @@ def test_doctor_returns_json_capability_report(tmp_path):
     assert report["schema_version"] == "0.1"
     assert report["vault"]["initialized"] is True
     assert isinstance(report["capabilities"]["sqlite_fts5"], bool)
+    assert report["capabilities"]["text_ingest"] is True
+    for capability in (
+        "pdf_pymupdf",
+        "pdf_scanned_rapidocr",
+        "docx_python_docx",
+        "pptx_python_pptx",
+        "pptx_markitdown",
+        "xlsx_openpyxl",
+        "image_rapidocr",
+        "mime_libmagic",
+    ):
+        assert isinstance(report["capabilities"][capability], bool)
+    assert report["capabilities"]["ooxml_archive_safety"] is True
     assert json.loads(doctor_json(root)) == report
