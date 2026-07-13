@@ -9,6 +9,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
+from .frontmatter import parse_frontmatter
 from .models import CandidatePatch
 from .storage import ConflictError, atomic_write_text, safe_relative_path, sha256_file
 from .validation import CanonicalValidationError, validate_canonical_text
@@ -36,20 +37,65 @@ def _candidate_files(root: Path) -> list[Path]:
     )
 
 
+def _ingest_candidate_summary(
+    root: Path, path: Path, payload: dict[str, object]
+) -> dict[str, object]:
+    source_id = payload.get("source_id")
+    source_hash = payload.get("source_hash")
+    if (
+        payload.get("schema_version") != "0.1"
+        or payload.get("kind") != "ingest_candidate"
+        or payload.get("status") != "pending_review"
+        or not isinstance(source_id, str)
+        or not isinstance(source_hash, str)
+        or path.stem != f"ingest-{source_id}"
+    ):
+        raise PromotionError("ingest candidate packet is invalid")
+    target_relative = f"source-items/{source_id}.md"
+    target = safe_relative_path(root, target_relative)
+    if not target.is_file() or target.is_symlink():
+        raise PromotionError("ingest candidate source-item is missing or unsafe")
+    text = target.read_text(encoding="utf-8")
+    validate_canonical_text(text, target_relative)
+    metadata, _ = parse_frontmatter(text)
+    if (
+        metadata.get("id") != source_id
+        or metadata.get("type") != "source-item"
+        or metadata.get("source_hash") != source_hash
+    ):
+        raise PromotionError("ingest candidate does not match its canonical source-item")
+    return {
+        "id": path.stem,
+        "kind": "ingest_candidate",
+        "title": f"Ingest review: {metadata['title']}",
+        "target_path": target_relative,
+        "expected_base_hash": sha256_file(target),
+        "promotable": True,
+    }
+
+
 def list_candidates(root: Path | str) -> list[dict[str, object]]:
     vault = Path(root).absolute()
     results: list[dict[str, object]] = []
     for path in _candidate_files(vault):
         try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict):
+                continue
+            if payload.get("kind") == "ingest_candidate":
+                results.append(_ingest_candidate_summary(vault, path, payload))
+                continue
             candidate = CandidatePatch.model_validate_json(path.read_text(encoding="utf-8"))
-        except (ValidationError, ValueError):
+        except (OSError, json.JSONDecodeError, ValidationError, ValueError, PromotionError):
             continue
         results.append(
             {
                 "id": candidate.id,
+                "kind": "candidate_patch",
                 "title": candidate.title,
                 "target_path": candidate.target_path,
                 "expected_base_hash": candidate.expected_base_hash,
+                "promotable": True,
             }
         )
     return results
@@ -77,6 +123,35 @@ def _append_action(root: Path, event: dict[str, object]) -> None:
         os.close(descriptor)
 
 
+def _review_ingest_candidate(
+    root: Path,
+    candidate_path: Path,
+    payload: dict[str, object],
+    expected_base_hash: str | None,
+) -> dict[str, str]:
+    summary = _ingest_candidate_summary(root, candidate_path, payload)
+    reviewed_hash = summary["expected_base_hash"]
+    if expected_base_hash is None or reviewed_hash != expected_base_hash:
+        raise PromotionError("base hash conflict")
+    target_path = str(summary["target_path"])
+    target = safe_relative_path(root, target_path)
+    if sha256_file(target) != expected_base_hash:
+        raise PromotionError("base hash conflict")
+    _append_action(
+        root,
+        {
+            "schema_version": "0.1",
+            "action": "ingest_candidate_reviewed",
+            "candidate_id": candidate_path.stem,
+            "target_path": target_path,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "result_hash": expected_base_hash,
+        },
+    )
+    candidate_path.unlink()
+    return {"schema_version": "0.1", "status": "reviewed", "target_path": target_path}
+
+
 def promote_candidate(
     root: Path | str,
     candidate_id: str,
@@ -87,6 +162,17 @@ def promote_candidate(
     if not confirm:
         raise PromotionError("explicit confirmation is required")
     vault = Path(root).absolute()
+    candidate_path = safe_relative_path(
+        vault, Path(".constellation/candidates") / f"{candidate_id}.json"
+    )
+    if not candidate_path.is_file() or candidate_path.is_symlink():
+        raise PromotionError("candidate does not exist")
+    try:
+        payload = json.loads(candidate_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise PromotionError("candidate packet is invalid") from exc
+    if isinstance(payload, dict) and payload.get("kind") == "ingest_candidate":
+        return _review_ingest_candidate(vault, candidate_path, payload, expected_base_hash)
     candidate, candidate_path = _load_candidate(vault, candidate_id)
     if candidate.expected_base_hash != expected_base_hash:
         raise PromotionError("expected base hash does not match candidate review")

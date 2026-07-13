@@ -21,6 +21,10 @@ python3 -m venv .venv
 .venv/bin/constellation init ~/my-constellation
 .venv/bin/constellation doctor ~/my-constellation
 .venv/bin/constellation ingest ~/my-constellation ~/my-constellation/Inbox/Files/example.txt
+.venv/bin/constellation review ~/my-constellation list
+# Review the listed target/hash, then explicitly accept or promote it:
+.venv/bin/constellation review ~/my-constellation promote \
+  --candidate <candidate-id> --expected-base-hash <sha256> --confirm
 .venv/bin/constellation validate ~/my-constellation
 .venv/bin/constellation index ~/my-constellation
 .venv/bin/constellation search ~/my-constellation "example question"
@@ -58,8 +62,9 @@ The filesystem plugin entry point is the repository root. When installed as a He
 - Safe vault initialization, contained paths, expected hashes, and atomic local writes.
 - Deterministic text/Markdown ingestion with SHA-256 manifests and preserved originals.
 - Optional PDF extraction through PyMuPDF when installed.
-- Candidate review and conflict-safe canonical promotion.
+- Candidate review, including visible ingest-review packets, and expected-hash conflict-safe acceptance/promotion.
 - Exact-ID and SQLite FTS5 retrieval with sensitivity ceilings and bounded evidence packets.
+- Canonical-only generated `INDEX.md` plus automatic pruning of inactive SQLite index generations.
 - Token-aware research receipts with a locked 25% synthesis/evaluation reserve.
 - Read-only legacy-vault inventory and bounded dry-run migration plans.
 - One-way allowlist release compiler and exact-tree privacy scanner.

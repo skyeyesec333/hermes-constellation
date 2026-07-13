@@ -47,6 +47,11 @@ def test_build_supports_exact_id_and_fts_with_versioned_evidence(tmp_path):
     root = make_vault(tmp_path)
     report = build_index(root)
     assert report["indexed"] == 2
+    human_index = (root / "INDEX.md").read_text(encoding="utf-8")
+    assert "# Constellation — Canonical Index" in human_index
+    assert "[[claims/public|Public nebula]]" in human_index
+    assert "[[claims/internal|Internal comet]]" in human_index
+    assert "Candidate" not in human_index
     exact = exact_lookup(root, "01ARZ3NDEKTSV4RRFFQ69G5FAW")
     assert exact["status"] == "evidence_found"
     assert exact["evidence"][0]["route"] == "exact_id"
@@ -78,9 +83,14 @@ def test_missing_or_stale_index_reports_not_retrieved(tmp_path):
     assert search(root, "nebula")["status"] == "evidence_not_retrieved"
 
 
-def test_rebuild_removes_deleted_notes(tmp_path):
+def test_rebuild_removes_deleted_notes_and_prunes_old_generation(tmp_path):
     root = make_vault(tmp_path)
-    build_index(root)
+    first = build_index(root)
+    first_database = root / ".constellation/state" / f"index-{first['generation']}.sqlite3"
+    assert first_database.is_file()
     (root / "claims/public.md").unlink()
-    build_index(root)
+    second = build_index(root)
+    second_database = root / ".constellation/state" / f"index-{second['generation']}.sqlite3"
+    assert second_database.is_file()
+    assert not first_database.exists()
     assert exact_lookup(root, "01ARZ3NDEKTSV4RRFFQ69G5FAW")["status"] == "no_evidence_found"

@@ -5,8 +5,10 @@ from datetime import UTC, datetime
 import pytest
 
 from constellation.frontmatter import render_frontmatter
+from constellation.ingest import ingest_file
 from constellation.models import CandidatePatch, Sensitivity
 from constellation.review import PromotionError, list_candidates, promote_candidate, write_candidate
+from constellation.storage import sha256_file
 from constellation.validation import CanonicalValidationError, validate_canonical_text
 from constellation.vault import initialize_vault
 
@@ -68,6 +70,46 @@ def test_candidate_listing_and_explicit_confirmation(tmp_path):
     with pytest.raises(PromotionError, match="confirmation"):
         promote_candidate(root, candidate.id, confirm=False, expected_base_hash=None)
     assert not (root / candidate.target_path).exists()
+
+
+def test_ingest_candidate_is_visible_and_can_be_conflict_safely_accepted(tmp_path):
+    root = tmp_path / "vault"
+    initialize_vault(root)
+    source = root / "Inbox/Files/review-me.txt"
+    source.write_text("Synthetic review fixture.\n", encoding="utf-8")
+    ingested = ingest_file(root, source, now=NOW)
+    candidate_id = f"ingest-{ingested['source_id']}"
+    target = root / ingested["source_item_path"]
+    expected_hash = sha256_file(target)
+
+    listed = list_candidates(root)
+    assert listed == [
+        {
+            "id": candidate_id,
+            "kind": "ingest_candidate",
+            "title": "Ingest review: review-me",
+            "target_path": ingested["source_item_path"],
+            "expected_base_hash": expected_hash,
+            "promotable": True,
+        }
+    ]
+    with pytest.raises(PromotionError, match="base hash conflict"):
+        promote_candidate(
+            root,
+            candidate_id,
+            confirm=True,
+            expected_base_hash="0" * 64,
+        )
+    result = promote_candidate(
+        root,
+        candidate_id,
+        confirm=True,
+        expected_base_hash=expected_hash,
+    )
+    assert result["status"] == "reviewed"
+    assert not (root / ingested["candidate_path"]).exists()
+    event = json.loads((root / ".constellation/action-ledger.jsonl").read_text(encoding="utf-8"))
+    assert event["action"] == "ingest_candidate_reviewed"
 
 
 def test_promotion_is_atomic_validated_and_appends_ledger(tmp_path):

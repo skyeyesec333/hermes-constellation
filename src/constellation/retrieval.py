@@ -59,6 +59,39 @@ def _corpus_fingerprint(root: Path) -> str:
     return digest.hexdigest()
 
 
+def _render_markdown_index(records: list[dict[str, str]], fingerprint: str) -> str:
+    sections = {
+        folder: [record for record in records if record["path"].split("/", 1)[0] == folder]
+        for folder in sorted(ALLOWED_CANONICAL_FOLDERS)
+    }
+    lines = [
+        "# Constellation — Canonical Index",
+        "",
+        "> Generated from schema-valid records in canonical folders only.",
+        f"> **Records:** {len(records)} | **Corpus fingerprint:** `{fingerprint}`",
+        "> Compatibility, quarantine, templates, and private migration artifacts are excluded.",
+        "",
+        "See also: [[HOME]] · [[MOC]]",
+    ]
+    for folder, entries in sections.items():
+        lines.extend(
+            [
+                "",
+                f"## {folder.replace('-', ' ').title()} ({len(entries)})",
+                "",
+                "| Note | Type | Status | Sensitivity |",
+                "|---|---|---|---|",
+            ]
+        )
+        for record in sorted(entries, key=lambda item: (item["title"].casefold(), item["path"])):
+            link = record["path"].removesuffix(".md")
+            title = " ".join(record["title"].split()).replace("|", "\\|")
+            lines.append(
+                f"| [[{link}|{title}]] | {record['type']} | {record['status']} | {record['sensitivity']} |"
+            )
+    return "\n".join(lines) + "\n"
+
+
 def build_index(root: Path | str) -> dict[str, object]:
     vault = Path(root).absolute()
     if not is_initialized(vault):
@@ -72,6 +105,7 @@ def build_index(root: Path | str) -> dict[str, object]:
     temporary = Path(temporary_name)
     indexed = 0
     skipped: list[str] = []
+    human_records: list[dict[str, str]] = []
     try:
         connection = sqlite3.connect(temporary)
         connection.execute(
@@ -95,6 +129,15 @@ def build_index(root: Path | str) -> dict[str, object]:
                 connection.execute(
                     "INSERT INTO search_index VALUES (?, ?, ?)", (record.id, title, body)
                 )
+                human_records.append(
+                    {
+                        "path": relative,
+                        "title": title,
+                        "type": str(metadata["type"]),
+                        "status": str(metadata["status"]),
+                        "sensitivity": sensitivity,
+                    }
+                )
                 indexed += 1
             except (CanonicalValidationError, UnicodeError, sqlite3.IntegrityError):
                 skipped.append(relative)
@@ -105,6 +148,7 @@ def build_index(root: Path | str) -> dict[str, object]:
     finally:
         temporary.unlink(missing_ok=True)
     fingerprint = _corpus_fingerprint(vault)
+    atomic_write_text(vault, "INDEX.md", _render_markdown_index(human_records, fingerprint))
     active = {
         "schema_version": "0.1",
         "generation": generation,
@@ -116,11 +160,18 @@ def build_index(root: Path | str) -> dict[str, object]:
         ".constellation/state/active-index.json",
         json.dumps(active, sort_keys=True, separators=(",", ":")) + "\n",
     )
+    pruned = 0
+    for old_database in state.glob("index-*.sqlite3"):
+        if old_database == database or old_database.is_symlink() or not old_database.is_file():
+            continue
+        old_database.unlink()
+        pruned += 1
     return {
         "schema_version": "0.1",
         "generation": generation,
         "indexed": indexed,
         "skipped": skipped,
+        "pruned_generations": pruned,
     }
 
 
