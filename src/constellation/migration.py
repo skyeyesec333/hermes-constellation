@@ -10,42 +10,67 @@ from .frontmatter import FrontmatterError, parse_frontmatter
 from .validation import ALLOWED_CANONICAL_FOLDERS, CanonicalValidationError, validate_canonical_text
 
 MAX_MARKDOWN_BYTES = 10 * 1024 * 1024
+_INTERNAL_ROOTS = {".constellation"}
+_OPERATIONAL_ROOTS = {".git", ".obsidian", ".trash", "node_modules", "__pycache__"}
+_OPERATIONAL_FILES = {".ds_store"}
 
 
 class MigrationError(RuntimeError):
     """Raised when a vault cannot be inventoried safely."""
 
 
-def _walk_read_only(root: Path, max_files: int) -> tuple[list[Path], list[str], int]:
+def _is_operational(relative: Path) -> bool:
+    lowered = tuple(part.lower() for part in relative.parts)
+    return (
+        lowered[0] in _OPERATIONAL_ROOTS
+        or any(part in {"node_modules", "__pycache__"} for part in lowered)
+        or relative.name.lower() in _OPERATIONAL_FILES
+        or relative.name.startswith("._")
+        or lowered[:2] == ("indexes", "generated")
+    )
+
+
+def _walk_read_only(root: Path, max_files: int) -> tuple[list[Path], list[str], int, int]:
     files: list[Path] = []
     symlinks: list[str] = []
     ignored_internal = 0
+    ignored_operational = 0
     visited = 0
-    pending = [(root, False)]
+    pending = [(root, False, False)]
     while pending:
-        directory, inside_internal = pending.pop()
+        directory, inside_internal, inside_operational = pending.pop()
         for child in sorted(directory.iterdir(), key=lambda item: item.name, reverse=True):
             visited += 1
             if visited > max_files:
                 raise MigrationError("vault exceeds the configured file limit")
             relative = child.relative_to(root)
-            child_internal = inside_internal or relative.parts[0] == ".constellation"
+            child_internal = inside_internal or relative.parts[0].lower() in _INTERNAL_ROOTS
+            child_operational = inside_operational or _is_operational(relative)
             if child.is_symlink():
                 if child_internal:
                     ignored_internal += 1
+                elif child_operational:
+                    ignored_operational += 1
                 else:
                     symlinks.append(relative.as_posix())
             elif child.is_dir():
-                pending.append((child, child_internal))
+                pending.append((child, child_internal, child_operational))
                 continue
             elif child.is_file():
                 if child_internal:
                     ignored_internal += 1
+                elif child_operational:
+                    ignored_operational += 1
                 else:
                     files.append(child)
             else:
                 continue
-    return sorted(files, key=lambda path: path.relative_to(root).as_posix()), sorted(symlinks), ignored_internal
+    return (
+        sorted(files, key=lambda path: path.relative_to(root).as_posix()),
+        sorted(symlinks),
+        ignored_internal,
+        ignored_operational,
+    )
 
 
 def inventory_vault(root: Path | str, *, max_files: int = 100_000) -> dict[str, Any]:
@@ -59,7 +84,7 @@ def inventory_vault(root: Path | str, *, max_files: int = 100_000) -> dict[str, 
     if max_files < 1:
         raise MigrationError("file limit must be positive")
 
-    files, symlinks, ignored_internal = _walk_read_only(vault, max_files)
+    files, symlinks, ignored_internal, ignored_operational = _walk_read_only(vault, max_files)
     frontmatter = Counter(valid=0, missing=0, invalid=0, oversized=0)
     schema_versions: Counter[str] = Counter()
     sensitivities: Counter[str] = Counter()
@@ -146,6 +171,7 @@ def inventory_vault(root: Path | str, *, max_files: int = 100_000) -> dict[str, 
         "legacy_markdown": legacy_markdown,
         "other_files": len(other_entries),
         "ignored_internal_files": ignored_internal,
+        "ignored_operational_files": ignored_operational,
         "symlinks": symlinks,
         "frontmatter": dict(frontmatter),
         "canonical_validation": dict(canonical_validation),

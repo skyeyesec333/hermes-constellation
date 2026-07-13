@@ -45,11 +45,18 @@ def make_legacy_vault(tmp_path: Path) -> Path:
     (root / "People").mkdir()
     (root / "Attachments").mkdir()
     (root / ".constellation/state").mkdir(parents=True)
+    (root / ".obsidian/plugins/example").mkdir(parents=True)
+    (root / ".trash").mkdir()
+    (root / "indexes/generated").mkdir(parents=True)
     (root / "entities/person-one.md").write_text(_record("One"), encoding="utf-8")
     (root / "People/person-two.md").write_text(_record("Two"), encoding="utf-8")
     (root / "People/unstructured.md").write_text("# No frontmatter\n", encoding="utf-8")
     (root / "Attachments/brief.txt").write_text("source", encoding="utf-8")
     (root / ".constellation/state/index.sqlite3").write_bytes(b"derived")
+    (root / ".obsidian/plugins/example/main.js").write_text("plugin", encoding="utf-8")
+    (root / ".trash/deleted.md").write_text("# Deleted", encoding="utf-8")
+    (root / "indexes/generated/search.json").write_text("{}", encoding="utf-8")
+    (root / "._metadata").write_bytes(b"apple-double")
     (root / "linked-private").symlink_to(tmp_path / "outside", target_is_directory=True)
     return root
 
@@ -67,6 +74,7 @@ def test_inventory_is_read_only_and_reports_structure_without_note_bodies(tmp_pa
     assert report["legacy_markdown"] == 2
     assert report["other_files"] == 1
     assert report["ignored_internal_files"] == 1
+    assert report["ignored_operational_files"] == 4
     assert report["symlinks"] == ["linked-private"]
     assert report["frontmatter"] == {"valid": 2, "missing": 1, "invalid": 0, "oversized": 0}
     assert report["duplicate_ids"] == {RECORD_ID: ["People/person-two.md", "entities/person-one.md"]}

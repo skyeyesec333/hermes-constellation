@@ -16,6 +16,7 @@ The inventory:
 
 - does not follow symlinks;
 - excludes `.constellation` derived state from migration inputs;
+- counts but does not migrate operational state and noise such as `.obsidian`, `.trash`, `.git`, `node_modules`, `__pycache__`, AppleDouble metadata, and `indexes/generated`;
 - counts canonical, legacy, Markdown, and source files;
 - detects missing/invalid frontmatter and duplicate record IDs;
 - validates already-canonical notes against the executable schema;
