@@ -4,17 +4,30 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hermes-constellation"
-version = "0.1.0a1"
+version = "0.1.0"
 description = "Local-first, source-grounded knowledge and relationship workspace for Hermes Agent"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "Apache-2.0"}
 authors = [{name = "Hermes Constellation contributors"}]
+keywords = ["hermes-agent", "obsidian", "knowledge-base", "provenance", "ocr"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+]
 dependencies = [
   "pydantic>=2.7,<3",
   "PyYAML>=6,<7",
   "python-magic>=0.4.27,<0.5",
 ]
+
+[project.urls]
+Homepage = "https://github.com/skyeyesec333/hermes-constellation"
+Repository = "https://github.com/skyeyesec333/hermes-constellation"
+Issues = "https://github.com/skyeyesec333/hermes-constellation/issues"
 
 [project.optional-dependencies]
 pdf = ["PyMuPDF>=1.24"]

@@ -11,6 +11,8 @@ public_roots:
 - pyproject.toml
 - docs/architecture.md
 - docs/installation.md
+- docs/first-distillation-contract.md
+- docs/model-provider-portability.md
 - docs/egress-policy.md
 - docs/integrations.md
 - docs/token-aware-research.md
@@ -45,6 +47,10 @@ files:
   docs/egress-policy.md:
     lineage: handwritten-generic
   docs/installation.md:
+    lineage: handwritten-generic
+  docs/first-distillation-contract.md:
+    lineage: handwritten-generic
+  docs/model-provider-portability.md:
     lineage: handwritten-generic
   docs/integrations.md:
     lineage: handwritten-generic

@@ -17,14 +17,14 @@ python3 -m venv .venv
 Install the wheel into the Python environment that should own the `constellation` command:
 
 ```bash
-python -m pip install dist/hermes_constellation-0.1.0a1-py3-none-any.whl
+python -m pip install dist/hermes_constellation-0.1.0-py3-none-any.whl
 constellation --help
 ```
 
 Install the document extras when PDF, Office, spreadsheet, image, or scanned-PDF extraction is required:
 
 ```bash
-python -m pip install 'hermes-constellation[pdf,office,ocr] @ file:///absolute/path/to/hermes_constellation-0.1.0a1-py3-none-any.whl'
+python -m pip install 'hermes-constellation[pdf,office,ocr] @ file:///absolute/path/to/hermes_constellation-0.1.0-py3-none-any.whl'
 ```
 
 ## Enable the Hermes plugin
@@ -32,7 +32,7 @@ python -m pip install 'hermes-constellation[pdf,office,ocr] @ file:///absolute/p
 Install the same wheel into the Python environment that runs `hermes`. Hermes discovers the package through the `hermes_agent.plugins` entry point.
 
 ```bash
-python -m pip install dist/hermes_constellation-0.1.0a1-py3-none-any.whl
+python -m pip install dist/hermes_constellation-0.1.0-py3-none-any.whl
 hermes plugins enable constellation
 hermes plugins list
 ```

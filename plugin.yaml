@@ -1,5 +1,5 @@
 name: constellation
-version: 0.1.0a1
+version: 0.1.0
 description: Local-first source-grounded knowledge and relationship workspace for Hermes Agent.
 author: Constellation contributors
 provides_tools:
