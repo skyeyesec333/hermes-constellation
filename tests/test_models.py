@@ -10,6 +10,9 @@ from constellation.models import (
     BaseRecord,
     CandidatePatch,
     Claim,
+    EntityKind,
+    EntityRecord,
+    EntityResolutionState,
     ResearchRun,
     ResearchTerminalState,
     Sensitivity,
@@ -63,6 +66,24 @@ def test_specialized_records_validate_their_required_fields():
     assert run.can_promote is True
     with pytest.raises(ValidationError):
         SourceItem(**common(), source_hash="bad", original_path="x", media_type="text/plain")
+
+
+def test_entity_records_have_controlled_identity_and_merge_fields():
+    entity = EntityRecord(**common(type=EntityKind.PERSON), aliases=["Fictional Alias"])
+    assert entity.resolution_state == "unresolved"
+    assert entity.aliases == ["Fictional Alias"]
+    with pytest.raises(ValidationError):
+        EntityRecord.model_validate(common(type="unknown-kind"), strict=False)
+    with pytest.raises(ValidationError, match="verified entities require evidence"):
+        EntityRecord(
+            **common(type=EntityKind.COMPANY),
+            resolution_state=EntityResolutionState.VERIFIED,
+        )
+    with pytest.raises(ValidationError, match="merged entities require merged_into"):
+        EntityRecord(
+            **common(type=EntityKind.COMPANY),
+            resolution_state=EntityResolutionState.MERGED,
+        )
 
 
 def test_partial_research_runs_cannot_promote():

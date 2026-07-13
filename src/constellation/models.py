@@ -28,6 +28,25 @@ def generate_ulid(timestamp_ms: int | None = None) -> str:
     return "".join(chars)
 
 
+class EntityKind(StrEnum):
+    PERSON = "person"
+    COMPANY = "company"
+    ORGANIZATION = "organization"
+    PLACE = "place"
+    PROJECT = "project"
+    CONCEPT = "concept"
+    STRATEGY = "strategy"
+    EVENT = "event"
+    OTHER = "other"
+
+
+class EntityResolutionState(StrEnum):
+    UNRESOLVED = "unresolved"
+    VERIFIED = "verified"
+    DISPUTED = "disputed"
+    MERGED = "merged"
+
+
 class Sensitivity(StrEnum):
     PUBLIC = "public"
     INTERNAL = "internal"
@@ -98,6 +117,47 @@ class SourceItem(BaseRecord):
     )
 
 
+class EntityRecord(BaseRecord):
+    type: EntityKind  # pyright: ignore[reportIncompatibleVariableOverride]
+    aliases: list[str] = Field(default_factory=list, max_length=100)
+    source_ids: list[Ulid] = Field(default_factory=list)
+    external_ids: dict[str, str] = Field(default_factory=dict)
+    resolution_state: EntityResolutionState = EntityResolutionState.UNRESOLVED
+    confidence: Annotated[float, Field(ge=0.0, le=1.0)] | None = None
+    merged_into: Ulid | None = None
+
+    @field_validator("aliases")
+    @classmethod
+    def normalized_unique_aliases(cls, values: list[str]) -> list[str]:
+        cleaned = [value.strip() for value in values]
+        if any(not value for value in cleaned):
+            raise ValueError("entity aliases cannot be empty")
+        if len({value.casefold() for value in cleaned}) != len(cleaned):
+            raise ValueError("entity aliases must be unique")
+        return cleaned
+
+    @field_validator("external_ids")
+    @classmethod
+    def nonempty_external_ids(cls, values: dict[str, str]) -> dict[str, str]:
+        if any(not key.strip() or not value.strip() for key, value in values.items()):
+            raise ValueError("external identity keys and values cannot be empty")
+        return values
+
+    @model_validator(mode="after")
+    def evidence_and_merge_state_are_consistent(self) -> "EntityRecord":
+        if self.resolution_state is EntityResolutionState.VERIFIED and not (
+            self.source_ids or self.external_ids
+        ):
+            raise ValueError("verified entities require evidence")
+        if self.resolution_state is EntityResolutionState.MERGED and self.merged_into is None:
+            raise ValueError("merged entities require merged_into")
+        if self.resolution_state is not EntityResolutionState.MERGED and self.merged_into is not None:
+            raise ValueError("merged_into is only valid for merged entities")
+        if self.merged_into == self.id:
+            raise ValueError("an entity cannot merge into itself")
+        return self
+
+
 class Claim(BaseRecord):
     statement: Annotated[str, Field(min_length=1)]
     source_ids: Annotated[list[Ulid], Field(min_length=1)]
@@ -147,4 +207,4 @@ class ResearchRun(BaseRecord):
         return self
 
 
-RECORD_MODELS = (BaseRecord, SourceItem, Claim, CandidatePatch, ResearchRun)
+RECORD_MODELS = (BaseRecord, SourceItem, EntityRecord, Claim, CandidatePatch, ResearchRun)
