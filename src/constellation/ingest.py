@@ -9,8 +9,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from .frontmatter import render_frontmatter
-from .models import Sensitivity, SourceItem
-from .storage import atomic_write_bytes, atomic_write_text, safe_relative_path, sha256_bytes
+from .models import CandidatePatch, Sensitivity, SourceItem
+from .storage import (
+    atomic_write_bytes,
+    atomic_write_text,
+    safe_relative_path,
+    sha256_bytes,
+)
 from .vault import is_initialized
 
 _ULID_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
@@ -111,6 +116,7 @@ def ingest_file(
     manifest_path = vault / manifest_relative
     if manifest_path.exists():
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        candidate_path = str(manifest["candidate_path"])
         return {
             "schema_version": "0.1",
             "status": "already_ingested",
@@ -119,7 +125,8 @@ def ingest_file(
             "preserved_path": str(manifest["preserved_path"]),
             "text_path": str(manifest["text_path"]),
             "source_item_path": str(manifest["source_item_path"]),
-            "candidate_path": str(manifest["candidate_path"]),
+            "candidate_id": str(manifest.get("candidate_id") or Path(candidate_path).stem),
+            "candidate_path": candidate_path,
         }
     instant = now or datetime.now(UTC)
     if instant.tzinfo is None or instant.utcoffset() is None:
@@ -127,7 +134,6 @@ def ingest_file(
     preserved_relative = Path("Library/Files") / str(instant.year) / source_id / source_path.name
     text_relative = Path("Library/Text") / f"{source_id}.txt"
     source_item_relative = Path("source-items") / f"{source_id}.md"
-    candidate_relative = Path(".constellation/candidates") / f"ingest-{source_id}.json"
     atomic_write_bytes(vault, preserved_relative, data)
     atomic_write_text(vault, text_relative, text)
     item = SourceItem(
@@ -145,25 +151,32 @@ def ingest_file(
     )
     metadata = item.model_dump(mode="json", exclude_none=True)
     source_note = render_frontmatter(metadata, f"# {item.title}\n\n{text}")
-    atomic_write_text(vault, source_item_relative, source_note)
-    candidate = {
-        "schema_version": "0.1",
-        "kind": "ingest_candidate",
-        "source_id": source_id,
-        "source_hash": digest,
-        "status": "pending_review",
-    }
-    atomic_write_text(vault, candidate_relative, json.dumps(candidate, indent=2, sort_keys=True) + "\n")
+    candidate = CandidatePatch(
+        id=source_id,
+        type="candidate-patch",
+        title=f"Ingest source: {item.title}",
+        status="pending-review",
+        sensitivity=sensitivity,
+        created_at=instant,
+        updated_at=instant,
+        target_path=source_item_relative.as_posix(),
+        content=source_note,
+        expected_base_hash=None,
+    )
+    candidate_relative = Path(".constellation/candidates") / f"{candidate.id}.json"
+    atomic_write_text(vault, candidate_relative, candidate.model_dump_json(indent=2) + "\n")
     manifest = {
         "schema_version": "0.1",
+        "mode": "deferred-canonical",
         "source_id": source_id,
         "source_hash": digest,
         "preserved_path": preserved_relative.as_posix(),
         "text_path": text_relative.as_posix(),
         "source_item_path": source_item_relative.as_posix(),
+        "candidate_id": candidate.id,
         "candidate_path": candidate_relative.as_posix(),
     }
     atomic_write_text(vault, manifest_relative, json.dumps(manifest, indent=2, sort_keys=True) + "\n")
-    result = {"status": "ingested", **{key: str(value) for key, value in manifest.items()}}
+    result = {"status": "staged", **{key: str(value) for key, value in manifest.items()}}
     result["manifest_path"] = manifest_relative.as_posix()
     return result

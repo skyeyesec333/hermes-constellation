@@ -22,14 +22,27 @@ def test_cli_runs_offline_trusted_loop(tmp_path: Path, capsys):
     assert health["result"]["vault"]["initialized"] is True
 
     ingested = invoke(capsys, "ingest", str(vault), str(source))
-    assert ingested["result"]["status"] == "ingested"
+    assert ingested["result"]["status"] == "staged"
+    assert not (vault / ingested["result"]["source_item_path"]).exists()
+
+    candidates = invoke(capsys, "review", str(vault), "list")
+    assert len(candidates["result"]) == 1
+    candidate_id = candidates["result"][0]["id"]
+    promoted = invoke(
+        capsys,
+        "review",
+        str(vault),
+        "promote",
+        "--candidate",
+        candidate_id,
+        "--confirm",
+    )
+    assert promoted["result"]["status"] == "promoted"
+    assert promoted["result"]["index_generation"]
 
     validation = invoke(capsys, "validate", str(vault))
     assert validation["result"]["valid"] >= 1
     assert validation["result"]["invalid"] == 0
-
-    indexed = invoke(capsys, "index", str(vault))
-    assert indexed["result"]["indexed"] >= 1
 
     result = invoke(capsys, "search", str(vault), "cobalt logistics")
     assert result["result"]["status"] == "evidence_found"

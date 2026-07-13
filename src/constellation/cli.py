@@ -18,7 +18,7 @@ def build_parser() -> argparse.ArgumentParser:
     doctor = sub.add_parser("doctor", help="Inspect vault health")
     doctor.add_argument("vault", type=Path)
 
-    ingest = sub.add_parser("ingest", help="Ingest one local source")
+    ingest = sub.add_parser("ingest", help="Preserve a local source and stage its canonical candidate")
     ingest.add_argument("vault", type=Path)
     ingest.add_argument("source", type=Path)
 

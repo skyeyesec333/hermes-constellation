@@ -7,7 +7,7 @@ A local-first, source-grounded knowledge and relationship workspace for Hermes A
 ## Trusted loop
 
 ```text
-init → ingest → review candidate → explicit promotion → index → evidence search → research receipt
+init → ingest → review candidate → explicit promotion + automatic index → evidence search → research receipt
 ```
 
 Collectors cannot silently change canonical meaning. Canonical writes require validation, explicit confirmation, expected-hash conflict checks, and an action-ledger entry.
@@ -22,11 +22,12 @@ python3 -m venv .venv
 .venv/bin/constellation doctor ~/my-constellation
 .venv/bin/constellation ingest ~/my-constellation ~/my-constellation/Inbox/Files/example.txt
 .venv/bin/constellation review ~/my-constellation list
-# Review the listed target/hash, then explicitly accept or promote it:
+# New sources are create-only candidates: inspect, then explicitly promote.
+# Promotion writes canonical Markdown and rebuilds the index.
 .venv/bin/constellation review ~/my-constellation promote \
-  --candidate <candidate-id> --expected-base-hash <sha256> --confirm
+  --candidate <candidate-id> --confirm
+# Updates additionally require --expected-base-hash <reviewed-sha256>.
 .venv/bin/constellation validate ~/my-constellation
-.venv/bin/constellation index ~/my-constellation
 .venv/bin/constellation search ~/my-constellation "example question"
 
 # Read-only legacy-vault inventory; this performs no writes
@@ -60,9 +61,9 @@ The filesystem plugin entry point is the repository root. When installed as a He
 
 - Strict versioned Python record models and generated JSON Schema/templates.
 - Safe vault initialization, contained paths, expected hashes, and atomic local writes.
-- Deterministic text/Markdown ingestion with SHA-256 manifests and preserved originals.
+- Deterministic text/Markdown ingestion with SHA-256 manifests, preserved originals, and deferred canonical writes.
 - Optional PDF extraction through PyMuPDF when installed.
-- Candidate review, including visible ingest-review packets, and expected-hash conflict-safe acceptance/promotion.
+- Create-only source candidates plus expected-hash conflict-safe update promotion; successful promotion rebuilds retrieval automatically.
 - Exact-ID and SQLite FTS5 retrieval with sensitivity ceilings and bounded evidence packets.
 - Canonical-only generated `INDEX.md` plus automatic pruning of inactive SQLite index generations.
 - Token-aware research receipts with a locked 25% synthesis/evaluation reserve.

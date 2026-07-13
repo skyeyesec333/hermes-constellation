@@ -8,6 +8,7 @@ from constellation.frontmatter import render_frontmatter
 from constellation.ingest import ingest_file
 from constellation.models import CandidatePatch, Sensitivity
 from constellation.review import PromotionError, list_candidates, promote_candidate, write_candidate
+from constellation.retrieval import exact_lookup
 from constellation.storage import sha256_file
 from constellation.validation import CanonicalValidationError, validate_canonical_text
 from constellation.vault import initialize_vault
@@ -72,28 +73,27 @@ def test_candidate_listing_and_explicit_confirmation(tmp_path):
     assert not (root / candidate.target_path).exists()
 
 
-def test_ingest_candidate_is_visible_and_can_be_conflict_safely_accepted(tmp_path):
+def test_staged_ingest_is_visible_and_promotion_rebuilds_index(tmp_path):
     root = tmp_path / "vault"
     initialize_vault(root)
     source = root / "Inbox/Files/review-me.txt"
     source.write_text("Synthetic review fixture.\n", encoding="utf-8")
     ingested = ingest_file(root, source, now=NOW)
-    candidate_id = f"ingest-{ingested['source_id']}"
+    candidate_id = ingested["candidate_id"]
     target = root / ingested["source_item_path"]
-    expected_hash = sha256_file(target)
 
     listed = list_candidates(root)
     assert listed == [
         {
             "id": candidate_id,
-            "kind": "ingest_candidate",
-            "title": "Ingest review: review-me",
+            "kind": "candidate_patch",
+            "title": "Ingest source: review-me",
             "target_path": ingested["source_item_path"],
-            "expected_base_hash": expected_hash,
+            "expected_base_hash": None,
             "promotable": True,
         }
     ]
-    with pytest.raises(PromotionError, match="base hash conflict"):
+    with pytest.raises(PromotionError, match="expected base hash"):
         promote_candidate(
             root,
             candidate_id,
@@ -104,12 +104,62 @@ def test_ingest_candidate_is_visible_and_can_be_conflict_safely_accepted(tmp_pat
         root,
         candidate_id,
         confirm=True,
+        expected_base_hash=None,
+    )
+    assert result["status"] == "promoted"
+    assert result["index_generation"]
+    assert target.is_file()
+    assert not (root / ingested["candidate_path"]).exists()
+    assert exact_lookup(root, ingested["source_id"])["status"] == "evidence_found"
+    event = json.loads((root / ".constellation/action-ledger.jsonl").read_text(encoding="utf-8"))
+    assert event["action"] == "candidate_promoted"
+
+
+def test_legacy_ingest_candidate_remains_reviewable_and_reindexes(tmp_path):
+    root = tmp_path / "vault"
+    initialize_vault(root)
+    source_id = "01ARZ3NDEKTSV4RRFFQ69G5FAW"
+    target_relative = f"source-items/{source_id}.md"
+    metadata = {
+        "schema_version": "0.1",
+        "id": source_id,
+        "type": "source-item",
+        "title": "Legacy pending source",
+        "status": "active",
+        "sensitivity": "internal",
+        "created_at": NOW.isoformat(),
+        "updated_at": NOW.isoformat(),
+        "source_hash": "a" * 64,
+        "original_path": "Library/Files/legacy.txt",
+        "media_type": "text/plain",
+    }
+    target = root / target_relative
+    target.write_text(render_frontmatter(metadata, "Legacy evidence.\n"), encoding="utf-8")
+    candidate_id = f"ingest-{source_id}"
+    packet = {
+        "schema_version": "0.1",
+        "kind": "ingest_candidate",
+        "source_id": source_id,
+        "source_hash": "a" * 64,
+        "status": "pending_review",
+    }
+    candidate_path = root / f".constellation/candidates/{candidate_id}.json"
+    candidate_path.write_text(json.dumps(packet), encoding="utf-8")
+    expected_hash = sha256_file(target)
+
+    listed = list_candidates(root)
+    assert listed[0]["kind"] == "ingest_candidate"
+    result = promote_candidate(
+        root,
+        candidate_id,
+        confirm=True,
         expected_base_hash=expected_hash,
     )
+
     assert result["status"] == "reviewed"
-    assert not (root / ingested["candidate_path"]).exists()
-    event = json.loads((root / ".constellation/action-ledger.jsonl").read_text(encoding="utf-8"))
-    assert event["action"] == "ingest_candidate_reviewed"
+    assert result["index_generation"]
+    assert exact_lookup(root, source_id)["status"] == "evidence_found"
+    assert not candidate_path.exists()
 
 
 def test_promotion_is_atomic_validated_and_appends_ledger(tmp_path):

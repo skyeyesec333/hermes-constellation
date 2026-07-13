@@ -1,10 +1,11 @@
-import json
 from datetime import UTC, datetime
 
 import pytest
 
 from constellation.frontmatter import FrontmatterError, parse_frontmatter, render_frontmatter
 from constellation.ingest import CapabilityError, IngestError, ingest_file
+from constellation.models import CandidatePatch
+from constellation.retrieval import build_index, exact_lookup
 from constellation.vault import initialize_vault
 
 NOW = datetime(2026, 2, 3, 4, 5, tzinfo=UTC)
@@ -26,21 +27,29 @@ def test_frontmatter_round_trip_is_deterministic():
         parse_frontmatter("not frontmatter")
 
 
-def test_text_ingest_preserves_source_and_writes_all_packets(tmp_path):
+def test_text_ingest_preserves_source_and_stages_canonical_candidate(tmp_path):
     root = make_vault(tmp_path)
     source = root / "Inbox/example.txt"
     source.write_text("Fictional evidence.\n", encoding="utf-8")
+    build_index(root)
 
     result = ingest_file(root, "Inbox/example.txt", now=NOW)
 
-    assert result["status"] == "ingested"
+    assert result["status"] == "staged"
     assert result["source_id"]
     assert (root / result["preserved_path"]).read_bytes() == source.read_bytes()
     assert (root / result["text_path"]).read_text(encoding="utf-8") == "Fictional evidence.\n"
     assert (root / result["manifest_path"]).is_file()
-    assert (root / result["source_item_path"]).is_file()
-    candidate = json.loads((root / result["candidate_path"]).read_text(encoding="utf-8"))
-    assert candidate["status"] == "pending_review"
+    assert not (root / result["source_item_path"]).exists()
+    candidate = CandidatePatch.model_validate_json(
+        (root / result["candidate_path"]).read_text(encoding="utf-8")
+    )
+    assert candidate.id == result["candidate_id"]
+    assert candidate.status == "pending-review"
+    assert candidate.expected_base_hash is None
+    assert candidate.target_path == result["source_item_path"]
+    assert candidate.content.startswith("---\n")
+    assert exact_lookup(root, result["source_id"])["status"] == "no_evidence_found"
     assert not list((root / "claims").iterdir())
 
 
@@ -52,7 +61,9 @@ def test_ingest_is_hash_idempotent(tmp_path):
     second = ingest_file(root, "Inbox/example.md", now=NOW)
     assert second["status"] == "already_ingested"
     assert first["source_id"] == second["source_id"]
-    assert len(list((root / "source-items").glob("*.md"))) == 1
+    assert first["candidate_id"] == second["candidate_id"]
+    assert not list((root / "source-items").glob("*.md"))
+    assert len(list((root / ".constellation/candidates").glob("*.json"))) == 1
 
 
 def test_ingest_rejects_unsafe_and_unsupported_inputs(tmp_path, monkeypatch):

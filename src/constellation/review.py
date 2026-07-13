@@ -123,6 +123,14 @@ def _append_action(root: Path, event: dict[str, object]) -> None:
         os.close(descriptor)
 
 
+def _rebuild_index_after_write(root: Path, result: dict[str, str]) -> dict[str, str]:
+    from .retrieval import build_index
+
+    report = build_index(root)
+    result["index_generation"] = str(report["generation"])
+    return result
+
+
 def _review_ingest_candidate(
     root: Path,
     candidate_path: Path,
@@ -149,7 +157,10 @@ def _review_ingest_candidate(
         },
     )
     candidate_path.unlink()
-    return {"schema_version": "0.1", "status": "reviewed", "target_path": target_path}
+    return _rebuild_index_after_write(
+        root,
+        {"schema_version": "0.1", "status": "reviewed", "target_path": target_path},
+    )
 
 
 def promote_candidate(
@@ -206,4 +217,7 @@ def promote_candidate(
         },
     )
     candidate_path.unlink()
-    return {"schema_version": "0.1", "status": "promoted", "target_path": candidate.target_path}
+    return _rebuild_index_after_write(
+        vault,
+        {"schema_version": "0.1", "status": "promoted", "target_path": candidate.target_path},
+    )
