@@ -2,6 +2,7 @@ import json
 from datetime import UTC, datetime
 
 import pytest
+import yaml
 
 from constellation.frontmatter import FrontmatterError, parse_frontmatter, render_frontmatter
 from constellation.ingest import CapabilityError, IngestError, ingest_file
@@ -74,6 +75,27 @@ def test_text_ingest_preserves_source_and_stages_canonical_candidate(tmp_path):
     assert source_metadata["extraction_status"] == "complete"
     assert exact_lookup(root, result["source_id"])["status"] == "no_evidence_found"
     assert not list((root / "claims").iterdir())
+
+
+def test_explicit_automatic_registration_promotes_only_the_source_record(tmp_path):
+    root = make_vault(tmp_path)
+    config_path = root / ".constellation/config.yaml"
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    config["source_registration"] = "automatic"
+    config_path.write_text(yaml.safe_dump(config, sort_keys=True), encoding="utf-8")
+    source = root / "Inbox/automatic.txt"
+    source.write_text("Fictional automatic evidence.\n", encoding="utf-8")
+
+    result = ingest_file(root, source, now=NOW)
+
+    assert result["status"] == "registered"
+    assert (root / result["source_item_path"]).is_file()
+    assert not (root / result["candidate_path"]).exists()
+    assert exact_lookup(root, result["source_id"])["status"] == "evidence_found"
+    assert not list((root / "claims").iterdir())
+    assert not list((root / "entities").iterdir())
+    manifest = json.loads((root / result["manifest_path"]).read_text(encoding="utf-8"))
+    assert manifest["registration"] == {"mode": "automatic", "status": "canonical"}
 
 
 def test_ingest_is_hash_idempotent(tmp_path):

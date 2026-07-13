@@ -69,6 +69,7 @@ def initialize_vault(root: Path | str) -> list[Path]:
             "kind": "constellation-vault",
             "schema_version": SCHEMA_VERSION,
             "default_sensitivity": "internal",
+            "source_registration": "review",
             "egress": {"external_enabled": False, "providers": {}},
         },
         sort_keys=True,

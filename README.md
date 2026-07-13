@@ -7,10 +7,10 @@ A local-first, source-grounded knowledge and relationship workspace for Hermes A
 ## Trusted loop
 
 ```text
-init → ingest → review candidate → explicit promotion + automatic index → evidence search → research receipt
+init → ingest → automatic or reviewed source registration → automatic index → evidence search → research receipt
 ```
 
-Collectors cannot silently change canonical meaning. Canonical writes require validation, explicit confirmation, expected-hash conflict checks, and an action-ledger entry.
+Vault policy may automatically register an extracted source record because it preserves mechanical evidence rather than derived meaning. Claims, entities, research conclusions, and source updates remain candidate-reviewed, conflict-checked canonical changes.
 
 ## Quick start
 
@@ -61,9 +61,9 @@ The filesystem plugin entry point is the repository root. When installed as a He
 
 - Strict versioned Python record models and generated JSON Schema/templates.
 - Safe vault initialization, contained paths, expected hashes, and atomic local writes.
-- Deterministic text/Markdown ingestion with SHA-256 manifests, preserved originals, and deferred canonical writes.
+- Deterministic text/Markdown ingestion with SHA-256 manifests, preserved originals, and configurable reviewed or automatic mechanical source registration.
 - Optional native-text PDF extraction through PyMuPDF, with page anchors and explicit rejection of image-only PDFs.
-- Create-only source candidates plus expected-hash conflict-safe update promotion; successful promotion rebuilds retrieval automatically.
+- Automatic source registration through the same validation/action-ledger/index path, or create-only source review by policy; meaning-bearing updates remain conflict-safe candidates.
 - Exact-ID and SQLite FTS5 retrieval with sensitivity ceilings and page/line-aware evidence packets.
 - Strict entity kinds, evidence state, and conflict-safe merge metadata; automatic entity matching is not included.
 - Canonical-only generated `INDEX.md` plus automatic pruning of inactive SQLite index generations.

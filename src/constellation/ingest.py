@@ -11,6 +11,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
+import yaml
+
 from .frontmatter import parse_frontmatter, render_frontmatter
 from .models import CandidatePatch, Sensitivity, SourceItem
 from .storage import (
@@ -20,7 +22,7 @@ from .storage import (
     sha256_bytes,
     sha256_file,
 )
-from .vault import is_initialized
+from .vault import CONFIG_RELATIVE, is_initialized
 
 _ULID_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 MAX_SOURCE_BYTES = 50 * 1024 * 1024
@@ -34,6 +36,18 @@ class IngestError(RuntimeError):
 
 class CapabilityError(IngestError):
     pass
+
+
+def _source_registration_mode(vault: Path) -> str:
+    config_path = safe_relative_path(vault, CONFIG_RELATIVE)
+    try:
+        config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as exc:
+        raise IngestError("vault configuration is unreadable") from exc
+    mode = config.get("source_registration", "review") if isinstance(config, dict) else None
+    if mode not in {"review", "automatic"}:
+        raise IngestError("source_registration must be review or automatic")
+    return mode
 
 
 @dataclass(frozen=True)
@@ -280,6 +294,7 @@ def ingest_file(
     vault = Path(root).absolute()
     if not is_initialized(vault):
         raise IngestError("vault is not initialized")
+    registration_mode = _source_registration_mode(vault)
     source_value = Path(source)
     if source_value.is_absolute():
         try:
@@ -401,17 +416,39 @@ def ingest_file(
         "source_item_path": source_item_relative.as_posix(),
         "candidate_id": candidate.id,
         "candidate_path": candidate_relative.as_posix(),
+        "registration": {
+            "mode": registration_mode,
+            "status": "pending-review" if registration_mode == "review" else "pending-automatic",
+        },
         "extraction": extraction,
     }
     atomic_write_text(vault, manifest_relative, json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    promotion: dict[str, str] | None = None
+    if registration_mode == "automatic":
+        from .review import promote_candidate
+
+        promotion = promote_candidate(
+            vault,
+            candidate.id,
+            confirm=True,
+            expected_base_hash=None,
+        )
+        manifest["registration"] = {"mode": "automatic", "status": "canonical"}
+        atomic_write_text(
+            vault,
+            manifest_relative,
+            json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+        )
     result = {
-        "status": "staged",
+        "status": "registered" if promotion else "staged",
         **{
             key: str(value)
             for key, value in manifest.items()
-            if key != "extraction"
+            if key not in {"extraction", "registration"}
         },
     }
+    if promotion:
+        result["index_generation"] = promotion["index_generation"]
     result["manifest_path"] = manifest_relative.as_posix()
     result["extraction_status"] = str(extraction["status"])
     return result

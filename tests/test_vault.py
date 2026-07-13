@@ -18,6 +18,7 @@ def test_initialize_fresh_vault_and_idempotent_rerun(tmp_path):
     assert (root / "source-items").is_dir()
     config = yaml.safe_load((root / ".constellation/config.yaml").read_text(encoding="utf-8"))
     assert config["egress"] == {"external_enabled": False, "providers": {}}
+    assert config["source_registration"] == "review"
     assert initialize_vault(root) == []
 
 

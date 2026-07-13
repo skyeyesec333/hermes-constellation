@@ -1,6 +1,7 @@
 kind: constellation-vault
 schema_version: '0.1'
 default_sensitivity: internal
+source_registration: review
 egress:
   external_enabled: false
   providers: {}
