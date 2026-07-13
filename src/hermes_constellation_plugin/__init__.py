@@ -55,7 +55,11 @@ def _handle_cli(namespace: Any) -> int:
 
 def register(ctx) -> None:
     """Register bounded tools plus slash and CLI commands."""
-    skill_path = Path(__file__).resolve().parents[2] / "skills" / "constellation" / "SKILL.md"
+    package_skill = Path(__file__).resolve().parent / "skills" / "constellation" / "SKILL.md"
+    checkout_skill = Path(__file__).resolve().parents[2] / "skills" / "constellation" / "SKILL.md"
+    skill_path = package_skill if package_skill.is_file() else checkout_skill
+    if not skill_path.is_file():
+        raise FileNotFoundError("bundled Constellation skill is missing")
     ctx.register_skill(
         "constellation",
         skill_path,
