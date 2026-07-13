@@ -13,6 +13,8 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from .frontmatter import FrontmatterError, parse_frontmatter, render_frontmatter
 from .validation import (
     ALLOWED_CANONICAL_FOLDERS,
@@ -44,6 +46,51 @@ _OPERATIONAL_FILES = {".ds_store"}
 
 class MigrationError(RuntimeError):
     """Raised when a vault cannot be inventoried safely."""
+
+
+_AUTO_DISCOVERY_MARKER = "--- auto-discovered degree-2 skeleton below confidence threshold"
+
+
+def _load_legacy_mapping(raw: str) -> dict[str, object]:
+    try:
+        metadata = yaml.safe_load(raw)
+    except yaml.YAMLError as exc:
+        raise FrontmatterError("frontmatter is invalid YAML") from exc
+    if not isinstance(metadata, dict) or not all(isinstance(key, str) for key in metadata):
+        raise FrontmatterError("frontmatter must be a string-keyed mapping")
+    return metadata
+
+
+def parse_legacy_frontmatter(
+    text: str,
+) -> tuple[dict[str, object], str, dict[str, object] | None]:
+    """Parse valid YAML or the one known auto-discovery marker defect."""
+    if not text.startswith("---\n"):
+        raise FrontmatterError("document must begin with YAML frontmatter")
+    end = text.find("\n---\n", 4)
+    if end < 0:
+        raise FrontmatterError("frontmatter closing delimiter is missing")
+    raw = text[4:end]
+    body = text[end + 5 :]
+    try:
+        return _load_legacy_mapping(raw), body, None
+    except FrontmatterError as original:
+        lines = raw.splitlines()
+        markers = [index for index, line in enumerate(lines) if line.strip() == _AUTO_DISCOVERY_MARKER]
+        if len(markers) != 1:
+            raise original
+        marker = markers[0]
+        primary = _load_legacy_mapping("\n".join(lines[:marker]))
+        supplemental = _load_legacy_mapping("\n".join(lines[marker + 1 :]))
+        conflicts = sorted(
+            key for key, value in supplemental.items() if key in primary and primary[key] != value
+        )
+        for key, value in supplemental.items():
+            primary.setdefault(key, value)
+        return primary, body, {
+            "kind": "auto-discovery-marker",
+            "conflicting_keys": conflicts,
+        }
 
 
 def _is_operational(relative: Path) -> bool:
@@ -319,15 +366,44 @@ def build_mapping_plan(root: Path | str, *, max_files: int = 100_000) -> dict[st
             "source_path": relative,
             "source_hash": hashlib.sha256(path.read_bytes()).hexdigest(),
         }
-        if entry["frontmatter"] != "valid":
+        if entry["frontmatter"] in {"missing", "oversized"}:
             mapping.update(disposition="quarantine", reason=f"frontmatter-{entry['frontmatter']}")
             mappings.append(mapping)
             continue
-        metadata, _ = parse_frontmatter(path.read_text(encoding="utf-8"))
+        text = path.read_text(encoding="utf-8")
+        repair: dict[str, object] | None = None
+        try:
+            if entry["frontmatter"] == "valid":
+                metadata, _ = parse_frontmatter(text)
+            else:
+                metadata, _, repair = parse_legacy_frontmatter(text)
+        except FrontmatterError:
+            mapping.update(disposition="quarantine", reason=f"frontmatter-{entry['frontmatter']}")
+            mappings.append(mapping)
+            continue
+        if repair is not None:
+            mapping["repair"] = repair
         sensitivity = _mapped_sensitivity(metadata.get("sensitivity"))
         mapping["proposed_sensitivity"] = sensitivity
         first_folder = Path(relative).parts[0].lower()
-        if first_folder not in _ENTITY_FOLDERS:
+        metadata_type = metadata.get("type")
+        normalized_type = (
+            metadata_type.strip().lower().replace("_", "-")
+            if isinstance(metadata_type, str) and metadata_type.strip()
+            else ""
+        )
+        entity_type = _ENTITY_FOLDERS.get(first_folder)
+        if first_folder == "source-items" and normalized_type in {
+            "company",
+            "organization",
+            "person",
+        }:
+            entity_type = normalized_type
+        is_source_item = first_folder == "source-items" and normalized_type in {
+            "source-item",
+            "sourceitem",
+        }
+        if entity_type is None and not is_source_item:
             disposition = (
                 "defer_specialized_schema"
                 if entry["classification"] == "canonical"
@@ -337,24 +413,17 @@ def build_mapping_plan(root: Path | str, *, max_files: int = 100_000) -> dict[st
             mappings.append(mapping)
             continue
 
-        inferred_type = _ENTITY_FOLDERS[first_folder]
-        metadata_type = metadata.get("type")
-        record_type = inferred_type or (
-            metadata_type.strip().lower()
-            if isinstance(metadata_type, str) and metadata_type.strip()
-            else "entity"
-        )
+        record_type = entity_type or normalized_type or "entity"
         legacy_id = metadata.get("id")
         legacy_id_text = legacy_id if isinstance(legacy_id, str) and legacy_id else ""
-        if _ULID_PATTERN.fullmatch(legacy_id_text) and relative not in duplicate_paths:
+        if (
+            repair is None
+            and _ULID_PATTERN.fullmatch(legacy_id_text)
+            and relative not in duplicate_paths
+        ):
             proposed_id = legacy_id_text
         else:
-            seed = (
-                f"legacy-id:{legacy_id_text}"
-                if legacy_id_text and relative not in duplicate_paths
-                else f"path:{relative}\0legacy-id:{legacy_id_text}"
-            )
-            proposed_id = _deterministic_ulid(seed)
+            proposed_id = _deterministic_ulid(f"path:{relative}\0legacy-id:{legacy_id_text}")
         title = next(
             (
                 value.strip()
@@ -373,26 +442,53 @@ def build_mapping_plan(root: Path | str, *, max_files: int = 100_000) -> dict[st
             created.replace("Z", "+00:00")
         ):
             created = updated
-        mapping.update(
-            disposition="candidate_entity",
-            target_path=_entity_target(relative, record_type),
-            legacy_id=legacy_id_text or None,
-            proposed_metadata={
-                "schema_version": "0.1",
-                "id": proposed_id,
-                "type": record_type,
-                "title": title,
-                "status": status.strip(),
-                "sensitivity": sensitivity,
-                "created_at": created,
-                "updated_at": updated,
-            },
-        )
+        proposed_metadata = {
+            "schema_version": "0.1",
+            "id": proposed_id,
+            "type": record_type,
+            "title": title,
+            "status": status.strip(),
+            "sensitivity": sensitivity,
+            "created_at": created,
+            "updated_at": updated,
+        }
+        if entity_type is not None:
+            mapping.update(
+                disposition="candidate_entity",
+                target_path=_entity_target(relative, record_type),
+                legacy_id=legacy_id_text or None,
+                proposed_metadata=proposed_metadata,
+            )
+        else:
+            source_url = metadata.get("source_url", metadata.get("url"))
+            if isinstance(source_url, str) and source_url.startswith(("http://", "https://")):
+                proposed_metadata["source_url"] = source_url
+            source_parts = Path(relative).parts[1:]
+            source_subpath = Path(*source_parts).as_posix()
+            source_stem = re.sub(r"[^a-z0-9]+", "-", Path(relative).stem.lower()).strip("-")
+            source_stem = source_stem or "untitled"
+            if not source_stem.startswith("source-item-"):
+                source_stem = f"source-item-{source_stem}"
+            proposed_metadata.update(
+                {
+                    "type": "source-item",
+                    "source_hash": mapping["source_hash"],
+                    "original_path": f"sources/legacy-source-items/{source_subpath}",
+                    "media_type": "text/markdown",
+                }
+            )
+            mapping.update(
+                disposition="candidate_source_item",
+                target_path=f"source-items/{source_stem}.md",
+                legacy_id=legacy_id_text or None,
+                source_basis="preserved-legacy-note",
+                proposed_metadata=proposed_metadata,
+            )
         mappings.append(mapping)
 
     target_groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for mapping in mappings:
-        if mapping["disposition"] == "candidate_entity":
+        if mapping["disposition"] in {"candidate_entity", "candidate_source_item"}:
             target_groups[mapping["target_path"]].append(mapping)
     for target, group in target_groups.items():
         if len(group) < 2:
@@ -487,14 +583,24 @@ def rehearse_migration(
 
             candidate_relative: str
             candidate_data: bytes
-            if disposition == "candidate_entity":
-                _, body = parse_frontmatter(data.decode("utf-8"))
+            provenance_relative: str | None = None
+            if disposition in {"candidate_entity", "candidate_source_item"}:
+                source_text = data.decode("utf-8")
+                if mapping.get("repair"):
+                    _, body, _ = parse_legacy_frontmatter(source_text)
+                else:
+                    _, body = parse_frontmatter(source_text)
                 if not body.strip():
                     body = f"# {mapping['proposed_metadata']['title']}\n"
                 candidate_relative = f"candidate-vault/{mapping['target_path']}"
                 candidate_text = render_frontmatter(mapping["proposed_metadata"], body)
                 validate_canonical_text(candidate_text, mapping["target_path"])
                 candidate_data = candidate_text.encode("utf-8")
+                if disposition == "candidate_source_item":
+                    provenance_relative = (
+                        f"candidate-vault/{mapping['proposed_metadata']['original_path']}"
+                    )
+                    _write_rehearsal_file(stage, provenance_relative, data)
             elif disposition == "preserve_legacy":
                 candidate_relative = f"candidate-vault/legacy/{relative}"
                 candidate_data = data
@@ -509,16 +615,18 @@ def rehearse_migration(
             output_hash = _write_rehearsal_file(stage, candidate_relative, candidate_data)
             if hashlib.sha256(source_path.read_bytes()).hexdigest() != source_hash:
                 raise MigrationError(f"source changed during rehearsal: {relative}")
-            journal.append(
-                {
-                    "source_path": relative,
-                    "source_hash": source_hash,
-                    "preserved_path": preserved_relative,
-                    "candidate_path": candidate_relative,
-                    "candidate_hash": output_hash,
-                    "disposition": disposition,
-                }
-            )
+            journal_entry = {
+                "source_path": relative,
+                "source_hash": source_hash,
+                "preserved_path": preserved_relative,
+                "candidate_path": candidate_relative,
+                "candidate_hash": output_hash,
+                "disposition": disposition,
+            }
+            if provenance_relative is not None:
+                journal_entry["provenance_path"] = provenance_relative
+                journal_entry["provenance_hash"] = source_hash
+            journal.append(journal_entry)
 
         _write_rehearsal_file(
             stage,

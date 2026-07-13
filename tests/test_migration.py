@@ -6,10 +6,12 @@ import pytest
 
 import constellation.migration as migration_module
 from constellation.cli import main
+from constellation.frontmatter import parse_frontmatter
 from constellation.migration import (
     MigrationError,
     build_mapping_plan,
     inventory_vault,
+    parse_legacy_frontmatter,
     plan_migration,
     rehearse_migration,
 )
@@ -166,6 +168,161 @@ PRIVATE BODY MUST NOT ENTER THE PLAN
 """
 
 
+def test_legacy_parser_normalizes_known_auto_discovery_marker_without_changing_body():
+    text = """---
+id: company-example
+type: company
+company_name: Example
+sensitivity: normal
+source_count: 2
+--- auto-discovered degree-2 skeleton below confidence threshold
+source_count: 3
+enrichment_date: 2026-01-03
+---
+
+# Example
+
+Body stays byte-for-byte.
+"""
+
+    metadata, body, repair = parse_legacy_frontmatter(text)
+
+    assert metadata["id"] == "company-example"
+    assert metadata["source_count"] == 2
+    assert str(metadata["enrichment_date"]) == "2026-01-03"
+    assert repair == {
+        "kind": "auto-discovery-marker",
+        "conflicting_keys": ["source_count"],
+    }
+    assert body == "\n# Example\n\nBody stays byte-for-byte.\n"
+
+
+def test_mapping_plan_promotes_repairable_entity_marker_to_candidate(tmp_path):
+    root = tmp_path / "vault"
+    (root / "companies").mkdir(parents=True)
+    text = """---
+id: legacy-company
+type: company
+company_name: Example
+status: active
+sensitivity: normal
+last_updated: 2026-01-03
+--- auto-discovered degree-2 skeleton below confidence threshold
+source_count: 2
+enrichment_date: 2026-01-03
+---
+
+# Example
+
+Entity body remains unchanged.
+"""
+    (root / "companies/example.md").write_text(text, encoding="utf-8")
+
+    plan = build_mapping_plan(root)
+    mapping = plan["mappings"][0]
+
+    assert mapping["disposition"] == "candidate_entity"
+    assert mapping["repair"] == {
+        "kind": "auto-discovery-marker",
+        "conflicting_keys": [],
+    }
+    assert mapping["proposed_metadata"]["sensitivity"] == "internal"
+    assert "Entity body remains" not in json.dumps(plan)
+
+
+def test_repairable_duplicate_ids_are_remapped_per_path(tmp_path):
+    root = tmp_path / "vault"
+    (root / "companies").mkdir(parents=True)
+    template = """---
+id: duplicated-legacy-id
+type: company
+company_name: {name}
+status: active
+sensitivity: internal
+last_updated: 2026-01-03
+--- auto-discovered degree-2 skeleton below confidence threshold
+source_count: 1
+---
+
+# {name}
+"""
+    (root / "companies/alpha.md").write_text(template.format(name="Alpha"), encoding="utf-8")
+    (root / "companies/beta.md").write_text(template.format(name="Beta"), encoding="utf-8")
+
+    plan = build_mapping_plan(root)
+    ids = [mapping["proposed_metadata"]["id"] for mapping in plan["mappings"]]
+
+    assert len(ids) == len(set(ids)) == 2
+
+
+def test_source_item_mapper_hashes_preserved_legacy_note_and_retains_body(tmp_path):
+    root = tmp_path / "vault"
+    (root / "source-items").mkdir(parents=True)
+    text = """---
+id: legacy-source
+type: source_item
+title: Interview note
+status: active
+sensitivity: low
+last_updated: 2026-01-03
+source_url: https://example.invalid/interview
+---
+
+# Interview
+
+Evidence body remains unchanged.
+"""
+    source = root / "source-items/interview.md"
+    source.write_text(text, encoding="utf-8")
+
+    plan = build_mapping_plan(root)
+    mapping = plan["mappings"][0]
+
+    assert mapping["disposition"] == "candidate_source_item"
+    assert mapping["target_path"] == "source-items/source-item-interview.md"
+    assert mapping["proposed_metadata"]["source_hash"] == hashlib.sha256(text.encode()).hexdigest()
+    assert mapping["proposed_metadata"]["original_path"] == (
+        "sources/legacy-source-items/interview.md"
+    )
+    assert mapping["proposed_metadata"]["media_type"] == "text/markdown"
+    assert mapping["proposed_metadata"]["sensitivity"] == "internal"
+    assert mapping["proposed_metadata"]["source_url"] == "https://example.invalid/interview"
+    assert "Evidence body remains" not in json.dumps(plan)
+
+    destination = tmp_path / "rehearsal"
+    rehearse_migration(root, destination, confirm_disposable=True)
+    candidate = destination / "candidate-vault/source-items/source-item-interview.md"
+    original = destination / "candidate-vault/sources/legacy-source-items/interview.md"
+    assert original.read_bytes() == text.encode()
+    _, source_body = parse_frontmatter(text)
+    _, candidate_body = parse_frontmatter(candidate.read_text(encoding="utf-8"))
+    assert candidate_body == source_body
+    validate_canonical_text(candidate.read_text(encoding="utf-8"), "source-items/source-item-interview.md")
+
+
+def test_source_items_folder_entity_skeleton_is_mapped_as_entity(tmp_path):
+    root = tmp_path / "vault"
+    (root / "source-items").mkdir(parents=True)
+    text = """---
+id: legacy-company
+type: company
+company_name: Skeleton Company
+status: active
+sensitivity: internal
+last_updated: 2026-01-03
+---
+
+# Skeleton Company
+"""
+    (root / "source-items/skeleton.md").write_text(text, encoding="utf-8")
+
+    mapping = build_mapping_plan(root)["mappings"][0]
+
+    assert mapping["disposition"] == "candidate_entity"
+    assert mapping["target_path"] == "entities/company-skeleton.md"
+    assert mapping["proposed_metadata"]["type"] == "company"
+
+
 def test_mapping_plan_applies_privacy_safe_defaults_and_deterministic_ids(tmp_path):
     root = tmp_path / "vault"
     for folder in ("people", "companies", "patterns"):
@@ -251,6 +408,37 @@ def test_rehearsal_writes_only_to_disposable_destination_and_preserves_every_inp
     assert not (destination / "candidate-vault/external-link").exists()
     assert (destination / "migration-plan.private.json").is_file()
     assert (destination / "migration-journal.private.json").is_file()
+
+
+def test_rehearsal_materializes_repairable_entity_without_body_changes(tmp_path):
+    root = tmp_path / "vault"
+    (root / "companies").mkdir(parents=True)
+    text = """---
+id: legacy-company
+type: company
+company_name: Example
+status: active
+sensitivity: normal
+last_updated: 2026-01-03
+--- auto-discovered degree-2 skeleton below confidence threshold
+source_count: 2
+enrichment_date: 2026-01-03
+---
+
+# Example
+
+Body remains exact.
+"""
+    (root / "companies/example.md").write_text(text, encoding="utf-8")
+    destination = tmp_path / "rehearsal"
+
+    rehearse_migration(root, destination, confirm_disposable=True)
+
+    _, source_body, _ = parse_legacy_frontmatter(text)
+    candidate = destination / "candidate-vault/entities/company-example.md"
+    _, candidate_body = parse_frontmatter(candidate.read_text(encoding="utf-8"))
+    assert candidate_body == source_body
+    validate_canonical_text(candidate.read_text(encoding="utf-8"), "entities/company-example.md")
 
 
 def test_rehearsal_rejects_unconfirmed_overlapping_existing_and_symlink_destinations(tmp_path):

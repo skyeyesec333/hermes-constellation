@@ -33,7 +33,9 @@ constellation migrate-rehearse /path/to/existing-vault /path/to/new-disposable-o
   --confirm-disposable
 ```
 
-The command rejects existing, symlinked, or overlapping destinations. It preserves every selected input byte-for-byte under `preserved/`, writes normalized entity candidates under `candidate-vault/entities/`, keeps unsupported legacy notes under `candidate-vault/legacy/`, quarantines malformed or specialized-schema records, preserves non-Markdown sources under `candidate-vault/sources/`, and records hashes in a private journal. Interior symlinks are never followed or copied.
+The command rejects existing, symlinked, or overlapping destinations. It preserves every selected input byte-for-byte under `preserved/`, writes normalized entity candidates under `candidate-vault/entities/`, writes source-item candidates under `candidate-vault/source-items/`, keeps unsupported legacy notes under `candidate-vault/legacy/`, quarantines malformed or specialized-schema records, preserves non-Markdown sources under `candidate-vault/sources/`, and records hashes in a private journal. Interior symlinks are never followed or copied.
+
+The migration adapter recognizes the legacy `--- auto-discovered degree-2 skeleton below confidence threshold` defect as one narrowly scoped normalization rule. It merges only supplemental keys that are absent from the primary mapping, records conflicting keys in the private plan, and keeps the primary value. Original note bytes are always retained. Legacy source-item candidates use an exact preserved copy of the legacy source note as their initial provenance artifact; this avoids inventing a relationship to an unavailable external file. Misfiled `person`, `company`, or `organization` records found under `source-items/` are mapped as entities according to their declared type.
 
 The rehearsal bundle contains private note bodies and source files. Keep it on trusted local storage, never in the public repository, and delete it after review.
 
