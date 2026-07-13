@@ -4,7 +4,3 @@ default_sensitivity: internal
 egress:
   external_enabled: false
   providers: {}
-retrieval:
-  backend: sqlite-fts5
-research:
-  synthesis_reserve: 0.25

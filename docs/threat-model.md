@@ -10,7 +10,7 @@ Documents, OCR output, web pages, Markdown/HTML/SVG, archives, model output, plu
 
 ## Primary controls
 
-- Offline core and default-deny provider use.
+- Offline core and exact provider/model/purpose/sensitivity egress authorization, denied by default and durably recorded.
 - Explicit vault roots with path/symlink containment.
 - Candidate-only collection and explicit canonical promotion.
 - Expected-hash conflict checks and atomic replacement.

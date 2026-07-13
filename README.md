@@ -68,6 +68,7 @@ The filesystem plugin entry point is the repository root. When installed as a He
 - Strict entity kinds, evidence state, and conflict-safe merge metadata; automatic entity matching is not included.
 - Canonical-only generated `INDEX.md` plus automatic pruning of inactive SQLite index generations.
 - Versioned research receipts with provider/model identity, measured-versus-estimated token accounting, evidence hashes, retries, and terminal promotion policy.
+- Deny-by-default model egress authorization with exact provider/model/purpose/sensitivity policy and a durable decision ledger.
 - Read-only legacy-vault inventory and bounded dry-run migration plans.
 - One-way allowlist release compiler and exact-tree privacy scanner.
 - Entirely fictional `example.test` demo vault.
@@ -86,6 +87,7 @@ See:
 
 - `docs/architecture.md`
 - `docs/integrations.md`
+- `docs/egress-policy.md`
 - `docs/threat-model.md`
 - `docs/token-aware-research.md`
 - `docs/clean-room-release.md`

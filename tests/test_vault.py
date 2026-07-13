@@ -3,6 +3,7 @@ import json
 import os
 
 import pytest
+import yaml
 
 from constellation.doctor import doctor_json, doctor_report
 from constellation.storage import ConflictError, UnsafePathError, atomic_write_text, safe_relative_path
@@ -15,6 +16,8 @@ def test_initialize_fresh_vault_and_idempotent_rerun(tmp_path):
     assert root / ".constellation/config.yaml" in created
     assert (root / "Library/Files").is_dir()
     assert (root / "source-items").is_dir()
+    config = yaml.safe_load((root / ".constellation/config.yaml").read_text(encoding="utf-8"))
+    assert config["egress"] == {"external_enabled": False, "providers": {}}
     assert initialize_vault(root) == []
 
 

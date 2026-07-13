@@ -65,7 +65,12 @@ def initialize_vault(root: Path | str) -> list[Path]:
         path.mkdir(parents=True, exist_ok=False)
         created.append(path)
     config_text = yaml.safe_dump(
-        {"kind": "constellation-vault", "schema_version": SCHEMA_VERSION},
+        {
+            "kind": "constellation-vault",
+            "schema_version": SCHEMA_VERSION,
+            "default_sensitivity": "internal",
+            "egress": {"external_enabled": False, "providers": {}},
+        },
         sort_keys=True,
     )
     config.write_text(config_text, encoding="utf-8")

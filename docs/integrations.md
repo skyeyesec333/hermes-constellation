@@ -17,6 +17,7 @@ A planned tool is not a promise that it is bundled or safe to use with private d
 | Markdown and UTF-8 text intake | Supported now | Preserve original bytes, extract text, stage a review candidate, and record hashes/line anchors | Local |
 | SQLite FTS5 | Supported now | Rebuildable canonical-only full-text retrieval | Local; SQLite is part of Python on supported builds |
 | Research receipt ledger | Supported now | Budget enforcement and accountable provider/model/token/evidence records | Local accounting only; it does not call a model provider |
+| Model egress policy | Supported now | Deny-by-default exact provider/model/purpose/sensitivity authorization and durable decisions | Local gate; an allowed external adapter would still transmit data |
 | PyMuPDF | Optional now | Native-text PDF extraction with page anchors and blank-page detection | Local; install with `pip install -e '.[pdf]'` for development |
 
 Native-text PDF support is not OCR. A scanned or image-only PDF is rejected instead of being recorded as successfully extracted.
@@ -48,7 +49,7 @@ These are also not implemented in this release:
 - Automatic Stage 1 overview, synthesis, and entity/concept/strategy staging is not active.
 - No model provider is bundled or selected by the public package.
 - Optional semantic/vector retrieval is not included; SQLite FTS5 remains the implemented index.
-- Sending private source text to an external model requires a future sensitivity/egress policy. The current receipt ledger can record calls but is not that policy.
+- Model egress is now fail-closed and policy-gated, but no provider adapter or automatic Stage 1 caller is included yet.
 
 ## Privacy rule for optional tools
 
