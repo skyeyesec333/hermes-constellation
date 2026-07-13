@@ -11,6 +11,7 @@ public_roots:
 - pyproject.toml
 - docs/architecture.md
 - docs/installation.md
+- docs/integrations.md
 - docs/token-aware-research.md
 - docs/clean-room-release.md
 - docs/threat-model.md
@@ -42,6 +43,8 @@ files:
     lineage: handwritten-generic
   docs/installation.md:
     lineage: handwritten-generic
+  docs/integrations.md:
+    lineage: handwritten-generic
   docs/migration.md:
     lineage: handwritten-generic
   docs/threat-model.md:
@@ -70,6 +73,8 @@ files:
     lineage: generated-from-python-schema
   resources/generated-json-schemas/claim.json:
     lineage: generated-from-python-schema
+  resources/generated-json-schemas/entityrecord.json:
+    lineage: generated-from-python-schema
   resources/generated-json-schemas/researchrun.json:
     lineage: generated-from-python-schema
   resources/generated-json-schemas/sourceitem.json:
@@ -79,6 +84,8 @@ files:
   resources/generated-note-templates/candidatepatch.md:
     lineage: generated-from-python-schema
   resources/generated-note-templates/claim.md:
+    lineage: generated-from-python-schema
+  resources/generated-note-templates/entityrecord.md:
     lineage: generated-from-python-schema
   resources/generated-note-templates/researchrun.md:
     lineage: generated-from-python-schema
@@ -143,6 +150,8 @@ files:
   tests/test_cli.py:
     lineage: handwritten-generic
   tests/test_cli_integration.py:
+    lineage: handwritten-generic
+  tests/test_distribution.py:
     lineage: handwritten-generic
   tests/test_ingest.py:
     lineage: handwritten-generic

@@ -18,8 +18,24 @@ def main() -> int:
     parser.add_argument("source", type=Path)
     parser.add_argument("destination", type=Path)
     parser.add_argument("manifest", type=Path)
+    parser.add_argument(
+        "--canary",
+        action="append",
+        default=[],
+        help="Private marker that must not appear in the release (repeatable)",
+    )
     args = parser.parse_args()
-    print(json.dumps(build_release(args.source, args.destination, args.manifest), indent=2))
+    print(
+        json.dumps(
+            build_release(
+                args.source,
+                args.destination,
+                args.manifest,
+                canaries=args.canary,
+            ),
+            indent=2,
+        )
+    )
     return 0
 
 

@@ -62,25 +62,21 @@ The filesystem plugin entry point is the repository root. When installed as a He
 - Strict versioned Python record models and generated JSON Schema/templates.
 - Safe vault initialization, contained paths, expected hashes, and atomic local writes.
 - Deterministic text/Markdown ingestion with SHA-256 manifests, preserved originals, and deferred canonical writes.
-- Optional PDF extraction through PyMuPDF when installed.
+- Optional native-text PDF extraction through PyMuPDF, with page anchors and explicit rejection of image-only PDFs.
 - Create-only source candidates plus expected-hash conflict-safe update promotion; successful promotion rebuilds retrieval automatically.
-- Exact-ID and SQLite FTS5 retrieval with sensitivity ceilings and bounded evidence packets.
+- Exact-ID and SQLite FTS5 retrieval with sensitivity ceilings and page/line-aware evidence packets.
+- Strict entity kinds, evidence state, and conflict-safe merge metadata; automatic entity matching is not included.
 - Canonical-only generated `INDEX.md` plus automatic pruning of inactive SQLite index generations.
-- Token-aware research receipts with a locked 25% synthesis/evaluation reserve.
+- Versioned research receipts with provider/model identity, measured-versus-estimated token accounting, evidence hashes, retries, and terminal promotion policy.
 - Read-only legacy-vault inventory and bounded dry-run migration plans.
 - One-way allowlist release compiler and exact-tree privacy scanner.
 - Entirely fictional `example.test` demo vault.
 
-## Planned adapters
+## Integrations and roadmap
 
-The core remains usable without network services. Optional adapters will be added after the trusted loop is stable:
+Only PyMuPDF is an implemented optional adapter in this release. OCRmyPDF/Tesseract, Docling, Hermes Camofox/browser capture, Firecrawl, SearXNG, scholarly APIs, automatic model-driven Stage 1, and semantic/vector retrieval are **planned, not shipped**.
 
-- Docling and OCRmyPDF for difficult documents;
-- SearXNG for discovery;
-- Firecrawl for clean web extraction;
-- Hermes browser/Camofox for dynamic pages;
-- scholarly metadata through OpenAlex, Crossref, and Semantic Scholar;
-- optional semantic retrieval after exact/FTS evaluation gates pass.
+See [`docs/integrations.md`](docs/integrations.md) for the supported/optional/planned capability matrix and the local-versus-network privacy boundary for each tool.
 
 ## Privacy boundary
 
@@ -89,6 +85,7 @@ The public distribution is compiled from an explicit lineage allowlist. Real vau
 See:
 
 - `docs/architecture.md`
+- `docs/integrations.md`
 - `docs/threat-model.md`
 - `docs/token-aware-research.md`
 - `docs/clean-room-release.md`

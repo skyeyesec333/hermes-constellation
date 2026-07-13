@@ -64,3 +64,18 @@ def test_privacy_audit_rejects_symlinked_root(tmp_path: Path):
 
     assert report["passed"] is False
     assert any(item["rule"] == "symlink-root" for item in report["findings"])
+
+
+def test_privacy_audit_detects_known_token_windows_home_and_phone(tmp_path: Path):
+    token = "gh" + "p_" + "A" * 24
+    windows_home = "C:" + "\\".join(("", "Users", "private-user", "vault"))
+    phone = "+" + "1" + "2025550199"
+    (tmp_path / "leak.txt").write_text(
+        f"{token}\n{windows_home}\n{phone}\n",
+        encoding="utf-8",
+    )
+
+    report = audit_tree(tmp_path, canaries=[])
+
+    rules = {finding["rule"] for finding in report["findings"]}
+    assert {"possible-secret", "absolute-home-path", "phone"} <= rules
