@@ -1,0 +1,8 @@
+kind: constellation-vault
+schema_version: '0.1'
+default_sensitivity: internal
+external_providers: disabled
+retrieval:
+  backend: sqlite-fts5
+research:
+  synthesis_reserve: 0.25

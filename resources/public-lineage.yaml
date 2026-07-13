@@ -1,0 +1,164 @@
+version: 1
+public_roots:
+- .gitignore
+- __init__.py
+- README.md
+- LICENSE
+- SECURITY.md
+- PRIVACY.md
+- CONTRIBUTING.md
+- plugin.yaml
+- pyproject.toml
+- docs/architecture.md
+- docs/installation.md
+- docs/token-aware-research.md
+- docs/clean-room-release.md
+- docs/threat-model.md
+- docs/migration.md
+- src
+- skills
+- examples
+- resources
+- tests
+- scripts
+files:
+  .gitignore:
+    lineage: handwritten-generic
+  CONTRIBUTING.md:
+    lineage: handwritten-generic
+  LICENSE:
+    lineage: public-license-text
+  PRIVACY.md:
+    lineage: handwritten-generic
+  README.md:
+    lineage: handwritten-generic
+  SECURITY.md:
+    lineage: handwritten-generic
+  __init__.py:
+    lineage: handwritten-generic
+  docs/architecture.md:
+    lineage: handwritten-generic
+  docs/clean-room-release.md:
+    lineage: handwritten-generic
+  docs/installation.md:
+    lineage: handwritten-generic
+  docs/migration.md:
+    lineage: handwritten-generic
+  docs/threat-model.md:
+    lineage: handwritten-generic
+  docs/token-aware-research.md:
+    lineage: handwritten-generic
+  examples/synthetic-demo-vault/.constellation/config.yaml:
+    lineage: independently-fictional
+  examples/synthetic-demo-vault/HOME.md:
+    lineage: independently-fictional
+  examples/synthetic-demo-vault/Inbox/Files/demo-brief.txt:
+    lineage: independently-fictional
+  examples/synthetic-demo-vault/entities/organization-northstar-field-labs.md:
+    lineage: independently-fictional
+  examples/synthetic-demo-vault/entities/person-mira-vale.md:
+    lineage: independently-fictional
+  plugin.yaml:
+    lineage: handwritten-generic
+  pyproject.toml:
+    lineage: handwritten-generic
+  resources/default-config/config.yaml:
+    lineage: handwritten-generic
+  resources/generated-json-schemas/baserecord.json:
+    lineage: generated-from-python-schema
+  resources/generated-json-schemas/candidatepatch.json:
+    lineage: generated-from-python-schema
+  resources/generated-json-schemas/claim.json:
+    lineage: generated-from-python-schema
+  resources/generated-json-schemas/researchrun.json:
+    lineage: generated-from-python-schema
+  resources/generated-json-schemas/sourceitem.json:
+    lineage: generated-from-python-schema
+  resources/generated-note-templates/baserecord.md:
+    lineage: generated-from-python-schema
+  resources/generated-note-templates/candidatepatch.md:
+    lineage: generated-from-python-schema
+  resources/generated-note-templates/claim.md:
+    lineage: generated-from-python-schema
+  resources/generated-note-templates/researchrun.md:
+    lineage: generated-from-python-schema
+  resources/generated-note-templates/sourceitem.md:
+    lineage: generated-from-python-schema
+  resources/public-lineage.yaml:
+    lineage: release-lineage-manifest
+  scripts/__init__.py:
+    lineage: handwritten-generic
+  scripts/build_release.py:
+    lineage: handwritten-generic
+  scripts/privacy_audit.py:
+    lineage: handwritten-generic
+  skills/constellation/SKILL.md:
+    lineage: handwritten-generic
+  skills/constellation/references/architecture.md:
+    lineage: handwritten-generic
+  skills/constellation/references/token-aware-research.md:
+    lineage: handwritten-generic
+  src/constellation/__init__.py:
+    lineage: handwritten-generic
+  src/constellation/cli.py:
+    lineage: handwritten-generic
+  src/constellation/doctor.py:
+    lineage: handwritten-generic
+  src/constellation/frontmatter.py:
+    lineage: handwritten-generic
+  src/constellation/ingest.py:
+    lineage: handwritten-generic
+  src/constellation/models.py:
+    lineage: handwritten-generic
+  src/constellation/privacy.py:
+    lineage: handwritten-generic
+  src/constellation/release.py:
+    lineage: handwritten-generic
+  src/constellation/research.py:
+    lineage: handwritten-generic
+  src/constellation/retrieval.py:
+    lineage: handwritten-generic
+  src/constellation/review.py:
+    lineage: handwritten-generic
+  src/constellation/schema.py:
+    lineage: handwritten-generic
+  src/constellation/storage.py:
+    lineage: handwritten-generic
+  src/constellation/validation.py:
+    lineage: handwritten-generic
+  src/constellation/vault.py:
+    lineage: handwritten-generic
+  src/hermes_constellation_plugin/__init__.py:
+    lineage: handwritten-generic
+  src/hermes_constellation_plugin/schemas.py:
+    lineage: handwritten-generic
+  src/hermes_constellation_plugin/tools.py:
+    lineage: handwritten-generic
+  tests/test_cli.py:
+    lineage: handwritten-generic
+  tests/test_cli_integration.py:
+    lineage: handwritten-generic
+  tests/test_ingest.py:
+    lineage: handwritten-generic
+  tests/test_models.py:
+    lineage: handwritten-generic
+  tests/test_package.py:
+    lineage: handwritten-generic
+  tests/test_plugin.py:
+    lineage: handwritten-generic
+  tests/test_privacy.py:
+    lineage: handwritten-generic
+  tests/test_release.py:
+    lineage: handwritten-generic
+  tests/test_research.py:
+    lineage: handwritten-generic
+  tests/test_retrieval.py:
+    lineage: handwritten-generic
+  tests/test_review.py:
+    lineage: handwritten-generic
+  tests/test_root_plugin.py:
+    lineage: handwritten-generic
+  tests/test_skill.py:
+    lineage: handwritten-generic
+  tests/test_vault.py:
+    lineage: handwritten-generic

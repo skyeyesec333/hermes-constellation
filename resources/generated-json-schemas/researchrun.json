@@ -1,0 +1,86 @@
+{
+  "$defs": {
+    "Sensitivity": {
+      "enum": [
+        "public",
+        "internal",
+        "confidential",
+        "restricted"
+      ],
+      "title": "Sensitivity",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "id": {
+      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+      "title": "Id",
+      "type": "string"
+    },
+    "receipt": {
+      "additionalProperties": true,
+      "title": "Receipt",
+      "type": "object"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "sensitivity": {
+      "$ref": "#/$defs/Sensitivity"
+    },
+    "status": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Status",
+      "type": "string"
+    },
+    "stop_reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Stop Reason"
+    },
+    "title": {
+      "maxLength": 300,
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    },
+    "type": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Type",
+      "type": "string"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "title",
+    "status",
+    "sensitivity",
+    "created_at",
+    "updated_at"
+  ],
+  "title": "ResearchRun",
+  "type": "object"
+}
