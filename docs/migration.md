@@ -24,6 +24,19 @@ The inventory:
 
 The resulting report is still private: filenames, relative paths, record IDs, schema versions, and aggregate relationship data can be sensitive. Do not place it in the public repository.
 
+## Disposable rehearsal
+
+After reviewing the plan, build a candidate bundle only in a new disposable destination:
+
+```bash
+constellation migrate-rehearse /path/to/existing-vault /path/to/new-disposable-output \
+  --confirm-disposable
+```
+
+The command rejects existing, symlinked, or overlapping destinations. It preserves every selected input byte-for-byte under `preserved/`, writes normalized entity candidates under `candidate-vault/entities/`, keeps unsupported legacy notes under `candidate-vault/legacy/`, quarantines malformed or specialized-schema records, preserves non-Markdown sources under `candidate-vault/sources/`, and records hashes in a private journal. Interior symlinks are never followed or copied.
+
+The rehearsal bundle contains private note bodies and source files. Keep it on trusted local storage, never in the public repository, and delete it after review.
+
 ## Apply phase—not implemented
 
 A future private apply adapter requires:

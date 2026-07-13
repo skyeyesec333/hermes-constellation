@@ -2,14 +2,41 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+import os
+import re
+import shutil
+import tempfile
 from collections import Counter, defaultdict
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .frontmatter import FrontmatterError, parse_frontmatter
-from .validation import ALLOWED_CANONICAL_FOLDERS, CanonicalValidationError, validate_canonical_text
+from .frontmatter import FrontmatterError, parse_frontmatter, render_frontmatter
+from .validation import (
+    ALLOWED_CANONICAL_FOLDERS,
+    CanonicalValidationError,
+    validate_canonical_text,
+)
 
 MAX_MARKDOWN_BYTES = 10 * 1024 * 1024
+_ULID_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+_ULID_PATTERN = re.compile(r"^[0-9A-HJKMNP-TV-Z]{26}$")
+_ENTITY_FOLDERS = {
+    "companies": "company",
+    "entities": None,
+    "organizations": "organization",
+    "people": "person",
+}
+_SENSITIVITY_MAP = {
+    "public": "public",
+    "internal": "internal",
+    "normal": "internal",
+    "low": "internal",
+    "confidential": "confidential",
+    "restricted": "restricted",
+}
 _INTERNAL_ROOTS = {".constellation"}
 _OPERATIONAL_ROOTS = {".git", ".obsidian", ".trash", "node_modules", "__pycache__"}
 _OPERATIONAL_FILES = {".ds_store"}
@@ -227,4 +254,296 @@ def plan_migration(
             "total_actions": len(actions),
             "returned_actions": min(len(actions), bounded_limit),
         },
+    }
+
+
+def _deterministic_ulid(seed: str) -> str:
+    value = int.from_bytes(hashlib.sha256(seed.encode("utf-8")).digest()[:16], "big")
+    chars = ["0"] * 26
+    for index in range(25, -1, -1):
+        chars[index] = _ULID_ALPHABET[value & 31]
+        value >>= 5
+    return "".join(chars)
+
+
+def _mapped_sensitivity(value: object) -> str:
+    if isinstance(value, str):
+        return _SENSITIVITY_MAP.get(value.strip().lower(), "restricted")
+    return "restricted"
+
+
+def _timestamp(value: object, fallback: datetime) -> str:
+    parsed: datetime | None = None
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, date):
+        parsed = datetime(value.year, value.month, value.day, tzinfo=timezone.utc)
+    elif isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            try:
+                parsed_date = date.fromisoformat(value)
+            except ValueError:
+                parsed = None
+            else:
+                parsed = datetime(
+                    parsed_date.year, parsed_date.month, parsed_date.day, tzinfo=timezone.utc
+                )
+    if parsed is None:
+        parsed = fallback
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.isoformat().replace("+00:00", "Z")
+
+
+def _entity_target(relative: str, record_type: str) -> str:
+    stem = Path(relative).stem.lower()
+    stem = re.sub(r"[^a-z0-9]+", "-", stem).strip("-") or "untitled"
+    if not stem.startswith(f"{record_type}-"):
+        stem = f"{record_type}-{stem}"
+    return f"entities/{stem}.md"
+
+
+def build_mapping_plan(root: Path | str, *, max_files: int = 100_000) -> dict[str, Any]:
+    """Compile deterministic private mappings without returning note bodies or writing files."""
+    vault = Path(root).resolve()
+    inventory = inventory_vault(vault, max_files=max_files)
+    duplicate_paths = {path for paths in inventory["duplicate_ids"].values() for path in paths}
+    mappings: list[dict[str, Any]] = []
+
+    for entry in inventory["markdown_entries"]:
+        relative = entry["path"]
+        path = vault / relative
+        mapping: dict[str, Any] = {
+            "source_path": relative,
+            "source_hash": hashlib.sha256(path.read_bytes()).hexdigest(),
+        }
+        if entry["frontmatter"] != "valid":
+            mapping.update(disposition="quarantine", reason=f"frontmatter-{entry['frontmatter']}")
+            mappings.append(mapping)
+            continue
+        metadata, _ = parse_frontmatter(path.read_text(encoding="utf-8"))
+        sensitivity = _mapped_sensitivity(metadata.get("sensitivity"))
+        mapping["proposed_sensitivity"] = sensitivity
+        first_folder = Path(relative).parts[0].lower()
+        if first_folder not in _ENTITY_FOLDERS:
+            disposition = (
+                "defer_specialized_schema"
+                if entry["classification"] == "canonical"
+                else "preserve_legacy"
+            )
+            mapping.update(disposition=disposition, reason="unsupported-v0.1-record-type")
+            mappings.append(mapping)
+            continue
+
+        inferred_type = _ENTITY_FOLDERS[first_folder]
+        metadata_type = metadata.get("type")
+        record_type = inferred_type or (
+            metadata_type.strip().lower()
+            if isinstance(metadata_type, str) and metadata_type.strip()
+            else "entity"
+        )
+        legacy_id = metadata.get("id")
+        legacy_id_text = legacy_id if isinstance(legacy_id, str) and legacy_id else ""
+        if _ULID_PATTERN.fullmatch(legacy_id_text) and relative not in duplicate_paths:
+            proposed_id = legacy_id_text
+        else:
+            seed = (
+                f"legacy-id:{legacy_id_text}"
+                if legacy_id_text and relative not in duplicate_paths
+                else f"path:{relative}\0legacy-id:{legacy_id_text}"
+            )
+            proposed_id = _deterministic_ulid(seed)
+        title = next(
+            (
+                value.strip()
+                for key in ("title", "name", "company_name", "org_name")
+                if isinstance((value := metadata.get(key)), str) and value.strip()
+            ),
+            Path(relative).stem.replace("-", " ").strip().title(),
+        )
+        status = metadata.get("status")
+        if not isinstance(status, str) or not status.strip():
+            status = "migration-review"
+        fallback = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+        created = _timestamp(metadata.get("created_at"), fallback)
+        updated = _timestamp(metadata.get("updated_at", metadata.get("last_updated")), fallback)
+        if datetime.fromisoformat(updated.replace("Z", "+00:00")) < datetime.fromisoformat(
+            created.replace("Z", "+00:00")
+        ):
+            created = updated
+        mapping.update(
+            disposition="candidate_entity",
+            target_path=_entity_target(relative, record_type),
+            legacy_id=legacy_id_text or None,
+            proposed_metadata={
+                "schema_version": "0.1",
+                "id": proposed_id,
+                "type": record_type,
+                "title": title,
+                "status": status.strip(),
+                "sensitivity": sensitivity,
+                "created_at": created,
+                "updated_at": updated,
+            },
+        )
+        mappings.append(mapping)
+
+    target_groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for mapping in mappings:
+        if mapping["disposition"] == "candidate_entity":
+            target_groups[mapping["target_path"]].append(mapping)
+    for target, group in target_groups.items():
+        if len(group) < 2:
+            continue
+        target_path = Path(target)
+        for index, mapping in enumerate(sorted(group, key=lambda item: item["source_path"]), start=1):
+            mapping["target_path"] = (
+                target_path.parent / f"{target_path.stem}-{index:02d}{target_path.suffix}"
+            ).as_posix()
+            mapping["target_collision_resolved"] = True
+
+    for relative in inventory["other_entries"]:
+        path = vault / relative
+        mappings.append(
+            {
+                "source_path": relative,
+                "source_hash": hashlib.sha256(path.read_bytes()).hexdigest(),
+                "disposition": "preserve_source",
+            }
+        )
+    for relative in inventory["symlinks"]:
+        mappings.append({"source_path": relative, "disposition": "manual_symlink_review"})
+
+    mappings.sort(key=lambda item: item["source_path"])
+    counts = Counter(item["disposition"] for item in mappings)
+    return {
+        "mapping_version": 1,
+        "mode": "read-only",
+        "source_writes_performed": False,
+        "mappings": mappings,
+        "summary": {"total": len(mappings), "by_disposition": dict(sorted(counts.items()))},
+    }
+
+
+def _write_rehearsal_file(root: Path, relative: str, data: bytes) -> str:
+    destination = root / relative
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(data)
+    return hashlib.sha256(data).hexdigest()
+
+
+def rehearse_migration(
+    root: Path | str,
+    destination: Path | str,
+    *,
+    confirm_disposable: bool = False,
+    max_files: int = 100_000,
+) -> dict[str, Any]:
+    """Materialize a candidate migration only in a new disposable destination."""
+    if not confirm_disposable:
+        raise MigrationError("disposable rehearsal requires explicit confirmation")
+    supplied_source = Path(root)
+    if supplied_source.is_symlink():
+        raise MigrationError("vault root cannot be a symlink")
+    source = supplied_source.resolve()
+    target = Path(os.path.abspath(destination))
+    if target.is_symlink():
+        raise MigrationError("disposable destination cannot be a symlink")
+    if source == target or source in target.parents or target in source.parents:
+        raise MigrationError("source and disposable destination cannot overlap")
+    if target.exists():
+        raise MigrationError("disposable destination must not exist")
+    current = target.parent
+    while current != current.parent:
+        if current.is_symlink():
+            raise MigrationError("disposable destination cannot contain symlink components")
+        current = current.parent
+    plan = build_mapping_plan(source, max_files=max_files)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    stage = Path(tempfile.mkdtemp(prefix=f".{target.name}.staging-", dir=target.parent))
+    journal: list[dict[str, Any]] = []
+    try:
+        for mapping in plan["mappings"]:
+            disposition = mapping["disposition"]
+            if disposition == "manual_symlink_review":
+                journal.append(
+                    {
+                        "source_path": mapping["source_path"],
+                        "disposition": disposition,
+                        "copied": False,
+                    }
+                )
+                continue
+            relative = mapping["source_path"]
+            source_path = source / relative
+            data = source_path.read_bytes()
+            source_hash = hashlib.sha256(data).hexdigest()
+            if source_hash != mapping["source_hash"]:
+                raise MigrationError(f"source changed during rehearsal: {relative}")
+            preserved_relative = f"preserved/{relative}"
+            _write_rehearsal_file(stage, preserved_relative, data)
+
+            candidate_relative: str
+            candidate_data: bytes
+            if disposition == "candidate_entity":
+                _, body = parse_frontmatter(data.decode("utf-8"))
+                if not body.strip():
+                    body = f"# {mapping['proposed_metadata']['title']}\n"
+                candidate_relative = f"candidate-vault/{mapping['target_path']}"
+                candidate_text = render_frontmatter(mapping["proposed_metadata"], body)
+                validate_canonical_text(candidate_text, mapping["target_path"])
+                candidate_data = candidate_text.encode("utf-8")
+            elif disposition == "preserve_legacy":
+                candidate_relative = f"candidate-vault/legacy/{relative}"
+                candidate_data = data
+            elif disposition in {"quarantine", "defer_specialized_schema"}:
+                candidate_relative = f"candidate-vault/quarantine/{relative}"
+                candidate_data = data
+            elif disposition == "preserve_source":
+                candidate_relative = f"candidate-vault/sources/{relative}"
+                candidate_data = data
+            else:
+                raise MigrationError(f"unsupported rehearsal disposition: {disposition}")
+            output_hash = _write_rehearsal_file(stage, candidate_relative, candidate_data)
+            if hashlib.sha256(source_path.read_bytes()).hexdigest() != source_hash:
+                raise MigrationError(f"source changed during rehearsal: {relative}")
+            journal.append(
+                {
+                    "source_path": relative,
+                    "source_hash": source_hash,
+                    "preserved_path": preserved_relative,
+                    "candidate_path": candidate_relative,
+                    "candidate_hash": output_hash,
+                    "disposition": disposition,
+                }
+            )
+
+        _write_rehearsal_file(
+            stage,
+            "migration-plan.private.json",
+            (json.dumps(plan, indent=2, sort_keys=True) + "\n").encode("utf-8"),
+        )
+        _write_rehearsal_file(
+            stage,
+            "migration-journal.private.json",
+            (json.dumps({"version": 1, "entries": journal}, indent=2, sort_keys=True) + "\n").encode(
+                "utf-8"
+            ),
+        )
+        if build_mapping_plan(source, max_files=max_files) != plan:
+            raise MigrationError("source tree changed during rehearsal")
+        if target.exists() or target.is_symlink():
+            raise MigrationError("disposable destination appeared during rehearsal")
+        os.replace(stage, target)
+    except Exception:
+        shutil.rmtree(stage, ignore_errors=True)
+        raise
+    return {
+        "rehearsal_version": 1,
+        "source_writes_performed": False,
+        "destination_writes_performed": True,
+        "destination": str(target),
+        "summary": plan["summary"],
     }

@@ -52,6 +52,14 @@ def build_parser() -> argparse.ArgumentParser:
     migrate.add_argument("--action-limit", type=int, default=1_000)
     migrate.add_argument("--max-files", type=int, default=100_000)
 
+    rehearse = sub.add_parser(
+        "migrate-rehearse", help="Build a destination-only disposable migration rehearsal"
+    )
+    rehearse.add_argument("vault", type=Path)
+    rehearse.add_argument("destination", type=Path)
+    rehearse.add_argument("--max-files", type=int, default=100_000)
+    rehearse.add_argument("--confirm-disposable", action="store_true")
+
     return parser
 
 
@@ -108,6 +116,15 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
         return plan_migration(
             vault,
             action_limit=int(values.get("action_limit", 1_000)),
+            max_files=int(values.get("max_files", 100_000)),
+        )
+    if action == "migrate-rehearse":
+        from constellation.migration import rehearse_migration
+
+        return rehearse_migration(
+            vault,
+            Path(values["destination"]).expanduser(),
+            confirm_disposable=bool(values.get("confirm_disposable")),
             max_files=int(values.get("max_files", 100_000)),
         )
     raise ValueError(f"Unknown action: {action}")

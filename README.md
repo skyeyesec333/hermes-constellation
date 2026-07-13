@@ -25,8 +25,12 @@ python3 -m venv .venv
 .venv/bin/constellation index ~/my-constellation
 .venv/bin/constellation search ~/my-constellation "example question"
 
-# Read-only legacy-vault inventory; this performs no writes.
-.venv/bin/constellation migrate-plan ~/existing-vault > migration-plan.private.json
+# Read-only legacy-vault inventory; this performs no writes
+.venv/bin/constellation migrate-plan /path/to/legacy-vault > migration-plan.private.json
+
+# Destination-only rehearsal; output must not exist and remains private
+.venv/bin/constellation migrate-rehearse /path/to/legacy-vault /tmp/constellation-rehearsal \
+  --confirm-disposable
 ```
 
 The filesystem plugin entry point is the repository root. When installed as a Hermes plugin it exposes:

@@ -4,8 +4,16 @@ from pathlib import Path
 
 import pytest
 
+import constellation.migration as migration_module
 from constellation.cli import main
-from constellation.migration import MigrationError, inventory_vault, plan_migration
+from constellation.migration import (
+    MigrationError,
+    build_mapping_plan,
+    inventory_vault,
+    plan_migration,
+    rehearse_migration,
+)
+from constellation.validation import validate_canonical_text
 
 RECORD_ID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 
@@ -140,3 +148,174 @@ def test_plan_flags_existing_canonical_notes_that_fail_specialized_schema(tmp_pa
         action["action"] == "repair_canonical_record" and action["path"] == "claims/broken.md"
         for action in plan["actions"]
     )
+
+
+def _legacy_record(title: str, record_type: str, sensitivity: str, legacy_id: str) -> str:
+    return f"""---
+id: {legacy_id}
+type: {record_type}
+name: {title}
+status: active
+sensitivity: {sensitivity}
+last_updated: 2026-01-02
+---
+
+# {title}
+
+PRIVATE BODY MUST NOT ENTER THE PLAN
+"""
+
+
+def test_mapping_plan_applies_privacy_safe_defaults_and_deterministic_ids(tmp_path):
+    root = tmp_path / "vault"
+    for folder in ("people", "companies", "patterns"):
+        (root / folder).mkdir(parents=True, exist_ok=True)
+    (root / "people/alex.md").write_text(
+        _legacy_record("Alex", "person", "normal", "shared-legacy-id"), encoding="utf-8"
+    )
+    (root / "companies/acme.md").write_text(
+        _legacy_record("Acme", "company", "confidential", "shared-legacy-id"), encoding="utf-8"
+    )
+    (root / "patterns/repeated.md").write_text(
+        _legacy_record("Repeated", "pattern", "low", "pattern-family"), encoding="utf-8"
+    )
+
+    first = build_mapping_plan(root)
+    second = build_mapping_plan(root)
+    mappings = {item["source_path"]: item for item in first["mappings"]}
+
+    assert first == second
+    assert mappings["people/alex.md"]["disposition"] == "candidate_entity"
+    assert mappings["people/alex.md"]["target_path"] == "entities/person-alex.md"
+    assert mappings["people/alex.md"]["proposed_metadata"]["sensitivity"] == "internal"
+    assert mappings["companies/acme.md"]["proposed_metadata"]["sensitivity"] == "confidential"
+    assert mappings["patterns/repeated.md"]["disposition"] == "preserve_legacy"
+    assert mappings["patterns/repeated.md"]["proposed_sensitivity"] == "internal"
+    assert mappings["people/alex.md"]["proposed_metadata"]["id"] != mappings["companies/acme.md"][
+        "proposed_metadata"
+    ]["id"]
+    assert len(mappings["people/alex.md"]["proposed_metadata"]["id"]) == 26
+    assert "PRIVATE BODY" not in json.dumps(first)
+
+
+def test_mapping_plan_resolves_candidate_target_collisions_deterministically(tmp_path):
+    root = tmp_path / "vault"
+    (root / "people").mkdir(parents=True)
+    (root / "people/Alpha.md").write_text(
+        _legacy_record("Alpha One", "person", "internal", "legacy-one"), encoding="utf-8"
+    )
+    (root / "people/alpha!.md").write_text(
+        _legacy_record("Alpha Two", "person", "internal", "legacy-two"), encoding="utf-8"
+    )
+
+    plan = build_mapping_plan(root)
+    targets = [item["target_path"] for item in plan["mappings"]]
+
+    assert len(targets) == len(set(targets))
+    assert targets == sorted(targets)
+
+
+def test_rehearsal_writes_only_to_disposable_destination_and_preserves_every_input(tmp_path):
+    root = tmp_path / "vault"
+    (root / "people").mkdir(parents=True)
+    (root / "patterns").mkdir()
+    (root / "Attachments").mkdir()
+    person = _legacy_record("Alex", "person", "normal", "legacy-person")
+    pattern = _legacy_record("Pattern", "pattern", "low", "legacy-pattern")
+    broken = "# Missing frontmatter\n"
+    (root / "people/alex.md").write_text(person, encoding="utf-8")
+    (root / "people/broken.md").write_text(broken, encoding="utf-8")
+    (root / "patterns/pattern.md").write_text(pattern, encoding="utf-8")
+    (root / "Attachments/brief.txt").write_text("source bytes", encoding="utf-8")
+    (root / "external-link").symlink_to(tmp_path / "outside", target_is_directory=True)
+    before = _snapshot(root)
+    destination = tmp_path / "rehearsal"
+
+    result = rehearse_migration(root, destination, confirm_disposable=True)
+
+    assert _snapshot(root) == before
+    assert result["source_writes_performed"] is False
+    assert result["destination_writes_performed"] is True
+    assert (destination / "preserved/people/alex.md").read_text(encoding="utf-8") == person
+    assert (destination / "candidate-vault/legacy/patterns/pattern.md").read_text(
+        encoding="utf-8"
+    ) == pattern
+    assert (destination / "candidate-vault/quarantine/people/broken.md").read_text(
+        encoding="utf-8"
+    ) == broken
+    assert (destination / "candidate-vault/sources/Attachments/brief.txt").read_text(
+        encoding="utf-8"
+    ) == "source bytes"
+    candidate = destination / "candidate-vault/entities/person-alex.md"
+    validate_canonical_text(candidate.read_text(encoding="utf-8"), "entities/person-alex.md")
+    assert not (destination / "candidate-vault/external-link").exists()
+    assert (destination / "migration-plan.private.json").is_file()
+    assert (destination / "migration-journal.private.json").is_file()
+
+
+def test_rehearsal_rejects_unconfirmed_overlapping_existing_and_symlink_destinations(tmp_path):
+    root = tmp_path / "vault"
+    (root / "people").mkdir(parents=True)
+    (root / "people/alex.md").write_text(
+        _legacy_record("Alex", "person", "internal", "legacy-person"), encoding="utf-8"
+    )
+    before = _snapshot(root)
+
+    with pytest.raises(MigrationError, match="confirmation"):
+        rehearse_migration(root, tmp_path / "unconfirmed")
+    with pytest.raises(MigrationError, match="overlap"):
+        rehearse_migration(root, root / "nested-output", confirm_disposable=True)
+    assert _snapshot(root) == before
+
+    existing = tmp_path / "existing"
+    existing.mkdir()
+    (existing / "keep.txt").write_text("keep", encoding="utf-8")
+    with pytest.raises(MigrationError, match="must not exist"):
+        rehearse_migration(root, existing, confirm_disposable=True)
+    assert (existing / "keep.txt").read_text(encoding="utf-8") == "keep"
+
+    linked = tmp_path / "linked-output"
+    linked.symlink_to(tmp_path / "somewhere", target_is_directory=True)
+    with pytest.raises(MigrationError, match="symlink"):
+        rehearse_migration(root, linked, confirm_disposable=True)
+
+
+def test_rehearsal_cli_requires_explicit_confirmation_and_returns_json(tmp_path, capsys):
+    root = tmp_path / "vault"
+    (root / "people").mkdir(parents=True)
+    (root / "people/alex.md").write_text(
+        _legacy_record("Alex", "person", "internal", "legacy-person"), encoding="utf-8"
+    )
+    destination = tmp_path / "rehearsal"
+
+    assert main(["migrate-rehearse", str(root), str(destination), "--confirm-disposable"]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["result"]["source_writes_performed"] is False
+    assert payload["result"]["destination_writes_performed"] is True
+    assert destination.is_dir()
+
+
+def test_rehearsal_aborts_if_source_tree_changes_after_copy(tmp_path, monkeypatch):
+    root = tmp_path / "vault"
+    (root / "people").mkdir(parents=True)
+    (root / "people/alex.md").write_text(
+        _legacy_record("Alex", "person", "internal", "legacy-person"), encoding="utf-8"
+    )
+    destination = tmp_path / "rehearsal"
+    original_write = migration_module._write_rehearsal_file
+
+    def write_then_add_source(stage, relative, data):
+        result = original_write(stage, relative, data)
+        if relative == "migration-journal.private.json":
+            (root / "people/appeared.md").write_text(
+                _legacy_record("Appeared", "person", "internal", "appeared"), encoding="utf-8"
+            )
+        return result
+
+    monkeypatch.setattr(migration_module, "_write_rehearsal_file", write_then_add_source)
+
+    with pytest.raises(MigrationError, match="source tree changed"):
+        rehearse_migration(root, destination, confirm_disposable=True)
+    assert not destination.exists()
