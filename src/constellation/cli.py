@@ -47,6 +47,11 @@ def build_parser() -> argparse.ArgumentParser:
     research.add_argument("action", choices=["start", "status"])
     research.add_argument("--run-id")
 
+    migrate = sub.add_parser("migrate-plan", help="Inventory a legacy vault without writing")
+    migrate.add_argument("vault", type=Path)
+    migrate.add_argument("--action-limit", type=int, default=1_000)
+    migrate.add_argument("--max-files", type=int, default=100_000)
+
     return parser
 
 
@@ -97,6 +102,14 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
         from constellation.research import research_command
 
         return research_command(vault, values)
+    if action == "migrate-plan":
+        from constellation.migration import plan_migration
+
+        return plan_migration(
+            vault,
+            action_limit=int(values.get("action_limit", 1_000)),
+            max_files=int(values.get("max_files", 100_000)),
+        )
     raise ValueError(f"Unknown action: {action}")
 
 

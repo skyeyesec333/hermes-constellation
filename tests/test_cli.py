@@ -13,3 +13,4 @@ def test_cli_exposes_trusted_loop_commands():
     assert "search" in help_text
     assert "review" in help_text
     assert "research" in help_text
+    assert "migrate-plan" in help_text

@@ -24,6 +24,9 @@ python3 -m venv .venv
 .venv/bin/constellation validate ~/my-constellation
 .venv/bin/constellation index ~/my-constellation
 .venv/bin/constellation search ~/my-constellation "example question"
+
+# Read-only legacy-vault inventory; this performs no writes.
+.venv/bin/constellation migrate-plan ~/existing-vault > migration-plan.private.json
 ```
 
 The filesystem plugin entry point is the repository root. When installed as a Hermes plugin it exposes:
@@ -42,6 +45,7 @@ The filesystem plugin entry point is the repository root. When installed as a He
 - Candidate review and conflict-safe canonical promotion.
 - Exact-ID and SQLite FTS5 retrieval with sensitivity ceilings and bounded evidence packets.
 - Token-aware research receipts with a locked 25% synthesis/evaluation reserve.
+- Read-only legacy-vault inventory and bounded dry-run migration plans.
 - One-way allowlist release compiler and exact-tree privacy scanner.
 - Entirely fictional `example.test` demo vault.
 
