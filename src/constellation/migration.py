@@ -465,10 +465,6 @@ def build_mapping_plan(root: Path | str, *, max_files: int = 100_000) -> dict[st
                 proposed_metadata["source_url"] = source_url
             source_parts = Path(relative).parts[1:]
             source_subpath = Path(*source_parts).as_posix()
-            source_stem = re.sub(r"[^a-z0-9]+", "-", Path(relative).stem.lower()).strip("-")
-            source_stem = source_stem or "untitled"
-            if not source_stem.startswith("source-item-"):
-                source_stem = f"source-item-{source_stem}"
             proposed_metadata.update(
                 {
                     "type": "source-item",
@@ -479,7 +475,7 @@ def build_mapping_plan(root: Path | str, *, max_files: int = 100_000) -> dict[st
             )
             mapping.update(
                 disposition="candidate_source_item",
-                target_path=f"source-items/{source_stem}.md",
+                target_path=f"source-items/{source_subpath}",
                 legacy_id=legacy_id_text or None,
                 source_basis="preserved-legacy-note",
                 proposed_metadata=proposed_metadata,

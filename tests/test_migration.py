@@ -279,7 +279,7 @@ Evidence body remains unchanged.
     mapping = plan["mappings"][0]
 
     assert mapping["disposition"] == "candidate_source_item"
-    assert mapping["target_path"] == "source-items/source-item-interview.md"
+    assert mapping["target_path"] == "source-items/interview.md"
     assert mapping["proposed_metadata"]["source_hash"] == hashlib.sha256(text.encode()).hexdigest()
     assert mapping["proposed_metadata"]["original_path"] == (
         "sources/legacy-source-items/interview.md"
@@ -291,13 +291,13 @@ Evidence body remains unchanged.
 
     destination = tmp_path / "rehearsal"
     rehearse_migration(root, destination, confirm_disposable=True)
-    candidate = destination / "candidate-vault/source-items/source-item-interview.md"
+    candidate = destination / "candidate-vault/source-items/interview.md"
     original = destination / "candidate-vault/sources/legacy-source-items/interview.md"
     assert original.read_bytes() == text.encode()
     _, source_body = parse_frontmatter(text)
     _, candidate_body = parse_frontmatter(candidate.read_text(encoding="utf-8"))
     assert candidate_body == source_body
-    validate_canonical_text(candidate.read_text(encoding="utf-8"), "source-items/source-item-interview.md")
+    validate_canonical_text(candidate.read_text(encoding="utf-8"), "source-items/interview.md")
 
 
 def test_source_items_folder_entity_skeleton_is_mapped_as_entity(tmp_path):

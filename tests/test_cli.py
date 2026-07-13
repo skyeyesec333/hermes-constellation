@@ -15,3 +15,5 @@ def test_cli_exposes_trusted_loop_commands():
     assert "research" in help_text
     assert "migrate-plan" in help_text
     assert "migrate-rehearse" in help_text
+    assert "migrate-prepare" in help_text
+    assert "migrate-activate" in help_text

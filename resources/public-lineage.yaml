@@ -100,6 +100,8 @@ files:
     lineage: handwritten-generic
   src/constellation/__init__.py:
     lineage: handwritten-generic
+  src/constellation/apply.py:
+    lineage: handwritten-generic
   src/constellation/cli.py:
     lineage: handwritten-generic
   src/constellation/doctor.py:
@@ -135,6 +137,8 @@ files:
   src/hermes_constellation_plugin/schemas.py:
     lineage: handwritten-generic
   src/hermes_constellation_plugin/tools.py:
+    lineage: handwritten-generic
+  tests/test_apply.py:
     lineage: handwritten-generic
   tests/test_cli.py:
     lineage: handwritten-generic

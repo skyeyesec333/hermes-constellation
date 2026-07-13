@@ -31,7 +31,19 @@ python3 -m venv .venv
 # Destination-only rehearsal; output must not exist and remains private
 .venv/bin/constellation migrate-rehearse /path/to/legacy-vault /tmp/constellation-rehearsal \
   --confirm-disposable
+
+# After backup verification and mapping review, prepare a same-filesystem sibling
+.venv/bin/constellation migrate-prepare /path/to/legacy-vault /tmp/constellation-rehearsal \
+  /path/to/legacy-vault.prepared --expected-source-sha256 <approved-sha256> \
+  --confirm-apply-staging
+
+# Stop every vault writer before the short atomic cutover; the original is retained
+.venv/bin/constellation migrate-activate /path/to/legacy-vault \
+  /path/to/legacy-vault.prepared /path/to/legacy-vault.pre-migration \
+  --expected-source-sha256 <approved-sha256> --confirm-canonical-apply
 ```
+
+`migrate-activate` is deliberately not a convenience command: read [`docs/migration.md`](docs/migration.md), verify a fresh restore, pause all writers, and retain the rollback vault until dogfooding succeeds.
 
 The filesystem plugin entry point is the repository root. When installed as a Hermes plugin it exposes:
 

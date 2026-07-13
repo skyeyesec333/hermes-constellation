@@ -60,6 +60,24 @@ def build_parser() -> argparse.ArgumentParser:
     rehearse.add_argument("--max-files", type=int, default=100_000)
     rehearse.add_argument("--confirm-disposable", action="store_true")
 
+    prepare = sub.add_parser(
+        "migrate-prepare", help="Build a verified sibling vault for canonical cutover"
+    )
+    prepare.add_argument("vault", type=Path)
+    prepare.add_argument("rehearsal", type=Path)
+    prepare.add_argument("destination", type=Path)
+    prepare.add_argument("--expected-source-sha256", required=True)
+    prepare.add_argument("--confirm-apply-staging", action="store_true")
+
+    activate = sub.add_parser(
+        "migrate-activate", help="Atomically activate a prepared vault with rollback"
+    )
+    activate.add_argument("vault", type=Path)
+    activate.add_argument("prepared", type=Path)
+    activate.add_argument("rollback", type=Path)
+    activate.add_argument("--expected-source-sha256", required=True)
+    activate.add_argument("--confirm-canonical-apply", action="store_true")
+
     return parser
 
 
@@ -126,6 +144,26 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
             Path(values["destination"]).expanduser(),
             confirm_disposable=bool(values.get("confirm_disposable")),
             max_files=int(values.get("max_files", 100_000)),
+        )
+    if action == "migrate-prepare":
+        from constellation.apply import build_cutover_vault
+
+        return build_cutover_vault(
+            vault,
+            Path(values["rehearsal"]).expanduser(),
+            Path(values["destination"]).expanduser(),
+            expected_source_sha256=str(values["expected_source_sha256"]),
+            confirm_apply_staging=bool(values.get("confirm_apply_staging")),
+        )
+    if action == "migrate-activate":
+        from constellation.apply import activate_cutover
+
+        return activate_cutover(
+            vault,
+            Path(values["prepared"]).expanduser(),
+            Path(values["rollback"]).expanduser(),
+            expected_source_sha256=str(values["expected_source_sha256"]),
+            confirm_canonical_apply=bool(values.get("confirm_canonical_apply")),
         )
     raise ValueError(f"Unknown action: {action}")
 

@@ -39,15 +39,37 @@ The migration adapter recognizes the legacy `--- auto-discovered degree-2 skelet
 
 The rehearsal bundle contains private note bodies and source files. Keep it on trusted local storage, never in the public repository, and delete it after review.
 
-## Apply phase—not implemented
+## Gated apply phase
 
-A future private apply adapter requires:
+The apply path is intentionally split into a destination-only preparation step and a short atomic activation step. First build a sibling replacement vault from an unchanged source and a matching rehearsal bundle:
 
-1. A verified backup and restorable snapshot.
-2. Review of every mapping and duplicate-ID decision.
-3. Input hashes and a versioned migration plan.
-4. Explicit apply confirmation.
-5. A migration journal with forward-repair instructions.
-6. Post-migration schema, link, source, and retrieval validation.
+```bash
+constellation migrate-prepare /path/to/canonical-vault /path/to/rehearsal \
+  /path/to/canonical-vault.prepared \
+  --expected-source-sha256 <approved-tree-sha256> \
+  --confirm-apply-staging
+```
 
-No private migration mappings, aliases, reports, or snapshots belong in the public repository.
+Preparation refuses stale source hashes, stale rehearsal mappings, existing or overlapping destinations, candidate/provenance hash mismatches, output collisions, invalid canonical records, duplicate candidate IDs, and missing canonical vault initialization. Source-item paths and filenames are retained so existing Obsidian wikilinks continue resolving. Legacy notes in noncanonical folders remain at their working paths; invalid records from canonical folders move to `quarantine/`; originals displaced by normalized candidates remain under `legacy/` or `sources/legacy-source-items/`. A recognized `.constellation/config.yaml` is retained; a missing or legacy config is replaced with the current canonical manifest while an existing unknown config is preserved under `.migration/legacy-config.yaml`. `.obsidian` state is copied, but generated indexes are not. Symlinks are never followed; any skipped links are listed in the private apply manifest for explicit review.
+
+After a fresh recovery snapshot, stop all vault writers and atomically activate the prepared sibling:
+
+```bash
+constellation migrate-activate /path/to/canonical-vault \
+  /path/to/canonical-vault.prepared \
+  /path/to/canonical-vault.pre-migration \
+  --expected-source-sha256 <approved-tree-sha256> \
+  --confirm-canonical-apply
+```
+
+Activation requires all three paths to be siblings on the same filesystem. It renames the original to the rollback path, renames the prepared vault to the canonical path, fsyncs the parent directory, and validates the activated vault against its private apply manifest. If post-swap validation fails, both original paths are restored automatically. The rollback vault is never deleted automatically.
+
+Operator gates remain mandatory:
+
+1. Verify fresh encrypted recovery snapshots and a recent restore drill.
+2. Confirm the canonical tree hash still matches the approved input.
+3. Pause gateway, cron, sync, index, and Obsidian writers for the cutover window.
+4. Activate once, validate schemas and stable links, then rebuild disposable indexes.
+5. Retain the rollback vault until private dogfooding succeeds.
+
+No private migration mappings, aliases, reports, apply manifests, rollback trees, or snapshots belong in the public repository.
