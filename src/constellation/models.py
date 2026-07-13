@@ -85,10 +85,15 @@ class SourceItem(BaseRecord):
     original_path: str
     media_type: Annotated[str, Field(min_length=1, max_length=100)]
     extracted_text_path: str | None = None
+    extraction_manifest_path: str | None = None
+    extraction_status: Literal["complete", "complete-with-gaps"] | None = None
     source_url: str | None = None
 
     _original_path = field_validator("original_path")(_relative_posix)
     _text_path = field_validator("extracted_text_path")(
+        lambda value: None if value is None else _relative_posix(value)
+    )
+    _manifest_path = field_validator("extraction_manifest_path")(
         lambda value: None if value is None else _relative_posix(value)
     )
 

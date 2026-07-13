@@ -30,6 +30,34 @@
       "default": null,
       "title": "Extracted Text Path"
     },
+    "extraction_manifest_path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Extraction Manifest Path"
+    },
+    "extraction_status": {
+      "anyOf": [
+        {
+          "enum": [
+            "complete",
+            "complete-with-gaps"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Extraction Status"
+    },
     "id": {
       "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
       "title": "Id",
