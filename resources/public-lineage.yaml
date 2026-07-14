@@ -128,6 +128,8 @@ files:
     lineage: handwritten-generic
   src/constellation/ingest.py:
     lineage: handwritten-generic
+  src/constellation/identity.py:
+    lineage: handwritten-generic
   src/constellation/migration.py:
     lineage: handwritten-generic
   src/constellation/models.py:
@@ -169,6 +171,8 @@ files:
   tests/test_egress.py:
     lineage: handwritten-generic
   tests/test_ingest.py:
+    lineage: handwritten-generic
+  tests/test_identity.py:
     lineage: handwritten-generic
   tests/test_migration.py:
     lineage: handwritten-generic

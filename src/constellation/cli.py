@@ -24,6 +24,10 @@ def build_parser() -> argparse.ArgumentParser:
     operator.add_argument("--input", type=Path)
     operator.add_argument("--confirm", action="store_true")
 
+    resolve = sub.add_parser("resolve", help="Propose review-only identity matches")
+    resolve.add_argument("vault", type=Path)
+    resolve.add_argument("action", choices=["propose"])
+
     ingest = sub.add_parser("ingest", help="Preserve a local source and stage its canonical candidate")
     ingest.add_argument("vault", type=Path)
     ingest.add_argument("source", type=Path)
@@ -118,6 +122,14 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
                 raise ValueError("operator stage requires --input")
             context = stage_operator_context(vault, Path(input_path).expanduser())
         return {"status": context.status, "version": context.version}
+    if action == "resolve":
+        from constellation.identity import propose_identity_candidates_from_vault
+
+        candidates = propose_identity_candidates_from_vault(vault)
+        return {
+            "status": "candidates_found" if candidates else "no_candidates",
+            "candidates": [candidate.model_dump(mode="json") for candidate in candidates],
+        }
     if action == "ingest":
         from constellation.ingest import ingest_file
 
