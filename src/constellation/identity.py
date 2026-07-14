@@ -8,6 +8,9 @@ import unicodedata
 from pathlib import Path
 from typing import Literal
 
+from email_validator import EmailNotValidError, validate_email
+import phonenumbers
+from phonenumbers import NumberParseException
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from rapidfuzz import __version__ as RAPIDFUZZ_VERSION
 from rapidfuzz.fuzz import ratio
@@ -60,6 +63,25 @@ class IdentityMatchCandidate(BaseModel):
     status: Literal["pending"] = "pending"
     matcher: Literal["rapidfuzz"] = "rapidfuzz"
     matcher_version: str = RAPIDFUZZ_VERSION
+
+
+def normalize_identity_email(value: str) -> str | None:
+    """Return a local canonical email form without DNS or provider lookups."""
+    try:
+        return validate_email(value, check_deliverability=False).normalized.casefold()
+    except EmailNotValidError:
+        return None
+
+
+def normalize_identity_phone(value: str, *, region: str | None) -> str | None:
+    """Return E.164 only when the caller supplied an explicit parsing region."""
+    try:
+        number = phonenumbers.parse(value, region)
+    except NumberParseException:
+        return None
+    if not phonenumbers.is_possible_number(number):
+        return None
+    return phonenumbers.format_number(number, phonenumbers.PhoneNumberFormat.E164)
 
 
 def normalize_identity_name(value: str, *, entity_kind: EntityKind) -> str:

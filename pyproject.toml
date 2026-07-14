@@ -41,7 +41,11 @@ ocr = [
   "Pillow>=10,<13",
   "rapidocr-onnxruntime>=1.4,<2",
 ]
-identity = ["rapidfuzz>=3,<4"]
+identity = [
+  "rapidfuzz>=3,<4",
+  "phonenumbers>=9,<10",
+  "email-validator>=2,<3",
+]
 dev = ["pytest>=8", "pytest-cov>=5", "build>=1.2", "hatchling>=1.25", "ruff>=0.5"]
 
 [project.scripts]

@@ -3,7 +3,11 @@ from datetime import UTC, datetime
 
 from constellation.cli import main
 from constellation.frontmatter import render_frontmatter
-from constellation.identity import propose_identity_candidates
+from constellation.identity import (
+    normalize_identity_email,
+    normalize_identity_phone,
+    propose_identity_candidates,
+)
 from constellation.models import EntityKind, EntityRecord, Sensitivity
 
 
@@ -22,6 +26,14 @@ def entity(identifier: str, title: str) -> EntityRecord:
         created_at=datetime(2026, 1, 1, tzinfo=UTC),
         updated_at=datetime(2026, 1, 1, tzinfo=UTC),
     )
+
+
+def test_contact_normalizers_require_explicit_phone_region_and_preserve_email_canonical_form():
+    assert normalize_identity_email("Fictional.User@" + "EXAMPLE." + "COM") == (
+        "fictional.user@" + "example." + "com"
+    )
+    assert normalize_identity_phone("(415) 555-2671", region="US") == "+1" + "415" + "555" + "2671"
+    assert normalize_identity_phone("415 555 2671", region=None) is None
 
 
 def test_identity_proposal_exposes_the_name_evidence_without_merging_entities():
