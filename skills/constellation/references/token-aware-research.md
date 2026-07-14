@@ -8,6 +8,8 @@ Constellation research receipts are evidence and accounting records, not provide
 - Lock the final 25% of calls, tokens, cost, and context for synthesis/evaluation.
 - Stop before a proposed call would exceed its lane's available budget.
 - Budget exhaustion is a terminal state and blocks canonical promotion.
+- `constellation preflight <vault> <file> --task <kind>` builds a local no-egress plan before ingest; it separately budgets source bytes, pages, audio minutes, extraction, model input/output tokens, context, calls, and cost.
+- Local extraction and transcription receive zero LLM-token allocation. Books beyond their default profile require explicit long-form mode rather than silently changing global limits.
 
 ## Receipt version 2
 

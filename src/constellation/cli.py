@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -50,6 +51,23 @@ def build_parser() -> argparse.ArgumentParser:
     ingest.add_argument("vault", type=Path)
     ingest.add_argument("source", type=Path)
     ingest.add_argument("--source-url", help="Original capture URL; Constellation never fetches it")
+
+    preflight = sub.add_parser("preflight", help="Plan bounded local processing without ingesting")
+    preflight.add_argument("vault", type=Path)
+    preflight.add_argument("source", type=Path)
+    preflight.add_argument(
+        "--task",
+        required=True,
+        choices=[
+            "business_card",
+            "meeting",
+            "deck",
+            "paper",
+            "book",
+            "email_refresh",
+            "competitive_analysis",
+        ],
+    )
 
     validate = sub.add_parser("validate", help="Validate canonical records")
     validate.add_argument("vault", type=Path)
@@ -190,6 +208,18 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
             "status": "candidates_found" if candidates else "no_candidates",
             "candidates": [candidate.model_dump(mode="json") for candidate in candidates],
         }
+    if action == "preflight":
+        from constellation.budgeting import build_budget_plan
+
+        source = Path(values["source"]).expanduser()
+        if source.is_symlink() or not source.is_file():
+            raise ValueError("preflight source must be a regular file")
+        return asdict(
+            build_budget_plan(
+                task_kind=values["task"],
+                source_bytes=source.stat().st_size,
+            )
+        )
     if action == "ingest":
         from constellation.ingest import ingest_file
 
