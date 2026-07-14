@@ -84,6 +84,20 @@ def test_operator_cli_activation_reports_status_without_revealing_profile_conten
     assert "Fictional CEO" not in json.dumps(result)
 
 
+def test_operator_status_reads_a_persisted_active_context(tmp_path: Path, capsys):
+    vault = tmp_path / "vault"
+    invoke(capsys, "init", str(vault))
+    profile = tmp_path / "operator.yaml"
+    profile.write_text(yaml.safe_dump({"roles": ["Fictional CEO"]}), encoding="utf-8")
+    invoke(capsys, "operator", str(vault), "stage", "--input", str(profile))
+    invoke(capsys, "operator", str(vault), "activate", "--confirm")
+
+    status = invoke(capsys, "operator", str(vault), "status")
+
+    assert status == {"status": "active", "version": 1}
+    assert "Fictional CEO" not in json.dumps(status)
+
+
 def test_active_operator_context_requires_a_review_timestamp():
     with pytest.raises(ValidationError, match="reviewed_at"):
         OperatorContext(status="active")

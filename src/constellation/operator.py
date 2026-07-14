@@ -60,6 +60,18 @@ class OperatorContext(BaseModel):
         return cleaned
 
 
+def _stored_operator_context(raw: dict[object, object]) -> OperatorContext:
+    """Restore the JSON-mode timestamp emitted by atomic YAML storage."""
+    normalized = dict(raw)
+    reviewed_at = normalized.get("reviewed_at")
+    if isinstance(reviewed_at, str):
+        try:
+            normalized["reviewed_at"] = datetime.fromisoformat(reviewed_at.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise OperatorContextError("operator context reviewed_at is invalid") from exc
+    return OperatorContext.model_validate(normalized)
+
+
 def _context_path(root: Path | str) -> Path:
     if not is_initialized(root):
         raise OperatorContextError("operator context requires an initialized vault")
@@ -92,7 +104,7 @@ def operator_context_status(root: Path | str) -> dict[str, int | str]:
         raise OperatorContextError("operator context YAML is unreadable") from exc
     if not isinstance(raw, dict):
         raise OperatorContextError("operator context YAML must contain a mapping")
-    context = OperatorContext.model_validate(raw)
+    context = _stored_operator_context(raw)
     return {"status": context.status, "version": context.version}
 
 
