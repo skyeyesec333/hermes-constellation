@@ -18,6 +18,7 @@ from urllib.parse import parse_qsl, urlsplit
 import yaml
 
 from .card_ingest import extract_business_card_fields
+from .deck_ingest import build_pdf_deck_map
 from .frontmatter import parse_frontmatter, render_frontmatter
 from .models import CandidatePatch, Sensitivity, SourceItem
 from .storage import (
@@ -864,7 +865,7 @@ def ingest_file(
     phone_region: str | None = None,
 ) -> dict[str, str]:
     """Ingest one local file; an optional URL is provenance, never fetched evidence."""
-    if kind not in {"generic", "business-card"}:
+    if kind not in {"generic", "business-card", "pdf-deck"}:
         raise IngestError("ingest kind is not supported")
     vault = Path(root).absolute()
     source_url = _validated_source_url(source_url)
@@ -901,6 +902,15 @@ def ingest_file(
         if kind == "business-card"
         else None
     )
+    deck = (
+        build_pdf_deck_map(
+            source_id=source_id,
+            text=text,
+            units=list(extracted.extraction.get("units", [])),
+        )
+        if kind == "pdf-deck"
+        else None
+    )
     manifest_relative = Path(".constellation/manifests") / f"{digest}.json"
     manifest_path = vault / manifest_relative
     instant = now or datetime.now(UTC)
@@ -914,8 +924,11 @@ def ingest_file(
             raise IngestError("existing manifest does not match source bytes")
         candidate_path = str(manifest["candidate_path"])
         card_updated = business_card is not None and manifest.get("business_card") != business_card
+        deck_updated = deck is not None and manifest.get("deck") != deck
         if card_updated:
             manifest["business_card"] = business_card
+        if deck_updated:
+            manifest["deck"] = deck
         upgraded = "extraction" not in manifest
         if upgraded:
             atomic_write_text(vault, str(manifest["text_path"]), text)
@@ -935,7 +948,7 @@ def ingest_file(
             instant,
         )
         candidate_path = str(manifest["candidate_path"])
-        if upgraded or source_patch_staged or card_updated:
+        if upgraded or source_patch_staged or card_updated or deck_updated:
             atomic_write_text(
                 vault,
                 manifest_relative,
@@ -957,6 +970,11 @@ def ingest_file(
             **(
                 {"business_card_fields": str(len(business_card["fields"]))}
                 if business_card is not None
+                else {}
+            ),
+            **(
+                {"deck_slides": str(len(deck["slides"]))}
+                if deck is not None
                 else {}
             ),
         }
@@ -1008,6 +1026,7 @@ def ingest_file(
         "input_path": relative.as_posix(),
         **({"source_url": source_url} if source_url else {}),
         **({"business_card": business_card} if business_card is not None else {}),
+        **({"deck": deck} if deck is not None else {}),
         "preserved_path": preserved_relative.as_posix(),
         "text_path": text_relative.as_posix(),
         "source_item_path": source_item_relative.as_posix(),
@@ -1041,13 +1060,14 @@ def ingest_file(
         **{
             key: str(value)
             for key, value in manifest.items()
-            if key not in {"extraction", "registration", "business_card"}
+            if key not in {"extraction", "registration", "business_card", "deck"}
         },
         **(
             {"business_card_fields": str(len(business_card["fields"]))}
             if business_card is not None
             else {}
         ),
+        **({"deck_slides": str(len(deck["slides"]))} if deck is not None else {}),
     }
     if promotion:
         result["index_generation"] = promotion["index_generation"]

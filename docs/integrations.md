@@ -26,6 +26,7 @@ A planned tool is not a promise that it is bundled or safe to use with private d
 | openpyxl | Optional now | XLSX sheet/cell extraction with formulas preserved | Local; install with the `office` extra |
 | Pillow + RapidOCR | Optional now | Image and business-card text regions with confidence and bounding boxes | Local; install with the `ocr` extra |
 | Business-card intake lane | Supported now | Review-only email, explicit-region phone, URL, and anchored OCR field candidates; unclassified text stays unclassified | Local; never infers a current role or auto-creates/merges a contact |
+| PDF-deck intake lane | Supported now | Page/slide map with source anchors, extracted text, title candidates, repeated header/footer suppression in the derived view, and vision-review flags | Local; raw extracted text remains authoritative and no whole-deck prompt is constructed |
 
 PDF extraction uses native text first. Pages without native text are rendered locally and passed to RapidOCR; pages still lacking reliable text are marked `blank-needs-vision`, and an all-unreadable PDF fails closed.
 

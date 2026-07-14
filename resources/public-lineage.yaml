@@ -133,6 +133,8 @@ files:
     lineage: handwritten-generic
   src/constellation/cli.py:
     lineage: handwritten-generic
+  src/constellation/deck_ingest.py:
+    lineage: handwritten-generic
   src/constellation/doctor.py:
     lineage: handwritten-generic
   src/constellation/egress.py:
@@ -186,6 +188,8 @@ files:
   tests/test_card_ingest.py:
     lineage: handwritten-generic
   tests/test_cli.py:
+    lineage: handwritten-generic
+  tests/test_deck_ingest.py:
     lineage: handwritten-generic
   tests/test_cli_integration.py:
     lineage: handwritten-generic
