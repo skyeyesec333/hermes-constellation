@@ -17,6 +17,7 @@ A planned tool is not a promise that it is bundled or safe to use with private d
 | Markdown and UTF-8 text intake | Supported now | Preserve original bytes, extract text, stage a review candidate, and record hashes/line anchors | Local |
 | SQLite FTS5 | Supported now | Rebuildable canonical-only full-text retrieval | Local; SQLite is part of Python on supported builds |
 | Research receipt ledger | Supported now | Budget enforcement and accountable provider/model/token/evidence records | Local accounting only; it does not call a model provider |
+| Compound evidence bundles | Supported now | Preserve linked audio, transcripts, typed notes, page renders, and derived text without flattening provenance | Local; review-only manifest with no canonical writes |
 | Model egress policy | Supported now | Deny-by-default exact provider/model/purpose/sensitivity authorization and durable decisions | Local gate; an allowed external adapter would still transmit data |
 | libmagic + OOXML archive guards | Supported now | Detect actual media type and reject mismatched, encrypted, traversing, oversized, or suspiciously compressed Office packages | Local; `python-magic` is a core dependency |
 | PyMuPDF + RapidOCR | Optional now | Native PDF extraction first, then local OCR for scanned pages with page/region anchors and confidence metadata | Local; install with `pip install -e '.[pdf,ocr]'` |

@@ -127,6 +127,8 @@ files:
     lineage: handwritten-generic
   src/constellation/budgeting.py:
     lineage: handwritten-generic
+  src/constellation/bundles.py:
+    lineage: handwritten-generic
   src/constellation/cli.py:
     lineage: handwritten-generic
   src/constellation/doctor.py:
@@ -176,6 +178,8 @@ files:
   tests/test_apply.py:
     lineage: handwritten-generic
   tests/test_budgeting.py:
+    lineage: handwritten-generic
+  tests/test_bundles.py:
     lineage: handwritten-generic
   tests/test_cli.py:
     lineage: handwritten-generic

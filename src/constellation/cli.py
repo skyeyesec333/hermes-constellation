@@ -69,6 +69,13 @@ def build_parser() -> argparse.ArgumentParser:
         ],
     )
 
+    bundle = sub.add_parser("bundle", help="Create a review-only compound evidence manifest")
+    bundle.add_argument("vault", type=Path)
+    bundle.add_argument("action", choices=["create"])
+    bundle.add_argument("--kind", required=True, choices=["meeting", "deck", "business-card", "long-document"])
+    bundle.add_argument("--title", required=True)
+    bundle.add_argument("--members", type=Path, required=True)
+
     validate = sub.add_parser("validate", help="Validate canonical records")
     validate.add_argument("vault", type=Path)
     validate.add_argument("--limit", type=int, default=100)
@@ -208,6 +215,21 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
             "status": "candidates_found" if candidates else "no_candidates",
             "candidates": [candidate.model_dump(mode="json") for candidate in candidates],
         }
+    if action == "bundle":
+        from constellation.bundles import create_evidence_bundle
+
+        members_path = Path(values["members"]).expanduser()
+        if members_path.is_symlink() or not members_path.is_file():
+            raise ValueError("bundle members must be a regular JSON file")
+        members = json.loads(members_path.read_text(encoding="utf-8"))
+        if not isinstance(members, list) or not all(isinstance(member, dict) for member in members):
+            raise ValueError("bundle members JSON must contain an array of objects")
+        return create_evidence_bundle(
+            vault,
+            kind=values["kind"],
+            title=str(values["title"]),
+            members=members,
+        )
     if action == "preflight":
         from constellation.budgeting import build_budget_plan
 
