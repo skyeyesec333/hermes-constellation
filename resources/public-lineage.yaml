@@ -130,6 +130,8 @@ files:
     lineage: handwritten-generic
   src/constellation/frontmatter.py:
     lineage: handwritten-generic
+  src/constellation/graph.py:
+    lineage: handwritten-generic
   src/constellation/ingest.py:
     lineage: handwritten-generic
   src/constellation/identity.py:
@@ -173,6 +175,8 @@ files:
   tests/test_distribution.py:
     lineage: handwritten-generic
   tests/test_egress.py:
+    lineage: handwritten-generic
+  tests/test_graph.py:
     lineage: handwritten-generic
   tests/test_ingest.py:
     lineage: handwritten-generic

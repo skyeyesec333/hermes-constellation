@@ -24,6 +24,14 @@ def build_parser() -> argparse.ArgumentParser:
     operator.add_argument("--input", type=Path)
     operator.add_argument("--confirm", action="store_true")
 
+    graph = sub.add_parser("graph", help="Query bounded sourced relationship paths")
+    graph.add_argument("vault", type=Path)
+    graph.add_argument("graph_action", choices=["neighbors", "path"])
+    graph.add_argument("--entity")
+    graph.add_argument("--from", dest="start_entity")
+    graph.add_argument("--to", dest="end_entity")
+    graph.add_argument("--max-hops", type=int, default=4)
+
     resolve = sub.add_parser("resolve", help="Propose review-only identity matches")
     resolve.add_argument("vault", type=Path)
     resolve.add_argument("action", choices=["propose"])
@@ -122,6 +130,19 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
                 raise ValueError("operator stage requires --input")
             context = stage_operator_context(vault, Path(input_path).expanduser())
         return {"status": context.status, "version": context.version}
+    if action == "graph":
+        from constellation.graph import neighbors, path
+
+        if values["graph_action"] == "neighbors":
+            entity_id = values.get("entity")
+            if not entity_id:
+                raise ValueError("graph neighbors requires --entity")
+            return neighbors(vault, str(entity_id))
+        start_entity = values.get("start_entity")
+        end_entity = values.get("end_entity")
+        if not start_entity or not end_entity:
+            raise ValueError("graph path requires --from and --to")
+        return path(vault, str(start_entity), str(end_entity), max_hops=int(values["max_hops"]))
     if action == "resolve":
         from constellation.identity import propose_identity_candidates_from_vault
 
