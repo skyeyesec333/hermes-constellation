@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from pathlib import Path
 from typing import Literal
 
@@ -51,6 +52,107 @@ class StrategicOption(BaseModel):
         return cleaned
 
 
+class NoveltyAssessment(BaseModel):
+    """Deterministic gate before any future canonical note creation."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    classification: Literal[
+        "novel",
+        "update_existing",
+        "insufficient_novelty",
+        "contradiction_only",
+        "needs_identity_resolution",
+    ]
+    new_facts: list[str]
+    existing_note_ids: list[Ulid]
+    source_note_ids: list[Ulid] = Field(min_length=1)
+    why_it_matters: str = Field(min_length=1, max_length=2000)
+    uncertainties: list[str] = Field(min_length=1)
+
+    @field_validator("new_facts", "uncertainties")
+    @classmethod
+    def facts_are_nonblank(cls, values: list[str]) -> list[str]:
+        cleaned = [value.strip() for value in values]
+        if any(not value for value in cleaned):
+            raise ValueError("novelty values cannot be blank")
+        return cleaned
+
+    @field_validator("why_it_matters")
+    @classmethod
+    def why_is_nonblank(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("novelty rationale cannot be blank")
+        return value
+
+
+def classify_novelty(
+    *,
+    new_facts: list[str],
+    existing_note_ids: list[Ulid],
+    source_note_ids: list[Ulid],
+    identity_resolved: bool,
+    why_it_matters: str,
+    uncertainties: list[str],
+    contradictions: bool = False,
+) -> NoveltyAssessment:
+    """Classify a proposed delta without creating or modifying canonical notes."""
+    if not identity_resolved:
+        classification = "needs_identity_resolution"
+    elif not new_facts and contradictions:
+        classification = "contradiction_only"
+    elif not new_facts:
+        classification = "insufficient_novelty"
+    elif existing_note_ids:
+        classification = "update_existing"
+    else:
+        classification = "novel"
+    return NoveltyAssessment(
+        classification=classification,
+        new_facts=new_facts,
+        existing_note_ids=existing_note_ids,
+        source_note_ids=source_note_ids,
+        why_it_matters=why_it_matters,
+        uncertainties=uncertainties,
+    )
+
+
+_PROHIBITED_HYPOTHESIS_CONTENT = re.compile(
+    r"\b(?:mental[ -]?health|diagnos\w*|personality[ -]?disorder|protected[ -]?trait|"
+    r"vulnerabilit\w*|manipulat\w*|narciss\w*)\b",
+    re.IGNORECASE,
+)
+
+
+class ProfessionalHypothesis(BaseModel):
+    """Evidence-backed, non-diagnostic observation for professional decision support."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    dimension: Literal[
+        "communication",
+        "decision_tempo",
+        "public_mandate",
+        "incentives",
+        "collaboration_posture",
+    ]
+    observation: str = Field(min_length=1, max_length=2000)
+    working_hypothesis: str = Field(min_length=1, max_length=2000)
+    source_note_ids: list[Ulid] = Field(min_length=1)
+    is_working_hypothesis: Literal[True] = True
+
+    @field_validator("observation", "working_hypothesis")
+    @classmethod
+    def content_is_professional_and_nonblank(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("professional hypothesis content cannot be blank")
+        if _PROHIBITED_HYPOTHESIS_CONTENT.search(value):
+            raise ValueError("professional hypothesis content is not allowed")
+        return value
+
+
 class StrategyCandidate(BaseModel):
     """A review-only strategic option grounded in one immutable evidence packet."""
 
@@ -68,6 +170,7 @@ class StrategyCandidate(BaseModel):
     uncertainties: list[str] = Field(min_length=1)
     falsifiers: list[str] = Field(min_length=1)
     next_tests: list[str] = Field(min_length=1)
+    professional_hypotheses: list[ProfessionalHypothesis] = Field(default_factory=list)
     human_review_required: Literal[True] = True
 
     @field_validator("assumptions", "uncertainties", "falsifiers", "next_tests")

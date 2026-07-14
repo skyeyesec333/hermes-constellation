@@ -2,4 +2,4 @@
 
 Constellation processes untrusted documents and web content. Do not expose local services publicly. Report vulnerabilities privately to the repository maintainers once a public security channel exists.
 
-The alpha defaults to offline operation, no telemetry, no cloud fallback, and explicit canonical promotion.
+The alpha defaults to offline operation, no telemetry, no cloud fallback, and explicit canonical promotion. Strategy candidates and professional hypotheses are review-only, evidence-linked artifacts; they do not create or modify canonical records automatically.

@@ -7,7 +7,13 @@ from pydantic import ValidationError
 
 from constellation.cli import main
 from constellation.frontmatter import render_frontmatter
-from constellation.intelligence import IntelligenceError, build_evidence_packet, stage_strategy_candidate
+from constellation.intelligence import (
+    IntelligenceError,
+    ProfessionalHypothesis,
+    build_evidence_packet,
+    classify_novelty,
+    stage_strategy_candidate,
+)
 from constellation.retrieval import build_index
 from constellation.vault import initialize_vault
 
@@ -224,3 +230,68 @@ def test_strategy_candidate_rejects_a_tampered_stored_packet(tmp_path):
 
     with pytest.raises(IntelligenceError, match="does not match its hash"):
         stage_strategy_candidate(vault, packet, second_input)
+
+
+@pytest.mark.parametrize(
+    ("new_facts", "existing_note_ids", "identity_resolved", "contradictions", "expected"),
+    [
+        ([], [], False, False, "needs_identity_resolution"),
+        ([], [], True, True, "contradiction_only"),
+        ([], [], True, False, "insufficient_novelty"),
+        (["Verified mandate update"], [NOTE], True, False, "update_existing"),
+        (["Verified new signal"], [], True, False, "novel"),
+    ],
+)
+def test_novelty_classification_blocks_empty_or_unresolved_note_creation(
+    new_facts, existing_note_ids, identity_resolved, contradictions, expected
+):
+    assessment = classify_novelty(
+        new_facts=new_facts,
+        existing_note_ids=existing_note_ids,
+        source_note_ids=[SOURCE],
+        identity_resolved=identity_resolved,
+        contradictions=contradictions,
+        why_it_matters="It determines whether the delta can change a decision.",
+        uncertainties=["The source could be incomplete."],
+    )
+
+    assert assessment.classification == expected
+    assert assessment.why_it_matters
+    assert assessment.uncertainties
+
+
+def test_professional_hypotheses_are_evidence_backed_and_reject_covert_profiling():
+    hypothesis = ProfessionalHypothesis(
+        dimension="decision_tempo",
+        observation="The executive requested a one-week diligence window.",
+        working_hypothesis="The current decision cadence appears deliberate; verify it in the next meeting.",
+        source_note_ids=[SOURCE],
+    )
+
+    assert hypothesis.is_working_hypothesis is True
+    with pytest.raises(ValidationError, match="professional hypothesis"):
+        ProfessionalHypothesis(
+            dimension="decision_tempo",
+            observation="The executive requested a one-week diligence window.",
+            working_hypothesis="This reveals a mental health diagnosis.",
+            source_note_ids=[SOURCE],
+        )
+
+
+def test_strategy_candidate_rejects_covert_professional_profiling(tmp_path):
+    vault, packet = indexed_packet(tmp_path)
+    input_path = candidate_input(
+        tmp_path,
+        packet,
+        professional_hypotheses=[
+            {
+                "dimension": "decision_tempo",
+                "observation": "The executive requested a one-week diligence window.",
+                "working_hypothesis": "This reveals a mental health diagnosis.",
+                "source_note_ids": [SOURCE],
+            }
+        ],
+    )
+
+    with pytest.raises(ValidationError, match="professional hypothesis"):
+        stage_strategy_candidate(vault, packet, input_path)
