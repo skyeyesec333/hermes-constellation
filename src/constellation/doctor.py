@@ -8,6 +8,7 @@ import sqlite3
 from pathlib import Path
 
 from .models import SCHEMA_VERSION
+from .operator import operator_context_status
 from .vault import is_initialized
 
 
@@ -35,6 +36,7 @@ def doctor_report(root: Path | str) -> dict[str, object]:
             "root_is_symlink": target.is_symlink(),
             "writable": initialized and target.is_dir(),
         },
+        "operator_context": operator_context_status(target) if initialized else {"status": "absent"},
         "capabilities": {
             "sqlite_fts5": _fts5_available(),
             "text_ingest": True,

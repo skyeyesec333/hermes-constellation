@@ -18,6 +18,12 @@ def build_parser() -> argparse.ArgumentParser:
     doctor = sub.add_parser("doctor", help="Inspect vault health")
     doctor.add_argument("vault", type=Path)
 
+    operator = sub.add_parser("operator", help="Stage or activate a local manual operator context")
+    operator.add_argument("vault", type=Path)
+    operator.add_argument("operator_action", choices=["stage", "activate", "status", "delete"])
+    operator.add_argument("--input", type=Path)
+    operator.add_argument("--confirm", action="store_true")
+
     ingest = sub.add_parser("ingest", help="Preserve a local source and stage its canonical candidate")
     ingest.add_argument("vault", type=Path)
     ingest.add_argument("source", type=Path)
@@ -92,6 +98,26 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
         from constellation.doctor import doctor_report
 
         return doctor_report(vault)
+    if action == "operator":
+        from constellation.operator import (
+            activate_operator_context,
+            delete_operator_context,
+            operator_context_status,
+            stage_operator_context,
+        )
+
+        if values["operator_action"] == "status":
+            return operator_context_status(vault)
+        if values["operator_action"] == "delete":
+            return delete_operator_context(vault, confirm=bool(values.get("confirm")))
+        if values["operator_action"] == "activate":
+            context = activate_operator_context(vault, confirm=bool(values.get("confirm")))
+        else:
+            input_path = values.get("input")
+            if input_path is None:
+                raise ValueError("operator stage requires --input")
+            context = stage_operator_context(vault, Path(input_path).expanduser())
+        return {"status": context.status, "version": context.version}
     if action == "ingest":
         from constellation.ingest import ingest_file
 

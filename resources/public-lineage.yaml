@@ -132,6 +132,8 @@ files:
     lineage: handwritten-generic
   src/constellation/models.py:
     lineage: handwritten-generic
+  src/constellation/operator.py:
+    lineage: handwritten-generic
   src/constellation/privacy.py:
     lineage: handwritten-generic
   src/constellation/release.py:
@@ -171,6 +173,8 @@ files:
   tests/test_migration.py:
     lineage: handwritten-generic
   tests/test_models.py:
+    lineage: handwritten-generic
+  tests/test_operator.py:
     lineage: handwritten-generic
   tests/test_package.py:
     lineage: handwritten-generic
