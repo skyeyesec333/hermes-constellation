@@ -38,7 +38,12 @@ def test_text_ingest_preserves_source_and_stages_canonical_candidate(tmp_path):
     source.write_text("Fictional evidence.\n", encoding="utf-8")
     build_index(root)
 
-    result = ingest_file(root, "Inbox/example.txt", now=NOW)
+    result = ingest_file(
+        root,
+        "Inbox/example.txt",
+        now=NOW,
+        source_url="https://example.test/evidence",
+    )
 
     assert result["status"] == "staged"
     assert result["source_id"]
@@ -46,6 +51,7 @@ def test_text_ingest_preserves_source_and_stages_canonical_candidate(tmp_path):
     assert (root / result["text_path"]).read_text(encoding="utf-8") == "Fictional evidence.\n"
     assert (root / result["manifest_path"]).is_file()
     manifest = json.loads((root / result["manifest_path"]).read_text(encoding="utf-8"))
+    assert manifest["source_url"] == "https://example.test/evidence"
     extraction = manifest["extraction"]
     assert extraction["status"] == "complete"
     assert extraction["engine"]["name"] == "python-utf8"
@@ -73,6 +79,7 @@ def test_text_ingest_preserves_source_and_stages_canonical_candidate(tmp_path):
     assert candidate.target_path == result["source_item_path"]
     assert candidate.content.startswith("---\n")
     source_metadata, _ = parse_frontmatter(candidate.content)
+    assert source_metadata["source_url"] == "https://example.test/evidence"
     assert source_metadata["extraction_manifest_path"] == result["manifest_path"]
     assert source_metadata["extraction_status"] == "complete"
     assert exact_lookup(root, result["source_id"])["status"] == "no_evidence_found"
@@ -111,6 +118,22 @@ def test_ingest_is_hash_idempotent(tmp_path):
     assert first["candidate_id"] == second["candidate_id"]
     assert not list((root / "source-items").glob("*.md"))
     assert len(list((root / ".constellation/candidates").glob("*.json"))) == 1
+
+
+def test_changed_local_capture_stages_a_new_candidate_without_canonical_rewrite(tmp_path):
+    root = make_vault(tmp_path)
+    source = root / "Inbox/watch.txt"
+    source.write_text("Initial fictional capture.\n", encoding="utf-8")
+
+    first = ingest_file(root, "Inbox/watch.txt", now=NOW, source_url="https://example.test/watch")
+    source.write_text("Changed fictional capture.\n", encoding="utf-8")
+    changed = ingest_file(root, "Inbox/watch.txt", now=NOW, source_url="https://example.test/watch")
+
+    assert changed["status"] == "staged"
+    assert changed["source_id"] != first["source_id"]
+    assert changed["candidate_id"] != first["candidate_id"]
+    assert len(list((root / ".constellation/candidates").glob("*.json"))) == 2
+    assert not list((root / "source-items").glob("*.md"))
 
 
 def test_ingest_upgrades_an_old_manifest_through_a_reviewable_source_patch(tmp_path):
@@ -156,6 +179,15 @@ def test_ingest_rejects_unsafe_and_unsupported_inputs(tmp_path, monkeypatch):
     active.write_text("<script>x</script>", encoding="utf-8")
     with pytest.raises(IngestError):
         ingest_file(root, "Inbox/page.html", now=NOW)
+    safe_text = root / "Inbox/source-url.txt"
+    safe_text.write_text("Fictional evidence.", encoding="utf-8")
+    with pytest.raises(IngestError, match="credentials"):
+        ingest_file(
+            root,
+            "Inbox/source-url.txt",
+            now=NOW,
+            source_url="https://example.test/evidence?access_token=secret",
+        )
 
     oversized = root / "Inbox/oversized.txt"
     oversized.write_bytes(b"12345")

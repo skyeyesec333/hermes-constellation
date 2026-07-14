@@ -22,7 +22,7 @@ STATUS_SCHEMA = _schema(
 )
 INGEST_SCHEMA = _schema(
     "Preserve and extract one local source into a Constellation candidate packet.",
-    {"vault": VAULT, "source": {"type": "string"}},
+    {"vault": VAULT, "source": {"type": "string"}, "source_url": {"type": "string", "format": "uri"}},
     ["vault", "source"],
 )
 VALIDATE_SCHEMA = _schema(

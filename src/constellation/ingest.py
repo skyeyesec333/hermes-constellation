@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any, cast
+from urllib.parse import parse_qsl, urlsplit
 
 import yaml
 
@@ -67,6 +68,33 @@ def _source_registration_mode(vault: Path) -> str:
     if mode not in {"review", "automatic"}:
         raise IngestError("source_registration must be review or automatic")
     return mode
+
+
+def _validated_source_url(source_url: str | None) -> str | None:
+    if source_url is None:
+        return None
+    parsed = urlsplit(source_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise IngestError("source URL must be an absolute http or https URL")
+    if parsed.username or parsed.password:
+        raise IngestError("source URL must not contain credentials")
+    sensitive_query_keys = {
+        "access_token",
+        "api_key",
+        "apikey",
+        "authorization",
+        "password",
+        "secret",
+        "signature",
+        "sig",
+        "token",
+    }
+    if any(
+        key.casefold() in sensitive_query_keys or key.casefold().startswith("x-amz-")
+        for key, _ in parse_qsl(parsed.query, keep_blank_values=True)
+    ):
+        raise IngestError("source URL must not contain credentials")
+    return source_url
 
 
 @dataclass(frozen=True)
@@ -830,9 +858,11 @@ def ingest_file(
     *,
     now: datetime | None = None,
     sensitivity: Sensitivity = Sensitivity.INTERNAL,
+    source_url: str | None = None,
 ) -> dict[str, str]:
-    """Ingest one regular in-vault file without promoting any claim."""
+    """Ingest one local file; an optional URL is provenance, never fetched evidence."""
     vault = Path(root).absolute()
+    source_url = _validated_source_url(source_url)
     if not is_initialized(vault):
         raise IngestError("vault is not initialized")
     registration_mode = _source_registration_mode(vault)
@@ -926,6 +956,7 @@ def ingest_file(
         extraction_manifest_path=manifest_relative.as_posix(),
         extraction_status=extraction["status"],
         media_type=media_type,
+        source_url=source_url,
     )
     metadata = item.model_dump(mode="json", exclude_none=True)
     source_note = render_frontmatter(metadata, f"# {item.title}\n\n{text}")
@@ -952,6 +983,7 @@ def ingest_file(
         "media_type": media_type,
         "ingested_at": instant.isoformat(),
         "input_path": relative.as_posix(),
+        **({"source_url": source_url} if source_url else {}),
         "preserved_path": preserved_relative.as_posix(),
         "text_path": text_relative.as_posix(),
         "source_item_path": source_item_relative.as_posix(),

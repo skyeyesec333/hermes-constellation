@@ -49,6 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
     ingest = sub.add_parser("ingest", help="Preserve a local source and stage its canonical candidate")
     ingest.add_argument("vault", type=Path)
     ingest.add_argument("source", type=Path)
+    ingest.add_argument("--source-url", help="Original capture URL; Constellation never fetches it")
 
     validate = sub.add_parser("validate", help="Validate canonical records")
     validate.add_argument("vault", type=Path)
@@ -192,7 +193,11 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
     if action == "ingest":
         from constellation.ingest import ingest_file
 
-        return ingest_file(vault, Path(values["source"]).expanduser())
+        return ingest_file(
+            vault,
+            Path(values["source"]).expanduser(),
+            source_url=values.get("source_url"),
+        )
     if action == "validate":
         from constellation.validation import validate_vault
 

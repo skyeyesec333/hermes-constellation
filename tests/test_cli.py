@@ -17,3 +17,21 @@ def test_cli_exposes_trusted_loop_commands():
     assert "migrate-rehearse" in help_text
     assert "migrate-prepare" in help_text
     assert "migrate-activate" in help_text
+
+
+def test_ingest_cli_accepts_local_capture_provenance_url():
+    parser = build_parser()
+
+    values = vars(
+        parser.parse_args(
+            [
+                "ingest",
+                "/tmp/vault",
+                "/tmp/capture.txt",
+                "--source-url",
+                "https://example.test/capture",
+            ]
+        )
+    )
+
+    assert values["source_url"] == "https://example.test/capture"
