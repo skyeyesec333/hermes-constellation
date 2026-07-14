@@ -24,6 +24,16 @@ def build_parser() -> argparse.ArgumentParser:
     operator.add_argument("--input", type=Path)
     operator.add_argument("--confirm", action="store_true")
 
+    strategy = sub.add_parser("strategy", help="Build bounded evidence or stage a review-only option")
+    strategy.add_argument("vault", type=Path)
+    strategy.add_argument("strategy_action", choices=["packet", "stage"])
+    strategy.add_argument("--query")
+    strategy.add_argument("--limit", type=int, default=10)
+    strategy.add_argument("--max-bytes", type=int, default=32_768)
+    strategy.add_argument("--sensitivity", default="internal")
+    strategy.add_argument("--packet", type=Path)
+    strategy.add_argument("--input", type=Path)
+
     graph = sub.add_parser("graph", help="Query bounded sourced relationship paths")
     graph.add_argument("vault", type=Path)
     graph.add_argument("graph_action", choices=["neighbors", "path"])
@@ -130,6 +140,34 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
                 raise ValueError("operator stage requires --input")
             context = stage_operator_context(vault, Path(input_path).expanduser())
         return {"status": context.status, "version": context.version}
+    if action == "strategy":
+        from constellation.intelligence import build_evidence_packet, stage_strategy_candidate
+
+        if values["strategy_action"] == "packet":
+            query = values.get("query")
+            if not query:
+                raise ValueError("strategy packet requires --query")
+            return build_evidence_packet(
+                vault,
+                str(query),
+                limit=int(values["limit"]),
+                max_bytes=int(values["max_bytes"]),
+                sensitivity_ceiling=str(values["sensitivity"]),
+            )
+        packet_path = values.get("packet")
+        input_path = values.get("input")
+        if packet_path is None or input_path is None:
+            raise ValueError("strategy stage requires --packet and --input")
+        packet_source = Path(packet_path).expanduser()
+        if packet_source.is_symlink() or not packet_source.is_file():
+            raise ValueError("strategy packet must be a regular file")
+        packet_document = json.loads(packet_source.read_text(encoding="utf-8"))
+        if not isinstance(packet_document, dict):
+            raise ValueError("strategy packet JSON must contain an object")
+        packet = packet_document.get("result", packet_document)
+        if not isinstance(packet, dict):
+            raise ValueError("strategy packet result must contain an object")
+        return stage_strategy_candidate(vault, packet, Path(input_path).expanduser())
     if action == "graph":
         from constellation.graph import neighbors, path
 
