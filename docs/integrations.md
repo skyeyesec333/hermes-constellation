@@ -25,6 +25,7 @@ A planned tool is not a promise that it is bundled or safe to use with private d
 | python-pptx | Optional now | PPTX slide text, table cells, and speaker notes with stable anchors | Local; install with the `office` extra |
 | openpyxl | Optional now | XLSX sheet/cell extraction with formulas preserved | Local; install with the `office` extra |
 | Pillow + RapidOCR | Optional now | Image and business-card text regions with confidence and bounding boxes | Local; install with the `ocr` extra |
+| Business-card intake lane | Supported now | Review-only email, explicit-region phone, URL, and anchored OCR field candidates; unclassified text stays unclassified | Local; never infers a current role or auto-creates/merges a contact |
 
 PDF extraction uses native text first. Pages without native text are rendered locally and passed to RapidOCR; pages still lacking reliable text are marked `blank-needs-vision`, and an all-unreadable PDF fails closed.
 

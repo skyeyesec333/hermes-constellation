@@ -35,3 +35,22 @@ def test_ingest_cli_accepts_local_capture_provenance_url():
     )
 
     assert values["source_url"] == "https://example.test/capture"
+
+
+def test_ingest_cli_accepts_business_card_routing_and_phone_region():
+    values = vars(
+        build_parser().parse_args(
+            [
+                "ingest",
+                "/tmp/vault",
+                "/tmp/card.png",
+                "--kind",
+                "business-card",
+                "--phone-region",
+                "US",
+            ]
+        )
+    )
+
+    assert values["kind"] == "business-card"
+    assert values["phone_region"] == "US"

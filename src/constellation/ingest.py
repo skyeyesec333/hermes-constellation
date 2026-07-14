@@ -17,6 +17,7 @@ from urllib.parse import parse_qsl, urlsplit
 
 import yaml
 
+from .card_ingest import extract_business_card_fields
 from .frontmatter import parse_frontmatter, render_frontmatter
 from .models import CandidatePatch, Sensitivity, SourceItem
 from .storage import (
@@ -859,8 +860,12 @@ def ingest_file(
     now: datetime | None = None,
     sensitivity: Sensitivity = Sensitivity.INTERNAL,
     source_url: str | None = None,
+    kind: str = "generic",
+    phone_region: str | None = None,
 ) -> dict[str, str]:
     """Ingest one local file; an optional URL is provenance, never fetched evidence."""
+    if kind not in {"generic", "business-card"}:
+        raise IngestError("ingest kind is not supported")
     vault = Path(root).absolute()
     source_url = _validated_source_url(source_url)
     if not is_initialized(vault):
@@ -886,6 +891,16 @@ def ingest_file(
     if extracted.extraction["source_sha256"] != digest:
         raise IngestError("extraction source hash does not match preserved bytes")
     source_id = _id_from_hash(digest)
+    business_card = (
+        extract_business_card_fields(
+            source_id=source_id,
+            text=text,
+            units=list(extracted.extraction.get("units", [])),
+            phone_region=phone_region,
+        )
+        if kind == "business-card"
+        else None
+    )
     manifest_relative = Path(".constellation/manifests") / f"{digest}.json"
     manifest_path = vault / manifest_relative
     instant = now or datetime.now(UTC)
@@ -898,6 +913,9 @@ def ingest_file(
         if manifest.get("source_hash") != digest:
             raise IngestError("existing manifest does not match source bytes")
         candidate_path = str(manifest["candidate_path"])
+        card_updated = business_card is not None and manifest.get("business_card") != business_card
+        if card_updated:
+            manifest["business_card"] = business_card
         upgraded = "extraction" not in manifest
         if upgraded:
             atomic_write_text(vault, str(manifest["text_path"]), text)
@@ -917,7 +935,7 @@ def ingest_file(
             instant,
         )
         candidate_path = str(manifest["candidate_path"])
-        if upgraded or source_patch_staged:
+        if upgraded or source_patch_staged or card_updated:
             atomic_write_text(
                 vault,
                 manifest_relative,
@@ -936,6 +954,11 @@ def ingest_file(
             "extraction_status": str(manifest.get("extraction", extraction)["status"]),
             "manifest_upgraded": str(upgraded).lower(),
             "source_patch_staged": str(source_patch_staged).lower(),
+            **(
+                {"business_card_fields": str(len(business_card["fields"]))}
+                if business_card is not None
+                else {}
+            ),
         }
     preserved_relative = Path("Library/Files") / str(instant.year) / source_id / source_path.name
     text_relative = Path("Library/Text") / f"{source_id}.txt"
@@ -984,6 +1007,7 @@ def ingest_file(
         "ingested_at": instant.isoformat(),
         "input_path": relative.as_posix(),
         **({"source_url": source_url} if source_url else {}),
+        **({"business_card": business_card} if business_card is not None else {}),
         "preserved_path": preserved_relative.as_posix(),
         "text_path": text_relative.as_posix(),
         "source_item_path": source_item_relative.as_posix(),
@@ -1017,8 +1041,13 @@ def ingest_file(
         **{
             key: str(value)
             for key, value in manifest.items()
-            if key not in {"extraction", "registration"}
+            if key not in {"extraction", "registration", "business_card"}
         },
+        **(
+            {"business_card_fields": str(len(business_card["fields"]))}
+            if business_card is not None
+            else {}
+        ),
     }
     if promotion:
         result["index_generation"] = promotion["index_generation"]
