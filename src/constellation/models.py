@@ -158,6 +158,22 @@ class EntityRecord(BaseRecord):
         return self
 
 
+class RelationshipRecord(BaseRecord):
+    type: Literal["relationship"] = "relationship"  # pyright: ignore[reportIncompatibleVariableOverride]
+    subject_id: Ulid
+    predicate: Annotated[str, Field(min_length=1, max_length=100)]
+    object_id: Ulid
+    source_ids: Annotated[list[Ulid], Field(min_length=1)]
+    evidence_class: Literal["verified", "corroborated", "single-source", "inferred", "user-asserted"]
+    confidence: Annotated[float, Field(ge=0.0, le=1.0)] | None = None
+
+    @model_validator(mode="after")
+    def endpoints_are_distinct(self) -> "RelationshipRecord":
+        if self.subject_id == self.object_id:
+            raise ValueError("relationship cannot relate to itself")
+        return self
+
+
 class Claim(BaseRecord):
     statement: Annotated[str, Field(min_length=1)]
     source_ids: Annotated[list[Ulid], Field(min_length=1)]
@@ -207,4 +223,4 @@ class ResearchRun(BaseRecord):
         return self
 
 
-RECORD_MODELS = (BaseRecord, SourceItem, EntityRecord, Claim, CandidatePatch, ResearchRun)
+RECORD_MODELS = (BaseRecord, SourceItem, EntityRecord, RelationshipRecord, Claim, CandidatePatch, ResearchRun)

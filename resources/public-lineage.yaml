@@ -86,6 +86,8 @@ files:
     lineage: generated-from-python-schema
   resources/generated-json-schemas/researchrun.json:
     lineage: generated-from-python-schema
+  resources/generated-json-schemas/relationshiprecord.json:
+    lineage: generated-from-python-schema
   resources/generated-json-schemas/sourceitem.json:
     lineage: generated-from-python-schema
   resources/generated-note-templates/baserecord.md:
@@ -97,6 +99,8 @@ files:
   resources/generated-note-templates/entityrecord.md:
     lineage: generated-from-python-schema
   resources/generated-note-templates/researchrun.md:
+    lineage: generated-from-python-schema
+  resources/generated-note-templates/relationshiprecord.md:
     lineage: generated-from-python-schema
   resources/generated-note-templates/sourceitem.md:
     lineage: generated-from-python-schema
@@ -189,6 +193,8 @@ files:
   tests/test_release.py:
     lineage: handwritten-generic
   tests/test_research.py:
+    lineage: handwritten-generic
+  tests/test_relationship.py:
     lineage: handwritten-generic
   tests/test_retrieval.py:
     lineage: handwritten-generic

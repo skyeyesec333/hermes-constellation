@@ -16,6 +16,7 @@ STARTER_FOLDERS = (
     Path("source-items"),
     Path("claims"),
     Path("entities"),
+    Path("relationships"),
     Path("research"),
     Path(".constellation/manifests"),
     Path(".constellation/candidates"),
