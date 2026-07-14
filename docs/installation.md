@@ -1,6 +1,6 @@
 # Installation
 
-Constellation is currently an unreleased local alpha. The wheel is the supported installation artifact; the repository checkout is only for development.
+Constellation v0.1.0 is available from the public GitHub repository and its release page. The wheel is the supported installation artifact; a repository checkout is also suitable for development and trying the CLI locally.
 
 ## Build and verify the wheel
 
@@ -56,4 +56,4 @@ The wheel includes:
 
 Core operation is offline. OCR, vectors, browsers, cloud models, and background schedulers are not installed or activated by this package.
 
-No remote repository or package registry has been created. Publication remains an explicit approval gate.
+Release source and wheel artifacts are published on GitHub. Constellation is not currently published to a Python package registry.

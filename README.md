@@ -1,248 +1,76 @@
 # Hermes Constellation
 
-Constellation is a local-first, source-grounded knowledge and relationship workspace for [Hermes Agent](https://github.com/NousResearch/hermes-agent). It keeps Markdown notes and original source files as the canonical record. SQLite indexes, generated catalogs, OCR text, and model outputs can be rebuilt.
+**Turn documents, research, and relationships into an AI-maintained knowledge base that becomes more useful with every source.**
 
-Version 0.1.0 is the first public clean-room release. It contains the deterministic vault, ingestion, review, retrieval, privacy, and Hermes plugin core. It does not contain anyone's private vault, contacts, reports, browser state, credentials, model transcripts, or host-specific automation.
+[Download v0.1.0](https://github.com/skyeyesec333/hermes-constellation/releases/tag/v0.1.0) · [Installation](docs/installation.md) · [Architecture](docs/architecture.md) · [Hermes Agent](https://github.com/NousResearch/hermes-agent)
 
-## Why this exists
+Constellation is a local-first knowledge and relationship workspace for Hermes Agent. It preserves original files, builds a source-grounded Markdown wiki around them, and gives agents bounded tools to ingest, search, validate, and review that knowledge.
 
-Most personal knowledge systems make one of two mistakes:
+Your files and Markdown remain the record. Obsidian can open the vault directly. SQLite indexes, OCR text, generated catalogs, and model output can be rebuilt or replaced.
 
-1. They store polished summaries without preserving the evidence that produced them.
-2. They dump files into a folder and leave the human to remember what matters.
+Version 0.1.0 is the first public clean-room release. It contains no private vault, contacts, reports, credentials, browser state, model transcripts, or host-specific automation.
 
-Constellation keeps the source and the interpretation separate.
+## Why I built this
 
-A PDF, slide deck, spreadsheet, business card, or note enters as evidence. Constellation preserves the original bytes, hashes them, extracts local text where possible, and registers a source record. A model may then perform a bounded first distillation: summarize the source, identify clear entities, connect it to existing context, separate source claims from inference, and leave explicit follow-up questions. Deeper research remains a separate action.
+Constellation began with a practical need: I wanted a private Obsidian workspace that could also function as a relationship CRM and a long-lived research base.
 
-The result is still an ordinary folder of Markdown and source files. Obsidian can open it. Git can version a sanitized vault. Another program can parse it. If Constellation disappears, the evidence does not.
+I wanted to be able to drop in a business card, slide deck, paper, spreadsheet, screenshot, or PDF and have an agent do the tedious work: preserve it, read it, identify what matters, connect it to people and organizations already in the vault, flag conflicts, and file the result somewhere useful. I also wanted research agents to revisit that material later and build better syntheses instead of starting from zero in every chat.
 
-## The short version
+The original inspiration was [Andrej Karpathy's LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f). Its central idea is simple and powerful: do not use an LLM only to retrieve raw chunks at question time. Let the agent incrementally maintain a persistent, interlinked Markdown wiki. The knowledge is compiled once, corrected over time, and enriched as new sources arrive.
+
+Constellation takes that pattern in a more operational direction. A useful personal or business knowledge base needs more than good summaries. It needs to remember:
+
+- where a statement came from;
+- whether it is a source claim, verified fact, or inference;
+- which person, company, project, or relationship it concerns;
+- what changed when newer evidence arrived;
+- which edits were mechanical and which changed meaning;
+- what an agent was allowed to send to an external model;
+- what was reviewed, rejected, or left unresolved.
+
+That is why Constellation keeps sources and interpretation separate. It combines the compounding LLM wiki idea with provenance, review gates, conflict protection, privacy controls, and a relationship-oriented record model.
+
+The goal is not to collect the largest pile of notes. It is to build knowledge that can still be trusted after hundreds of sources and many different model sessions.
+
+## What using it feels like
 
 ```text
-file or text
-  -> validate type and safety limits
-  -> preserve original bytes
-  -> calculate SHA-256
-  -> extract local evidence with stable anchors
-  -> write an extraction manifest
-  -> register or stage a source-item
-  -> validate canonical records
-  -> rebuild disposable search index
+Drop in a file
+  -> preserve the original bytes
+  -> detect the real file type
+  -> calculate SHA-256 provenance
+  -> extract text or OCR locally
+  -> record page/slide/cell/region anchors
+  -> register or stage a source record
+  -> validate canonical Markdown
+  -> rebuild local search
   -> optionally run one bounded first distillation
-  -> write a receipt and stop
+  -> propose connected entities, claims, and questions
+  -> review meaning-bearing changes
 ```
 
-The deterministic core does not require an LLM. Model synthesis is an optional layer with an explicit egress policy.
+A business card can become a preserved image, OCR regions, a source record, and a reviewed person/company update. A slide deck can become page-aware evidence linked to the companies, projects, and claims it discusses. A research paper can update an existing topic while preserving the old view and showing what changed.
 
-## What ships in v0.1
+The deterministic path does not require an LLM. Model interpretation and external research are separate, explicit layers.
 
-### Canonical local vault
-
-- Versioned Markdown record schemas for sources, entities, claims, research runs, and candidate patches.
-- Original source preservation under the vault.
-- SHA-256 provenance and immutable extraction manifests.
-- Atomic, path-contained writes with expected-base-hash conflict checks.
-- Canonical validation and a generated human-readable `INDEX.md`.
-- SQLite FTS5 retrieval that can be deleted and rebuilt from Markdown.
-
-### Local document intake
-
-- UTF-8 text and Markdown.
-- Native and scanned PDFs.
-- DOCX paragraphs and table cells.
-- PPTX slide text, tables, and speaker notes.
-- XLSX sheets, cells, values, and formulas.
-- PNG, JPEG, WebP, TIFF, and BMP images.
-- Business-card and screenshot OCR through RapidOCR.
-
-### Evidence and safety
-
-- Stable page, paragraph, slide, table, cell, and OCR-region anchors.
-- MIME detection with libmagic instead of trusting only the extension.
-- Internal OOXML content-type checks for DOCX, PPTX, and XLSX.
-- Limits on source size, expanded Office archive size, archive entries, compression ratio, unsafe paths, and encrypted packages.
-- OCR confidence, bounding boxes, dimensions, warnings, and partial/failure status.
-- Native PDF text first, with OCR only for pages that need it.
-
-### Controlled meaning changes
-
-- Configurable automatic registration for mechanical source records.
-- Create-only review candidates when automatic registration is disabled.
-- Explicit promotion for meaning-bearing canonical changes.
-- Base-hash protection against overwriting a note that changed after review.
-- Action-ledger entries for promoted changes.
-
-### Retrieval, research, and egress
-
-- Exact-ID and FTS5 search with sensitivity ceilings.
-- Evidence packets that include record ID, path, route, sensitivity, and anchor.
-- Research receipts with provider/model identity, token accounting, evidence hashes, retries, and completion status.
-- Deny-by-default provider/model/purpose/sensitivity egress policy.
-- Durable allow/deny decisions without storing API keys in the vault.
-
-### Public-release protection
-
-- An explicit file-lineage allowlist.
-- A one-way clean-room release compiler.
-- Privacy scanning for paths, secrets, hostnames, usernames, and private canaries.
-- A fictional `example.test` demo vault.
-
-## What does not ship in v0.1
-
-Constellation v0.1 does not pretend to be a complete autonomous research product.
-
-The public package does not include:
-
-- a Google Drive watcher;
-- Telegram delivery;
-- a mandatory model provider;
-- automatic LinkedIn or web research;
-- automatic entity resolution;
-- a hosted sync service;
-- a vector database;
-- Docling or Marker model downloads;
-- audio/video ingestion;
-- a private user's first-distillation notes or prompts.
-
-A private deployment can connect Drive, messaging gateways, web research, vision, or other Hermes tools around the core. Those adapters must preserve the same consent, provenance, and egress boundaries.
-
-## Canonical records and generated artifacts
-
-A typical vault looks like this:
-
-```text
-my-constellation/
-├── .constellation/
-│   ├── config.yaml
-│   ├── index.sqlite3
-│   ├── manifests/
-│   ├── candidates/
-│   ├── receipts/
-│   └── action-ledger.jsonl
-├── Library/
-│   ├── Files/
-│   └── Text/
-├── Inbox/
-│   └── Files/
-├── source-items/
-├── entities/
-├── claims/
-├── research/
-├── HOME.md
-└── INDEX.md
-```
-
-Canonical:
-
-- original files;
-- Markdown records in canonical folders;
-- extraction manifests;
-- receipts and action history.
-
-Disposable and rebuildable:
-
-- SQLite FTS indexes;
-- generated `INDEX.md`;
-- extracted/OCR text when the original source still exists.
-
-Candidates are not canonical evidence until promoted.
-
-## What happens on first upload
-
-"First upload" is a deployment policy, not a hidden background research license.
-
-The deterministic core performs these steps:
-
-1. Confirm that the source is inside the allowed vault boundary.
-2. Read the bytes with a configured maximum size.
-3. Detect the media type and verify format-specific signatures.
-4. Preserve the original under `Library/Files/`.
-5. Calculate SHA-256 and use it for provenance and idempotency.
-6. Extract local evidence into `Library/Text/`.
-7. Create a JSON extraction manifest with engine versions, anchors, status, warnings, and hashes.
-8. Register a mechanical source-item automatically or stage it for review, according to vault policy.
-9. Validate canonical records and rebuild the FTS index after a canonical write.
-
-A deployment may then authorize exactly one bounded model pass. The recommended first-distillation contract asks the model to:
-
-- identify what the source is;
-- summarize it without replacing it;
-- list important source-backed facts;
-- identify clearly named people, organizations, products, and projects;
-- connect to existing canonical records without inventing identity matches;
-- separate mechanical facts, source claims, prior-vault evidence, and inference;
-- preserve conflicts instead of silently choosing a convenient version;
-- classify relevance and sensitivity;
-- write open questions and optional follow-up paths;
-- produce a completion receipt and stop.
-
-That pass does not automatically authorize broad web research, LinkedIn OSINT, contacting people, publishing, or repeated model calls.
-
-See [First-distillation contract](docs/first-distillation-contract.md).
-
-## Model-provider portability
-
-Constellation is deliberately split so that changing providers does not change the evidence substrate.
-
-The provider never needs to remember how Constellation was built. It needs three things in context:
-
-1. the Constellation operating skill;
-2. the first-distillation contract;
-3. the evidence packet and relevant canonical records for the current source.
-
-The local extractor, hashes, manifests, schemas, index, sensitivity policy, and action ledger remain the same across providers. Model quality can still vary. A weaker model may miss conflicts, over-create entities, blur source claims with inference, or produce a generic summary. Markdown instructions reduce that variance but cannot remove it.
-
-For Hermes, the repository includes `skills/constellation/SKILL.md`. Load it explicitly when changing models or use it in a profile whose startup instructions require it. The skill tells the model how to operate the vault; it is more useful than a Unix man page because Hermes injects skill content into the model context.
-
-Before making a new provider the default, run the same small evaluation set through both models and compare:
-
-- evidence fidelity;
-- claim/inference separation;
-- conflict detection;
-- entity restraint;
-- sensitivity handling;
-- usefulness of follow-up questions;
-- schema and receipt compliance;
-- latency and cost.
-
-See [Model-provider portability](docs/model-provider-portability.md).
-
-## Installation
+## Try it
 
 Requirements:
 
 - Python 3.11 or newer;
-- libmagic available to `python-magic`;
-- SQLite with FTS5 support;
-- optional document dependencies for PDF, Office, and OCR formats.
+- `libmagic` available to `python-magic`;
+- SQLite with FTS5 support.
 
-Clone and install for development:
+Clone the repository and install the document adapters:
 
 ```bash
 git clone https://github.com/skyeyesec333/hermes-constellation.git
 cd hermes-constellation
 python3 -m venv .venv
-.venv/bin/pip install -e '.[dev,pdf,office,ocr]'
+.venv/bin/pip install -e '.[pdf,office,ocr]'
 ```
 
-Install the built wheel with all document adapters:
-
-```bash
-python -m pip install 'hermes-constellation[pdf,office,ocr] @ file:///absolute/path/to/hermes_constellation-0.1.0-py3-none-any.whl'
-```
-
-The optional dependency groups are:
-
-```text
-pdf     PyMuPDF
-ocr     Pillow + RapidOCR ONNX Runtime
-office  python-docx + python-pptx + openpyxl + MarkItDown PPTX fallback
-```
-
-More detail: [Installation](docs/installation.md).
-
-## Quick start without Hermes
+Create a vault and ingest the fictional demo source:
 
 ```bash
 CONSTELLATION=./.venv/bin/constellation
@@ -255,192 +83,341 @@ cp examples/synthetic-demo-vault/Inbox/Files/demo-brief.txt \
   "$VAULT/Inbox/Files/demo-brief.txt"
 
 $CONSTELLATION ingest "$VAULT" "$VAULT/Inbox/Files/demo-brief.txt"
+$CONSTELLATION review "$VAULT" list
+```
+
+New vaults stage a create-only source candidate by default. Review the exact candidate, then promote it:
+
+```bash
+$CONSTELLATION review "$VAULT" promote \
+  --candidate <candidate-id> \
+  --confirm
+
 $CONSTELLATION validate "$VAULT"
 $CONSTELLATION search "$VAULT" "Northstar Field Labs"
 ```
 
-The default policy stages a create-only source candidate. Inspect and promote it:
+The result is a normal folder of source files and Markdown. Open it in Obsidian, inspect it with any text editor, version a sanitized copy with Git, or operate it entirely from the CLI.
 
-```bash
-$CONSTELLATION review "$VAULT" list
-$CONSTELLATION review "$VAULT" promote \
-  --candidate <candidate-id> \
-  --confirm
+For wheel and Hermes-specific installation, see [Installation](docs/installation.md).
+
+## What ships in v0.1
+
+### A canonical local vault
+
+- Versioned Markdown schemas for source items, entities, claims, research runs, and candidate patches.
+- Original source preservation inside the vault.
+- SHA-256 provenance and immutable extraction manifests.
+- Atomic, path-contained writes.
+- Expected-base-hash checks that stop stale updates from overwriting newer notes.
+- A generated human-readable `INDEX.md`.
+- Rebuildable SQLite FTS5 search over canonical records.
+
+### Local document intake
+
+| Input | Local adapter | Evidence anchors |
+|---|---|---|
+| Text and Markdown | UTF-8 reader | line ranges |
+| Native or scanned PDF | PyMuPDF, with RapidOCR where needed | page and OCR region |
+| DOCX | python-docx | paragraph and table cell |
+| PPTX | python-pptx, with MarkItDown fallback | slide text, table cell, speaker notes |
+| XLSX | openpyxl | sheet and cell |
+| PNG, JPEG, WebP, TIFF, BMP | Pillow and RapidOCR | OCR region and bounding box |
+
+Constellation reads native PDF text first. It runs OCR only on pages that need it. OCR results include confidence, bounding boxes, dimensions, warnings, and partial/failure status. The original source remains the final reference.
+
+### Evidence and intake safety
+
+- MIME detection with `libmagic` instead of trusting only the extension.
+- Internal OOXML checks for DOCX, PPTX, and XLSX.
+- Limits on source size, expanded archive size, archive entries, compression ratio, unsafe paths, and encrypted packages.
+- Stable anchors such as `P0007`, `SLIDE0005:NOTES`, `SHEET0002:B17`, and `OCR:R0008`.
+- Extraction manifests that record engines, versions, hashes, warnings, and status.
+
+### Review, retrieval, and privacy
+
+- Automatic registration only for mechanical source records when the vault policy allows it.
+- Create-only candidates when automatic registration is disabled.
+- Explicit promotion for claims, entities, merges, and other meaning-bearing changes.
+- Action-ledger entries for promoted changes.
+- Exact-ID and FTS5 search with sensitivity ceilings.
+- Evidence packets containing record ID, path, route, sensitivity, score, and anchor.
+- Deny-by-default provider/model/purpose/sensitivity egress policy.
+- Research receipts with provider, model, token accounting, evidence hashes, retries, budget, and completion status.
+
+### Clean public release tooling
+
+- An explicit file-lineage allowlist.
+- A one-way clean-room release compiler.
+- Privacy scanning for paths, secrets, hostnames, usernames, and private canaries.
+- A fictional `example.test` demo vault.
+
+## The knowledge model
+
+A Constellation vault has four layers.
+
+### 1. Preserved sources
+
+Original files are immutable evidence. A source is never replaced by its summary.
+
+### 2. Canonical Markdown
+
+Canonical records live in:
+
+```text
+source-items/   what entered the vault and where it came from
+entities/       people, organizations, products, places, and other subjects
+claims/         important assertions tied to evidence
+research/       bounded research runs and their receipts
 ```
 
-For an update candidate, also supply the reviewed base hash:
+Candidates are proposals. They are not canonical evidence until promoted.
 
-```bash
-$CONSTELLATION review "$VAULT" promote \
-  --candidate <candidate-id> \
-  --expected-base-hash <reviewed-sha256> \
-  --confirm
+### 3. Rebuildable retrieval
+
+SQLite FTS, generated indexes, extracted text, and optional semantic indexes help agents find material. They are disposable infrastructure, not the source of truth.
+
+### 4. Model synthesis
+
+A model can summarize, connect, compare, find contradictions, and propose updates. The model does not get to erase provenance or silently promote its interpretation into fact.
+
+A typical vault looks like this:
+
+```text
+my-constellation/
+├── .constellation/
+│   ├── config.yaml
+│   ├── index.sqlite3
+│   ├── manifests/
+│   ├── candidates/
+│   ├── receipts/
+│   └── action-ledger.jsonl
+├── Inbox/Files/
+├── Library/Files/
+├── Library/Text/
+├── source-items/
+├── entities/
+├── claims/
+├── research/
+├── HOME.md
+└── INDEX.md
 ```
-
-Automatic mechanical source registration can be enabled in `.constellation/config.yaml`:
-
-```yaml
-kind: constellation-vault
-schema_version: '0.1'
-source_registration: automatic
-```
-
-This affects mechanical source records only. It does not authorize silent derived claims or arbitrary entity edits.
 
 ## Hermes plugin
 
-The repository root is the filesystem plugin entry point. Once installed and enabled, the plugin provides:
+The package includes a Hermes Agent plugin and a provider-independent operating skill.
 
-- `constellation_status`;
-- `constellation_ingest`;
-- `constellation_validate`;
-- `constellation_search`;
-- `constellation_review`;
+The plugin registers five bounded tools:
+
+| Tool | Purpose |
+|---|---|
+| `constellation_status` | Inspect capabilities and vault health |
+| `constellation_ingest` | Preserve and extract a local source |
+| `constellation_validate` | Validate canonical records and index state |
+| `constellation_search` | Retrieve source-grounded evidence packets |
+| `constellation_review` | List or promote an exact candidate |
+
+It also provides:
+
 - `hermes constellation ...`;
-- `/constellation ...`;
+- `/constellation ...` inside a Hermes session;
 - the loadable skill `constellation:constellation`.
 
-Typical setup:
+Install the package into the same Python environment that runs Hermes, then enable it:
 
 ```bash
-python -m pip install dist/hermes_constellation-0.1.0-py3-none-any.whl
+python -m pip install -e '.[pdf,office,ocr]'
 hermes plugins enable constellation
 hermes plugins list
 hermes doctor
 ```
 
-Load the operating skill in a session:
+Load the operating skill explicitly when needed:
 
 ```bash
 hermes -s constellation:constellation
 ```
 
-Provider selection remains a Hermes concern:
+The skill tells the active model how to preserve evidence, separate claims from inference, avoid speculative entity matches, validate writes, respect egress policy, and stop before unauthorized research.
 
-```bash
-hermes model
-# or, inside a session:
-/model
-```
+## The tools Constellation is designed to work with
 
-Changing the provider does not move or rewrite the vault.
+The public package supplies the trusted core. A full deployment becomes much more useful when a Hermes agent orchestrates other tools around it.
 
-## Evidence anchors by format
+Constellation does **not** silently call these tools. The active Hermes profile or an explicit workflow chooses them, and networked or meaning-bearing actions should require permission.
 
-Examples of stable anchors:
+### Collection and intake
+
+- **Google Workspace / Drive** for watched or manually selected intake folders.
+- **Obsidian Web Clipper** for saving articles as local Markdown.
+- **QuickAdd and Templater** for structured manual capture inside Obsidian.
+- **Hermes messaging gateways** for deliberate file handoff and completion notices.
+
+Drive polling, messaging delivery, and background scheduling are deployment adapters. They are not bundled in v0.1.
+
+### Documents, OCR, and vision
+
+- The bundled PyMuPDF, RapidOCR, python-docx, python-pptx, openpyxl, Pillow, and MarkItDown adapters handle the deterministic first pass.
+- Hermes document/OCR tooling can convert additional formats before ingestion.
+- A vision-capable model can inspect diagrams, charts, business-card layout, handwriting, or low-confidence regions when the vault's egress policy allows it.
+- Docling, Marker, OCRmyPDF, or Tesseract can be added as specialist fallbacks after representative tests justify the extra complexity.
+
+Linear OCR is not visual understanding. If layout carries meaning and no authorized vision path is available, the correct result is `partial`, not a confident guess.
+
+### Web and research
+
+A research-enabled Hermes profile can use:
+
+- `web_search` and `web_extract` for ordinary discovery and extraction;
+- self-hosted SearXNG for broad search discovery;
+- self-hosted or external Firecrawl for clean page extraction;
+- Hermes browser tools or Camofox for dynamic pages;
+- `linkedin-osint` for consented person and relationship research;
+- `osint-lv2` for deeper business-professional research;
+- `osint-refine` to absorb operator-supplied intelligence, corroborate it, and refine an existing dossier;
+- general OSINT, SEC EDGAR, and arXiv skills for domain-specific evidence;
+- OpenAlex, Crossref, Semantic Scholar, Unpaywall, Open Library, or Zotero adapters for papers and books;
+- X/Twitter and YouTube transcript tools when those sources are relevant.
+
+These are follow-up research paths, not automatic consequences of uploading a file. A source can be safely ingested without authorizing LinkedIn research, broad crawling, or repeated model calls.
+
+### Retrieval and synthesis
+
+- Built-in SQLite FTS5 is the supported lexical index.
+- A local Chroma/Ollama embedding index or a tool such as `qmd` can add semantic retrieval, but it should remain rebuildable and sensitivity-filtered.
+- The Constellation operating skill governs ordinary first distillation.
+- A stronger reasoning model can be reserved for explicitly requested cross-source synthesis, difficult conflicts, contracts, or strategic analysis.
+- A vision model should be used only for the pages or regions that require visual reasoning.
+
+Changing models does not change the evidence substrate. See [Model-provider portability](docs/model-provider-portability.md).
+
+### Human-facing Obsidian layer
+
+Obsidian is the interface, not the database engine. A useful companion setup is:
+
+- **Hermes Console** to work with the agent from inside Obsidian;
+- **Dataview or Bases** for relationship, source, and status views;
+- **Kanban** for opportunity or lead stages;
+- **Tasks** for dated follow-ups;
+- **QuickAdd and Templater** for consistent capture;
+- **Excalidraw** for diagrams when useful.
+
+These plugins render or edit Markdown. They are optional and are not included in the Python package. Smart Connections can provide related-note UX, but it creates a separate embedding store and is not required for Constellation retrieval.
+
+## Recommended agent workflows
+
+### Ingest
+
+1. Preserve the source and extract local evidence.
+2. Inspect extraction warnings and blank units.
+3. Register or review the mechanical source record.
+4. Run one bounded first distillation only when the deployment has an explicit consent signal.
+5. Propose clearly supported entities, claims, conflicts, and open questions.
+6. Validate, rebuild search, write a receipt, and stop.
+
+### Query
+
+1. Search canonical records first.
+2. Return evidence packets with paths and anchors.
+3. Read only the relevant records and source passages.
+4. Synthesize an answer with source boundaries intact.
+5. File a useful new synthesis back into the vault only when requested or allowed.
+
+### Research
+
+1. Start with a specific question, scope, evidence need, budget, and stop condition.
+2. Search primary and domain-specific sources before broad crawling.
+3. Separate collection, claim checking, synthesis, evaluation, and promotion.
+4. Record provider/model use and evidence hashes in a receipt.
+5. Return `partial` when the evidence or budget is insufficient.
+
+### Lint and maintenance
+
+- find stale claims and unresolved conflicts;
+- detect orphaned or duplicate records;
+- identify missing cross-references;
+- rebuild indexes from canonical Markdown;
+- keep candidates and generated artifacts out of canonical search;
+- propose new research questions without launching research automatically.
+
+## First distillation is deliberately bounded
+
+A deliberate upload may authorize one interpretation pass if the deployment explicitly defines that policy. The pass can:
+
+- identify what the source is;
+- summarize it without replacing it;
+- list important source-backed facts;
+- identify clearly named entities;
+- connect it to a small set of existing records;
+- separate mechanical facts, source claims, prior evidence, and inference;
+- preserve contradictions;
+- classify relevance and sensitivity;
+- leave open questions and follow-up options;
+- write a completion receipt and stop.
+
+It does not automatically authorize broad web research, LinkedIn OSINT, company deep-dives, outreach, publishing, speculative entity creation, or repeated synthesis passes.
+
+Read the full [First-distillation contract](docs/first-distillation-contract.md).
+
+## Privacy and model choice
+
+Local preservation, hashing, parsing, OCR, validation, and FTS indexing do not require a model provider.
+
+Model egress fails closed unless vault policy authorizes the exact provider, transport, model, purpose, and maximum sensitivity. Each decision is written to an egress ledger without storing source text or credentials there.
+
+A configured model is not automatically approved for every source. A provider switch is also a data-routing change and should be evaluated with fixed representative sources.
+
+Constellation is designed so that:
 
 ```text
-PDF page                    P0007
-PDF OCR region              P0007:OCR:R0003
-DOCX paragraph              P0004
-DOCX table cell             T0002:R0003:C0001
-PPTX slide text             SLIDE0005:TEXT0002
-PPTX table cell             SLIDE0005:TABLE0001:R0002:C0003
-PPTX speaker notes          SLIDE0005:NOTES
-XLSX cell                   SHEET0002:B17
-Image OCR region            OCR:R0008
-Text lines                  L000120-L000137
+no model                    preservation, hashing, extraction, validation, indexing
+ordinary reasoning model    routine first distillation
+vision model                layouts, charts, cards, diagrams, difficult OCR
+stronger reasoning model    requested cross-source synthesis and hard conflicts
 ```
 
-Anchors are evidence handles, not claims that the extraction is perfect. OCR confidence and warnings remain in the manifest. The original source is always the final reference.
+Instructions improve consistency, but they cannot make every model equally capable. The repository includes a Hermes skill, a first-distillation contract, an egress policy, and a provider evaluation procedure so model changes can be tested instead of guessed.
 
-## Search behavior
+Read [Model-provider portability](docs/model-provider-portability.md), [Egress policy](docs/egress-policy.md), [Threat model](docs/threat-model.md), and [Privacy](PRIVACY.md) before connecting live private sources to an external provider.
 
-Constellation search is source-grounded retrieval, not an answer generator.
+## What v0.1 does not pretend to be
 
-```bash
-constellation search ~/my-constellation "deployment boundary"
-```
+The public package is a trustworthy core, not a finished autonomous research product or hosted CRM.
 
-A result packet includes:
+It does not bundle:
 
-- canonical note ID;
-- vault-relative path;
-- sensitivity;
-- exact or FTS route;
-- score;
-- page/line-aware anchor where available.
+- Google Drive polling or Telegram delivery;
+- an LLM provider or automatic model invocation;
+- automatic web or LinkedIn research;
+- automatic entity resolution;
+- a finished relationship dashboard or lead pipeline;
+- a hosted sync service;
+- vector or graph infrastructure;
+- audio/video ingestion;
+- private prompts, notes, contacts, or automation.
 
-`evidence_not_retrieved` means the current search did not retrieve evidence. It does not prove that the evidence does not exist. A stale canonical fingerprint causes retrieval to fail closed until the index is rebuilt.
+Those can be added around the core, but they must preserve the same provenance, consent, sensitivity, and review boundaries.
 
-## Review and conflict safety
+## Obsidian, Git, and ownership
 
-Constellation distinguishes mechanical registration from meaning-bearing changes.
+A Constellation vault is a folder of ordinary files. Obsidian can open it directly, and the agent can maintain the same files through Hermes.
 
-A new source can be staged as a create-only candidate. A reviewer sees the target path, candidate hash, and proposed record before promotion. Updates also include an expected base hash. If the canonical file changed after review, promotion stops rather than overwriting the newer version.
+Keep the human surface narrow: `HOME.md`, active relationships, current opportunities, intake, and recent work. Let agents use the wider entity/source tree and generated index. The machine-friendly catalog does not need to be the human home page.
 
-This is intentionally less convenient than letting an agent edit everything directly.
+Git can version source code and a deliberately sanitized vault. Do not put a live private vault, credentials, browser state, generated model transcripts, or sensitive attachments into a public repository.
 
-## Privacy and model egress
+If a Linux server owns the canonical vault and macOS mounts it through SSHFS, open the mounted vault directly in Obsidian. Do not run another two-way sync system against the same agent-written mount.
 
-Local ingestion, hashing, parsing, OCR, validation, and FTS indexing do not require a model provider.
+## Known limits
 
-Model egress is denied unless vault policy authorizes the exact combination of:
-
-- provider;
-- model;
-- purpose;
-- source sensitivity.
-
-The decision is recorded in an egress ledger. Credentials remain outside the vault.
-
-A private deployment may treat a deliberate upload into a designated intake folder as consent for one bounded first-distillation pass. That policy must be explicit. Ordinary indexing, maintenance, or queue processing must not silently become permission to send source content to a model.
-
-Read [Egress policy](docs/egress-policy.md), [Threat model](docs/threat-model.md), and [Privacy](PRIVACY.md) before connecting external providers.
-
-## Obsidian and macOS
-
-Constellation is a folder of normal files, so Obsidian can open it directly.
-
-If the canonical vault lives on a Linux server and macOS mounts it with SSHFS, upgrading Constellation does not require a new mount. The mount points at the vault directory, not the package version. Keep the same remote and local paths unless you deliberately migrate the canonical vault.
-
-Generic example:
-
-```bash
-mkdir -p "$HOME/constellation-vault"
-sshfs user@server:/absolute/path/to/my-constellation \
-  "$HOME/constellation-vault" \
-  -o volname=constellation,defer_permissions,reconnect
-```
-
-Open `~/constellation-vault` as an Obsidian vault. Do not run Obsidian Sync, LiveSync, or another two-way synchronization tool against the same agent-written SSHFS mount.
-
-## Migration
-
-Migration is separate from normal ingestion. Constellation provides read-only inventory, destination-only rehearsal, same-filesystem preparation, and explicit atomic activation.
-
-```bash
-constellation migrate-plan /path/to/legacy-vault > migration-plan.private.json
-
-constellation migrate-rehearse \
-  /path/to/legacy-vault \
-  /tmp/constellation-rehearsal \
-  --confirm-disposable
-```
-
-Before activation, verify a current backup, review the mapping, stop all writers, and retain the old vault as a rollback directory. Read [Migration](docs/migration.md) before using the activation command.
-
-## Release and privacy verification
-
-The public tree is compiled from `resources/public-lineage.yaml`. The compiler rejects files outside the allowlist and scans the output tree before release.
-
-```bash
-export CONSTELLATION_RELEASE_CANARY='PRIVATE-CANARY-EXAMPLE'
-python scripts/build_release.py \
-  . \
-  /tmp/hermes-constellation-public \
-  resources/public-lineage.yaml \
-  --canary "$CONSTELLATION_RELEASE_CANARY"
-```
-
-Then build and test from the compiled tree rather than the working repository:
-
-```bash
-python -m build /tmp/hermes-constellation-public \
-  --outdir /tmp/hermes-constellation-dist
-```
-
-The release process is one-way. Never copy a private vault into a public repository and try to remove names afterward.
+- First distillation is only as good as the selected model and bounded context.
+- OCR can miss handwriting, stylized text, low-resolution scans, and diagrams.
+- Native slide and PDF text may lose spatial relationships.
+- Automatic entity matching is not implemented.
+- SQLite FTS5 is lexical, not semantic retrieval.
+- Encrypted Office files are rejected rather than decrypted.
+- Network research, Drive, messaging, and scheduling require deployment adapters.
+- v0.1 has no audio/video intake.
 
 ## Development
 
@@ -452,43 +429,15 @@ python3 -m venv .venv
 .venv/bin/python -m build
 ```
 
-The test suite covers schemas, path containment, ingestion, OCR boundaries, Office archive safety, review promotion, stale-index failure, research receipts, egress policy, packaging, plugin discovery, and clean-room release behavior.
-
-## Known limits
-
-- First distillation is only as good as the selected model and the context it receives.
-- OCR can miss stylized text, handwriting, low-resolution scans, and diagrams.
-- Native slide/PDF text does not always preserve visual relationships.
-- Automatic entity matching is not implemented.
-- FTS5 is lexical retrieval, not semantic retrieval.
-- Encrypted Office files are rejected rather than decrypted.
-- Drive, Telegram, browser research, and host-specific scheduling require deployment adapters.
-- v0.1 has no audio/video intake.
-
-## Roadmap
-
-Likely next additions should be driven by representative failures, not package count:
-
-- visual slide rendering through LibreOffice;
-- optional OCRmyPDF/Tesseract preprocessing;
-- contact normalization and vCard export;
-- real DOCX/PPTX/XLSX live evaluation fixtures;
-- provider-comparison evaluation reports;
-- sensitivity-separated retrieval outputs;
-- deletion/rebuild controls;
-- CI, SBOM, and signed release artifacts;
-- Docling or Marker only if lightweight extractors fail on real documents;
-- optional semantic retrieval without replacing canonical Markdown.
-
-See [Integrations](docs/integrations.md) for the current capability matrix.
+The test suite covers schemas, path containment, ingestion, OCR boundaries, Office archive safety, review promotion, stale-index failure, research receipts, egress policy, packaging, plugin discovery, migration rehearsal, and clean-room release behavior.
 
 ## Documentation
 
-- [Architecture](docs/architecture.md)
 - [Installation](docs/installation.md)
+- [Architecture](docs/architecture.md)
 - [First-distillation contract](docs/first-distillation-contract.md)
 - [Model-provider portability](docs/model-provider-portability.md)
-- [Integrations](docs/integrations.md)
+- [Integrations and tool status](docs/integrations.md)
 - [Egress policy](docs/egress-policy.md)
 - [Token-aware research](docs/token-aware-research.md)
 - [Threat model](docs/threat-model.md)
