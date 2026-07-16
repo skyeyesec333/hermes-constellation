@@ -189,6 +189,25 @@ def build_parser() -> argparse.ArgumentParser:
     decision.add_argument("--source-ids", nargs="+", help="ULIDs of evidence sources")
     decision.add_argument("--limit", type=int, default=50, help="Max to list")
 
+    inquiry = sub.add_parser("inquiry", help="Stage or list research inquiries")
+    inquiry.add_argument("vault", type=Path)
+    inquiry.add_argument("action", choices=["stage", "list"])
+    inquiry.add_argument("--question", help="Research question (required for stage)")
+    inquiry.add_argument("--why", help="Why this matters")
+    inquiry.add_argument("--scope", help="Target scope")
+    inquiry.add_argument("--evidence-needed", help="What kind of evidence")
+    inquiry.add_argument("--source-priority", default="primary",
+                          choices=["primary", "primary-and-secondary", "any"])
+    inquiry.add_argument("--subject-ids", nargs="+", help="ULIDs of relevant entities")
+    inquiry.add_argument("--max-searches", type=int, default=5, help="Max search queries")
+    inquiry.add_argument("--max-sources", type=int, default=10, help="Max unique sources")
+    inquiry.add_argument("--max-model-calls", type=int, default=3, help="Max LLM calls")
+    inquiry.add_argument("--synthesis-reserve", type=int, default=25, help="Reserve % for synthesis (0-50)")
+    inquiry.add_argument("--stop-conditions", nargs="+", help="When to stop")
+    inquiry.add_argument("--promotion-policy", default="review-all",
+                          choices=["review-all", "auto-source-only", "manual-only"])
+    inquiry.add_argument("--limit", type=int, default=50, help="Max to list")
+
     lead = sub.add_parser(
         "lead",
         help="Conference lead capture into Project Manager CRM notes (review-only drafts)",
@@ -486,6 +505,43 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
         candidate_path = _sr2(vault, Path(".constellation/candidates") / f"decision-{decision_obj.id}.json")
         _awt2(vault, candidate_path.relative_to(vault), decision_obj.model_dump_json(indent=2) + "\n")
         return {"status": "staged", "decision_id": decision_obj.id, "candidate_path": candidate_path.relative_to(vault).as_posix()}
+    if action == "inquiry":
+        from datetime import datetime as dt
+
+        from constellation.models import Inquiry, Sensitivity as _Sens3
+
+        if values.get("action") == "list":
+            from constellation.review import list_candidates as list_inquiries
+            return list_inquiries(vault)
+        question = values.get("question")
+        if not question:
+            raise ValueError("--question is required for inquiry stage")
+        subject_ids = values.get("subject_ids") or []
+        stop_conditions = values.get("stop_conditions") or []
+        inquiry_obj = Inquiry(
+            type="inquiry",
+            title=f"inquiry-{question[:40]}",
+            status="review-required",
+            sensitivity=_Sens3.INTERNAL,
+            question=str(question),
+            why_it_matters=values.get("why") or "",
+            target_scope=values.get("scope") or "",
+            evidence_needed=values.get("evidence_needed") or "",
+            source_priority=values.get("source_priority", "primary"),
+            promotion_policy=values.get("promotion_policy", "review-all"),
+            subject_ids=[str(s) for s in subject_ids],
+            max_search_queries=int(values.get("max_searches", 5)),
+            max_unique_sources=int(values.get("max_sources", 10)),
+            max_model_calls=int(values.get("max_model_calls", 3)),
+            synthesis_reserve_percent=int(values.get("synthesis_reserve", 25)),
+            stop_conditions=list(stop_conditions),
+            created_at=dt.now().astimezone(),
+            updated_at=dt.now().astimezone(),
+        )
+        from constellation.storage import atomic_write_text as _awt3, safe_relative_path as _sr3
+        candidate_path = _sr3(vault, Path(".constellation/candidates") / f"inquiry-{inquiry_obj.id}.json")
+        _awt3(vault, candidate_path.relative_to(vault), inquiry_obj.model_dump_json(indent=2) + "\n")
+        return {"status": "staged", "inquiry_id": inquiry_obj.id, "candidate_path": candidate_path.relative_to(vault).as_posix()}
     if action == "research":
         from constellation.research import research_command
 

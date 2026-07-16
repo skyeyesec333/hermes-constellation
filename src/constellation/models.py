@@ -274,6 +274,38 @@ class Decision(BaseRecord):
         return value
 
 
+class Inquiry(BaseRecord):
+    type: Literal["inquiry"] = "inquiry"  # pyright: ignore[reportIncompatibleVariableOverride]
+    question: Annotated[str, Field(min_length=1)]
+    why_it_matters: str = ""
+    target_scope: str = ""
+    evidence_needed: str = ""
+    source_priority: str = "primary"
+    promotion_policy: Literal["review-all", "auto-source-only", "manual-only"] = "review-all"
+    subject_ids: list[Ulid] = Field(default_factory=list)
+    max_search_queries: int = 5
+    max_unique_sources: int = 10
+    max_model_calls: int = 3
+    synthesis_reserve_percent: Annotated[int, Field(ge=0, le=50)] = 25
+    stop_conditions: list[str] = Field(default_factory=list)
+    research_run_ids: list[Ulid] = Field(default_factory=list)
+    resolved_at: datetime | None = None
+    resolution_summary: str | None = None
+
+
+class SearchResult(BaseRecord):
+    type: Literal["search-result"] = "search-result"  # pyright: ignore[reportIncompatibleVariableOverride]
+    inquiry_id: Ulid
+    query: Annotated[str, Field(min_length=1)]
+    engine: Literal["searxng", "firecrawl", "other"] = "searxng"
+    result_url: Annotated[str, Field(min_length=1)]
+    result_title: str = ""
+    result_snippet: str = ""
+    retrieved_at: datetime
+    source_preserved: bool = False
+    source_id: Ulid | None = None
+
+
 class CandidatePatch(BaseRecord):
     target_path: str
     content: Annotated[str, Field(min_length=1)]
@@ -318,4 +350,4 @@ class ResearchRun(BaseRecord):
         return self
 
 
-RECORD_MODELS = (BaseRecord, SourceItem, EntityRecord, RelationshipRecord, Claim, Interaction, Decision, CandidatePatch, ResearchRun)
+RECORD_MODELS = (BaseRecord, SourceItem, EntityRecord, RelationshipRecord, Claim, Interaction, Decision, Inquiry, SearchResult, CandidatePatch, ResearchRun)

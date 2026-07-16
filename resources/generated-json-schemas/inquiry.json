@@ -1,0 +1,174 @@
+{
+  "$defs": {
+    "Sensitivity": {
+      "enum": [
+        "public",
+        "internal",
+        "confidential",
+        "restricted"
+      ],
+      "title": "Sensitivity",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "evidence_needed": {
+      "default": "",
+      "title": "Evidence Needed",
+      "type": "string"
+    },
+    "id": {
+      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+      "title": "Id",
+      "type": "string"
+    },
+    "max_model_calls": {
+      "default": 3,
+      "title": "Max Model Calls",
+      "type": "integer"
+    },
+    "max_search_queries": {
+      "default": 5,
+      "title": "Max Search Queries",
+      "type": "integer"
+    },
+    "max_unique_sources": {
+      "default": 10,
+      "title": "Max Unique Sources",
+      "type": "integer"
+    },
+    "promotion_policy": {
+      "default": "review-all",
+      "enum": [
+        "review-all",
+        "auto-source-only",
+        "manual-only"
+      ],
+      "title": "Promotion Policy",
+      "type": "string"
+    },
+    "question": {
+      "minLength": 1,
+      "title": "Question",
+      "type": "string"
+    },
+    "research_run_ids": {
+      "items": {
+        "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+        "type": "string"
+      },
+      "title": "Research Run Ids",
+      "type": "array"
+    },
+    "resolution_summary": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Resolution Summary"
+    },
+    "resolved_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Resolved At"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "sensitivity": {
+      "$ref": "#/$defs/Sensitivity"
+    },
+    "source_priority": {
+      "default": "primary",
+      "title": "Source Priority",
+      "type": "string"
+    },
+    "status": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Status",
+      "type": "string"
+    },
+    "stop_conditions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Stop Conditions",
+      "type": "array"
+    },
+    "subject_ids": {
+      "items": {
+        "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+        "type": "string"
+      },
+      "title": "Subject Ids",
+      "type": "array"
+    },
+    "synthesis_reserve_percent": {
+      "default": 25,
+      "maximum": 50,
+      "minimum": 0,
+      "title": "Synthesis Reserve Percent",
+      "type": "integer"
+    },
+    "target_scope": {
+      "default": "",
+      "title": "Target Scope",
+      "type": "string"
+    },
+    "title": {
+      "maxLength": 300,
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    },
+    "type": {
+      "const": "inquiry",
+      "default": "inquiry",
+      "title": "Type",
+      "type": "string"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    },
+    "why_it_matters": {
+      "default": "",
+      "title": "Why It Matters",
+      "type": "string"
+    }
+  },
+  "required": [
+    "title",
+    "status",
+    "sensitivity",
+    "created_at",
+    "updated_at",
+    "question"
+  ],
+  "title": "Inquiry",
+  "type": "object"
+}

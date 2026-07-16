@@ -1,0 +1,130 @@
+{
+  "$defs": {
+    "Sensitivity": {
+      "enum": [
+        "public",
+        "internal",
+        "confidential",
+        "restricted"
+      ],
+      "title": "Sensitivity",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "engine": {
+      "default": "searxng",
+      "enum": [
+        "searxng",
+        "firecrawl",
+        "other"
+      ],
+      "title": "Engine",
+      "type": "string"
+    },
+    "id": {
+      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+      "title": "Id",
+      "type": "string"
+    },
+    "inquiry_id": {
+      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+      "title": "Inquiry Id",
+      "type": "string"
+    },
+    "query": {
+      "minLength": 1,
+      "title": "Query",
+      "type": "string"
+    },
+    "result_snippet": {
+      "default": "",
+      "title": "Result Snippet",
+      "type": "string"
+    },
+    "result_title": {
+      "default": "",
+      "title": "Result Title",
+      "type": "string"
+    },
+    "result_url": {
+      "minLength": 1,
+      "title": "Result Url",
+      "type": "string"
+    },
+    "retrieved_at": {
+      "format": "date-time",
+      "title": "Retrieved At",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "sensitivity": {
+      "$ref": "#/$defs/Sensitivity"
+    },
+    "source_id": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source Id"
+    },
+    "source_preserved": {
+      "default": false,
+      "title": "Source Preserved",
+      "type": "boolean"
+    },
+    "status": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Status",
+      "type": "string"
+    },
+    "title": {
+      "maxLength": 300,
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    },
+    "type": {
+      "const": "search-result",
+      "default": "search-result",
+      "title": "Type",
+      "type": "string"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "title",
+    "status",
+    "sensitivity",
+    "created_at",
+    "updated_at",
+    "inquiry_id",
+    "query",
+    "result_url",
+    "retrieved_at"
+  ],
+  "title": "SearchResult",
+  "type": "object"
+}

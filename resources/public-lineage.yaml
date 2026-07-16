@@ -99,7 +99,11 @@ files:
     lineage: generated-from-python-schema
   resources/generated-json-schemas/interaction.json:
     lineage: generated-from-python-schema
+  resources/generated-json-schemas/inquiry.json:
+    lineage: generated-from-python-schema
   resources/generated-json-schemas/relationshiprecord.json:
+    lineage: generated-from-python-schema
+  resources/generated-json-schemas/searchresult.json:
     lineage: generated-from-python-schema
   resources/generated-json-schemas/sourceitem.json:
     lineage: generated-from-python-schema
@@ -117,7 +121,11 @@ files:
     lineage: generated-from-python-schema
   resources/generated-note-templates/interaction.md:
     lineage: generated-from-python-schema
+  resources/generated-note-templates/inquiry.md:
+    lineage: generated-from-python-schema
   resources/generated-note-templates/relationshiprecord.md:
+    lineage: generated-from-python-schema
+  resources/generated-note-templates/searchresult.md:
     lineage: generated-from-python-schema
   resources/generated-note-templates/sourceitem.md:
     lineage: generated-from-python-schema
@@ -198,6 +206,8 @@ files:
   src/constellation/review.py:
     lineage: handwritten-generic
   src/constellation/schema.py:
+    lineage: handwritten-generic
+  src/constellation/search_adapter.py:
     lineage: handwritten-generic
   src/constellation/storage.py:
     lineage: handwritten-generic
