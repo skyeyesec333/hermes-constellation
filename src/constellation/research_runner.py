@@ -27,7 +27,29 @@ def _extract_page(url: str, *, sensitivity: Sensitivity, timeout: int = 30) -> d
     except (ImportError, SearchAdapterError):
         pass
 
-    # Layer 2: Scrapling (undetectable, anti-bot bypass)
+    # Layer 2: Crawl4AI (structured bulk extraction, BFS/DFS deep crawl)
+    try:
+        from crawl4ai import AsyncWebCrawler
+        import asyncio
+
+        async def _crawl():
+            async with AsyncWebCrawler() as crawler:
+                result = await crawler.arun(url=url)
+                return result
+
+        crawl_result = asyncio.run(_crawl())
+        if crawl_result and crawl_result.markdown:
+            return {
+                "title": getattr(crawl_result, "title", "") or "",
+                "url": url,
+                "markdown": crawl_result.markdown[:50_000],
+                "method": "crawl4ai",
+                "extracted_at": datetime.now().astimezone().isoformat(),
+            }
+    except (ImportError, Exception):
+        pass
+
+    # Layer 3: Scrapling (undetectable, anti-bot bypass)
     try:
         import scrapling
 
@@ -39,6 +61,28 @@ def _extract_page(url: str, *, sensitivity: Sensitivity, timeout: int = 30) -> d
                 "url": url,
                 "markdown": getattr(page, "markdown", None) or page.text,
                 "method": "scrapling",
+                "extracted_at": datetime.now().astimezone().isoformat(),
+            }
+    except (ImportError, Exception):
+        pass
+
+    # Layer 4: Browser Use (autonomous browser agent — heaviest, last resort)
+    try:
+        from browser_use import Agent
+        import asyncio as _asyncio
+
+        async def _browse():
+            agent = Agent(task=f"Extract the main content from {url} as clean markdown text. Return only the extracted content.")
+            result = await agent.run()
+            return result
+
+        bu_result = _asyncio.run(_browse())
+        if bu_result and hasattr(bu_result, 'final_result'):
+            return {
+                "title": "",
+                "url": url,
+                "markdown": str(bu_result.final_result())[:50_000],
+                "method": "browser-use",
                 "extracted_at": datetime.now().astimezone().isoformat(),
             }
     except (ImportError, Exception):
