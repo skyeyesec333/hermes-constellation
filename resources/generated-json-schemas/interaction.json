@@ -1,0 +1,163 @@
+{
+  "$defs": {
+    "InteractionType": {
+      "enum": [
+        "meeting",
+        "call",
+        "email",
+        "introduction",
+        "conference",
+        "other"
+      ],
+      "title": "InteractionType",
+      "type": "string"
+    },
+    "Sensitivity": {
+      "enum": [
+        "public",
+        "internal",
+        "confidential",
+        "restricted"
+      ],
+      "title": "Sensitivity",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "channel": {
+      "default": "in-person",
+      "maxLength": 50,
+      "minLength": 1,
+      "title": "Channel",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "decisions_made": {
+      "items": {
+        "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+        "type": "string"
+      },
+      "title": "Decisions Made",
+      "type": "array"
+    },
+    "follow_ups": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Follow Ups",
+      "type": "array"
+    },
+    "id": {
+      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+      "title": "Id",
+      "type": "string"
+    },
+    "interaction_type": {
+      "$ref": "#/$defs/InteractionType",
+      "default": "meeting"
+    },
+    "location": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Location"
+    },
+    "occurred_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Occurred At"
+    },
+    "participants": {
+      "items": {
+        "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+        "type": "string"
+      },
+      "title": "Participants",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "sensitivity": {
+      "$ref": "#/$defs/Sensitivity"
+    },
+    "source_ids": {
+      "items": {
+        "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+        "type": "string"
+      },
+      "title": "Source Ids",
+      "type": "array"
+    },
+    "status": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Status",
+      "type": "string"
+    },
+    "subject_ids": {
+      "items": {
+        "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Subject Ids",
+      "type": "array"
+    },
+    "summary": {
+      "default": "",
+      "minLength": 1,
+      "title": "Summary",
+      "type": "string"
+    },
+    "title": {
+      "maxLength": 300,
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    },
+    "type": {
+      "const": "interaction",
+      "default": "interaction",
+      "title": "Type",
+      "type": "string"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "title",
+    "status",
+    "sensitivity",
+    "created_at",
+    "updated_at",
+    "subject_ids"
+  ],
+  "title": "Interaction",
+  "type": "object"
+}

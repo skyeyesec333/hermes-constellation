@@ -163,6 +163,32 @@ def build_parser() -> argparse.ArgumentParser:
     claim.add_argument("--confidence", type=float)
     claim.add_argument("--limit", type=int, default=50, help="Max claims to list")
 
+    interaction = sub.add_parser("interaction", help="Stage or list review-only interactions")
+    interaction.add_argument("vault", type=Path)
+    interaction.add_argument("action", choices=["stage", "list"])
+    interaction.add_argument("--subject-ids", nargs="+", help="ULIDs of primary subjects (required for stage)")
+    interaction.add_argument("--interaction-type", default="meeting",
+                             choices=["meeting", "call", "email", "introduction", "conference", "other"])
+    interaction.add_argument("--participants", nargs="+", help="ULIDs of all participants")
+    interaction.add_argument("--channel", default="in-person", help="Channel: in-person, zoom, phone, email, whatsapp")
+    interaction.add_argument("--summary", help="What happened")
+    interaction.add_argument("--follow-ups", nargs="+", help="Follow-up items")
+    interaction.add_argument("--source-ids", nargs="+", help="ULIDs of evidence sources")
+    interaction.add_argument("--location", help="Where it occurred")
+    interaction.add_argument("--limit", type=int, default=50, help="Max to list")
+
+    decision = sub.add_parser("decision", help="Stage or list review-only decisions")
+    decision.add_argument("vault", type=Path)
+    decision.add_argument("action", choices=["stage", "list"])
+    decision.add_argument("--subject-id", help="ULID of the subject entity (required for stage)")
+    decision.add_argument("--decision", dest="decision_text", help="What was decided (required for stage)")
+    decision.add_argument("--rationale", help="Why this decision was made")
+    decision.add_argument("--options-considered", nargs="+", help="Alternatives that were rejected")
+    decision.add_argument("--assumptions", nargs="+", help="What was assumed")
+    decision.add_argument("--owner", help="Who owns this decision")
+    decision.add_argument("--source-ids", nargs="+", help="ULIDs of evidence sources")
+    decision.add_argument("--limit", type=int, default=50, help="Max to list")
+
     lead = sub.add_parser(
         "lead",
         help="Conference lead capture into Project Manager CRM notes (review-only drafts)",
@@ -391,6 +417,75 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
             claim_status=str(values.get("claim_status", "source-claimed")),
             confidence=values.get("confidence"),
         )
+    if action == "interaction":
+        from datetime import datetime as dt
+
+        from constellation.models import Interaction
+        from constellation.models import Sensitivity as _Sensitivity
+        from constellation.storage import atomic_write_text as _atomic_write, safe_relative_path as _safe_rel
+
+        if values.get("action") == "list":
+            from constellation.review import list_candidates as list_interactions
+            return list_interactions(vault)
+        subject_ids = values.get("subject_ids") or []
+        if not subject_ids:
+            raise ValueError("--subject-ids is required for interaction stage")
+        source_ids = values.get("source_ids") or []
+        participants = values.get("participants") or []
+        interaction_obj = Interaction(
+            type="interaction",
+            title=f"interaction-{subject_ids[0][:8]}",
+            status="review-required",
+            sensitivity=_Sensitivity.INTERNAL,
+            interaction_type=values.get("interaction_type", "meeting"),
+            subject_ids=[str(s) for s in subject_ids],
+            participants=[str(p) for p in participants],
+            channel=values.get("channel", "in-person"),
+            summary=values.get("summary") or "No summary provided.",
+            follow_ups=list(values.get("follow_ups") or []),
+            source_ids=[str(s) for s in source_ids],
+            location=values.get("location"),
+            occurred_at=dt.now().astimezone(),
+            created_at=dt.now().astimezone(),
+            updated_at=dt.now().astimezone(),
+        )
+        candidate_path = _safe_rel(vault, Path(".constellation/candidates") / f"interaction-{interaction_obj.id}.json")
+        _atomic_write(vault, candidate_path.relative_to(vault), interaction_obj.model_dump_json(indent=2) + "\n")
+        return {"status": "staged", "interaction_id": interaction_obj.id, "candidate_path": candidate_path.relative_to(vault).as_posix()}
+    if action == "decision":
+        from datetime import datetime as dt
+
+        from constellation.models import Decision
+        from constellation.models import Sensitivity as _Sens2
+        from constellation.storage import atomic_write_text as _awt2, safe_relative_path as _sr2
+
+        if values.get("action") == "list":
+            from constellation.review import list_candidates as list_decisions
+            return list_decisions(vault)
+        subject_id = values.get("subject_id")
+        decision_text_val = values.get("decision_text")
+        if not subject_id or not decision_text_val:
+            raise ValueError("--subject-id and --decision are required for decision stage")
+        source_ids = values.get("source_ids") or []
+        decision_obj = Decision(
+            type="decision",
+            title=f"decision-{subject_id[:8]}",
+            status="review-required",
+            sensitivity=_Sens2.INTERNAL,
+            subject_id=str(subject_id),
+            decision=str(decision_text_val),
+            rationale=values.get("rationale") or "",
+            options_considered=list(values.get("options_considered") or []),
+            assumptions=list(values.get("assumptions") or []),
+            owner=values.get("owner"),
+            source_ids=[str(s) for s in source_ids],
+            decided_at=dt.now().astimezone(),
+            created_at=dt.now().astimezone(),
+            updated_at=dt.now().astimezone(),
+        )
+        candidate_path = _sr2(vault, Path(".constellation/candidates") / f"decision-{decision_obj.id}.json")
+        _awt2(vault, candidate_path.relative_to(vault), decision_obj.model_dump_json(indent=2) + "\n")
+        return {"status": "staged", "decision_id": decision_obj.id, "candidate_path": candidate_path.relative_to(vault).as_posix()}
     if action == "research":
         from constellation.research import research_command
 

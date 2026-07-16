@@ -91,9 +91,13 @@ files:
     lineage: generated-from-python-schema
   resources/generated-json-schemas/claim.json:
     lineage: generated-from-python-schema
+  resources/generated-json-schemas/decision.json:
+    lineage: generated-from-python-schema
   resources/generated-json-schemas/entityrecord.json:
     lineage: generated-from-python-schema
   resources/generated-json-schemas/researchrun.json:
+    lineage: generated-from-python-schema
+  resources/generated-json-schemas/interaction.json:
     lineage: generated-from-python-schema
   resources/generated-json-schemas/relationshiprecord.json:
     lineage: generated-from-python-schema
@@ -105,9 +109,13 @@ files:
     lineage: generated-from-python-schema
   resources/generated-note-templates/claim.md:
     lineage: generated-from-python-schema
+  resources/generated-note-templates/decision.md:
+    lineage: generated-from-python-schema
   resources/generated-note-templates/entityrecord.md:
     lineage: generated-from-python-schema
   resources/generated-note-templates/researchrun.md:
+    lineage: generated-from-python-schema
+  resources/generated-note-templates/interaction.md:
     lineage: generated-from-python-schema
   resources/generated-note-templates/relationshiprecord.md:
     lineage: generated-from-python-schema

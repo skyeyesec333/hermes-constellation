@@ -223,6 +223,57 @@ class Claim(BaseRecord):
         return self
 
 
+class InteractionType(StrEnum):
+    MEETING = "meeting"
+    CALL = "call"
+    EMAIL = "email"
+    INTRODUCTION = "introduction"
+    CONFERENCE = "conference"
+    OTHER = "other"
+
+
+class Interaction(BaseRecord):
+    type: Literal["interaction"] = "interaction"  # pyright: ignore[reportIncompatibleVariableOverride]
+    interaction_type: InteractionType = InteractionType.MEETING
+    subject_ids: Annotated[list[Ulid], Field(min_length=1)]
+    participants: list[Ulid] = Field(default_factory=list)
+    channel: Annotated[str, Field(min_length=1, max_length=50)] = "in-person"
+    summary: Annotated[str, Field(min_length=1)] = ""
+    follow_ups: list[str] = Field(default_factory=list)
+    decisions_made: list[Ulid] = Field(default_factory=list)
+    source_ids: list[Ulid] = Field(default_factory=list)
+    occurred_at: datetime | None = None
+    location: str | None = None
+
+    @field_validator("occurred_at")
+    @classmethod
+    def occurred_at_requires_timezone(cls, value: datetime | None) -> datetime | None:
+        if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+            raise ValueError("interaction occurred_at must include a timezone when set")
+        return value
+
+
+class Decision(BaseRecord):
+    type: Literal["decision"] = "decision"  # pyright: ignore[reportIncompatibleVariableOverride]
+    subject_id: Ulid
+    decision: Annotated[str, Field(min_length=1)]
+    rationale: str = ""
+    options_considered: list[str] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
+    owner: str | None = None
+    review_date: datetime | None = None
+    outcome: str | None = None
+    source_ids: list[Ulid] = Field(default_factory=list)
+    decided_at: datetime | None = None
+
+    @field_validator("review_date", "decided_at")
+    @classmethod
+    def decision_datetime_requires_timezone(cls, value: datetime | None) -> datetime | None:
+        if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+            raise ValueError("decision temporal fields must include a timezone when set")
+        return value
+
+
 class CandidatePatch(BaseRecord):
     target_path: str
     content: Annotated[str, Field(min_length=1)]
@@ -267,4 +318,4 @@ class ResearchRun(BaseRecord):
         return self
 
 
-RECORD_MODELS = (BaseRecord, SourceItem, EntityRecord, RelationshipRecord, Claim, CandidatePatch, ResearchRun)
+RECORD_MODELS = (BaseRecord, SourceItem, EntityRecord, RelationshipRecord, Claim, Interaction, Decision, CandidatePatch, ResearchRun)
