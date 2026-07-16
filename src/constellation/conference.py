@@ -2,12 +2,47 @@
 
 from __future__ import annotations
 
+import re as _re
 from datetime import date
 from typing import Any
 
 
 class ConferenceError(RuntimeError):
     """Raised when a conference encounter cannot be built safely."""
+
+
+_NAME_ADDRESS_GARBAGE = _re.compile(
+    r",\s*[A-Z][a-z]+\s*,|"         # comma-separated state/region: "Maine,Maryland"
+    r"\d{5}|"                        # ZIP/postal code
+    r"\b(?:Street|Road|Ave|Avenue|Blvd|Boulevard|Lane|Dr|Drive|Ct|Court|Way|Pl|Place)\b|"
+    r"\bBangkok\b|"
+    r"\bThailand\b|"
+    r"\bSathorn\b",
+    _re.IGNORECASE,
+)
+
+
+def _is_likely_address(value: str) -> bool:
+    return bool(_NAME_ADDRESS_GARBAGE.search(value))
+
+
+def _is_likely_person_name(value: str) -> bool:
+    """Return True when `value` looks more like a person name than an address/region/company."""
+    if _is_likely_address(value):
+        return False
+    # A person name: 1-4 words, each capitalized; may have a honorific prefix.
+    stripped = value.strip().removesuffix(";").removesuffix(",")
+    words = stripped.split()
+    if not 1 <= len(words) <= 5:
+        return False
+    # Allow honorific prefixes: Mr., Ms., Mrs., Dr., Prof.
+    honorifics = {"Mr.", "Mrs.", "Ms.", "Miss", "Dr.", "Prof.", "Mr", "Dr"}
+    for word in words:
+        if word in honorifics:
+            continue
+        if not word[0].isupper():
+            return False
+    return True
 
 
 def _hint_from_card_fields(fields: list[dict[str, Any]]) -> dict[str, str | None]:
@@ -28,8 +63,20 @@ def _hint_from_card_fields(fields: list[dict[str, Any]]) -> dict[str, str | None
             url = value
         elif kind == "unclassified_text":
             unclassified.append(value)
-    raw_name = unclassified[0] if unclassified else None
-    company_hint = unclassified[1] if len(unclassified) > 1 else None
+
+    # Prefer a likely person name over address/region junk.
+    name_candidates = [v for v in unclassified if _is_likely_person_name(v)]
+    non_name = [v for v in unclassified if not _is_likely_person_name(v)]
+    raw_name = name_candidates[0] if name_candidates else (unclassified[0] if unclassified else None)
+    # Company hint: prefer the second name-like candidate; otherwise, first non-name that isn't an address.
+    company_hint: str | None = None
+    if len(name_candidates) > 1:
+        company_hint = name_candidates[1]
+    elif non_name:
+        # First non-address, non-name string — likely an org or title.
+        org_candidates = [v for v in non_name if not _is_likely_address(v)]
+        company_hint = org_candidates[0] if org_candidates else None
+
     return {
         "raw_name": raw_name,
         "company_hint": company_hint,

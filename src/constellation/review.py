@@ -184,6 +184,12 @@ def promote_candidate(
         raise PromotionError("candidate packet is invalid") from exc
     if isinstance(payload, dict) and payload.get("kind") == "ingest_candidate":
         return _review_ingest_candidate(vault, candidate_path, payload, expected_base_hash)
+    if isinstance(payload, dict) and payload.get("kind") == "conference-encounter":
+        raise PromotionError(
+            "conference encounter candidates cannot be auto-promoted — "
+            "Aiko hand-writes the entity + outreach draft (see conference-card-intake skill). "
+            "The encounter bytes + OCR + PM shell are already staged by lead capture."
+        )
     candidate, candidate_path = _load_candidate(vault, candidate_id)
     if candidate.expected_base_hash != expected_base_hash:
         raise PromotionError("expected base hash does not match candidate review")

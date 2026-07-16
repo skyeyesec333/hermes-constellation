@@ -1,8 +1,59 @@
 from datetime import date
 
-from constellation.conference import build_conference_encounter
+from constellation.conference import (
+    _is_likely_address,
+    _is_likely_person_name,
+    _hint_from_card_fields,
+    build_conference_encounter,
+)
 from constellation.lead_pipeline import capture_conference_lead
 from constellation.vault import initialize_vault
+
+
+def test_likely_person_name_rejects_address_and_region():
+    """Regression: MATRADE cards where address/states were parsed as person name."""
+    # Address garbage — must NOT be treated as person names
+    assert _is_likely_address("Bang Rak, Bangkok 10500") is True
+    assert _is_likely_address("Maine; Maryland, Massachusetts, New York") is True
+    assert _is_likely_address("Sathorn Road, Bangkok") is True
+    assert _is_likely_address("1234 Thailand Lane") is True
+
+    # Person names — must be recognised
+    assert _is_likely_person_name("JIRA MENGERN") is True
+    assert _is_likely_person_name("Mr. Mohd Hafizi Yusoff") is True
+    assert _is_likely_person_name("Ada Example") is True
+
+    # Addresses must NOT be recognised as person names
+    assert _is_likely_person_name("Bang Rak, Bangkok 10500") is False
+    assert _is_likely_person_name("Maine; Maryland, Massachusetts, New York") is False
+    assert _is_likely_person_name("1234 Sathorn Road") is False
+
+
+def test_hint_prefers_name_over_address():
+    """Regression: _hint_from_card_fields picks name, not first unclassified address."""
+    hint = _hint_from_card_fields(
+        [
+            # Address garbage first (as happened with MATRADE cards)
+            {"field": "unclassified_text", "value": "Bang Rak, Bangkok 10500", "anchor": "OCR:R0004"},
+            # Real name second
+            {"field": "unclassified_text", "value": "JIRA MENGERN", "anchor": "OCR:R0005"},
+            {"field": "email", "value": "jira@" + "example.test", "anchor": "OCR:R0009"},
+        ]
+    )
+    assert hint["raw_name"] == "JIRA MENGERN", f"expected JIRA MENGERN, got {hint['raw_name']}"
+    assert hint["email"] == "jira@" + "example.test"
+
+
+def test_hint_falls_back_when_no_clear_name():
+    """When nothing looks like a name, fall back to first unclassified."""
+    hint = _hint_from_card_fields(
+        [
+            {"field": "unclassified_text", "value": "MATRADE", "anchor": "OCR:R0001"},
+            {"field": "email", "value": "office@" + "trade.example.test", "anchor": "OCR:R0002"},
+        ]
+    )
+    assert hint["raw_name"] == "MATRADE"
+    assert hint["company_hint"] is None
 
 
 def test_encounter_keeps_role_unconfirmed_and_requires_event_project():

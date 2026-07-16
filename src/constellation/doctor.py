@@ -22,6 +22,32 @@ def _fts5_available() -> bool:
         return False
 
 
+_HYGIENE_PATTERNS: tuple[tuple[str, str], ...] = (
+    ("apple_double", "._*"),
+    ("ds_store", "**/.DS_Store"),
+)
+
+
+def _vault_hygiene(root: Path) -> dict[str, object]:
+    """Report on common filesystem cruft (AppleDouble, DS_Store, etc)."""
+    cruft_count = 0
+    details: dict[str, dict[str, object]] = {}
+    for key, pattern in _HYGIENE_PATTERNS:
+        matches = list(root.glob(pattern))
+        if matches:
+            details[key] = {
+                "count": len(matches),
+                "pattern": pattern,
+                "sample_paths": [str(m.relative_to(root)) for m in matches[:5]],
+            }
+            cruft_count += len(matches)
+    return {
+        "clean": cruft_count == 0,
+        "cruft_count": cruft_count,
+        "items": details,
+    }
+
+
 def doctor_report(root: Path | str) -> dict[str, object]:
     target = Path(root).absolute()
     initialized = is_initialized(target)
@@ -50,6 +76,7 @@ def doctor_report(root: Path | str) -> dict[str, object]:
             "mime_libmagic": importlib.util.find_spec("magic") is not None,
             "ooxml_archive_safety": True,
         },
+        "vault_hygiene": _vault_hygiene(target) if initialized else {"clean": False, "cruft_count": 0, "items": {}},
     }
 
 

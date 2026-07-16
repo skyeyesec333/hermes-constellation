@@ -44,7 +44,7 @@ def _canonical_files(root: Path) -> list[Path]:
                     continue
                 if child.is_dir():
                     pending.append(child)
-                elif child.is_file() and child.suffix == ".md":
+                elif child.is_file() and child.suffix == ".md" and not child.name.startswith("._"):
                     files.append(child)
     return sorted(files, key=lambda path: path.relative_to(root).as_posix())
 
@@ -116,8 +116,8 @@ def build_index(root: Path | str) -> dict[str, object]:
         connection.execute("CREATE VIRTUAL TABLE search_index USING fts5(note_id UNINDEXED, title, body)")
         for path in _canonical_files(vault):
             relative = path.relative_to(vault).as_posix()
-            text = path.read_text(encoding="utf-8")
             try:
+                text = path.read_text(encoding="utf-8")
                 record = validate_canonical_text(text, relative)
                 metadata, body = parse_frontmatter(text)
                 title = str(metadata["title"])
