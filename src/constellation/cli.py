@@ -148,6 +148,26 @@ def build_parser() -> argparse.ArgumentParser:
     synthesize.add_argument("--pages", type=int)
     synthesize.add_argument("--audio-minutes", type=float)
 
+    lead = sub.add_parser(
+        "lead",
+        help="Conference lead capture into Project Manager CRM notes (review-only drafts)",
+    )
+    lead.add_argument("vault", type=Path)
+    lead.add_argument("action", choices=["capture"])
+    lead.add_argument("--event", required=True, help="Event name, e.g. InfoComm Asia")
+    lead.add_argument("--date", required=True, help="Event date YYYY-MM-DD")
+    lead.add_argument("--project", required=True, help="Project Manager project title")
+    lead.add_argument("--card", required=True, type=Path, help="Card image path inside the vault")
+    lead.add_argument("--venue", help="Venue name")
+    lead.add_argument("--note", help="How you met them / conversation hook")
+    lead.add_argument(
+        "--channel",
+        choices=["whatsapp", "sms", "email", "unknown"],
+        default="whatsapp",
+    )
+    lead.add_argument("--phone-region", help="ISO region for card phone normalization")
+    lead.add_argument("--where", help="Booth / hall / panel location")
+
     migrate = sub.add_parser("migrate-plan", help="Inventory a legacy vault without writing")
     migrate.add_argument("vault", type=Path)
     migrate.add_argument("--action-limit", type=int, default=1_000)
@@ -345,6 +365,25 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
             source_bytes=int(values.get("source_bytes") or 0),
             estimated_pages=values.get("pages"),
             estimated_audio_minutes=values.get("audio_minutes"),
+        )
+    if action == "lead":
+        from datetime import date
+
+        from constellation.lead_pipeline import capture_conference_lead
+
+        if values.get("action") != "capture":
+            raise ValueError("lead action must be capture")
+        return capture_conference_lead(
+            vault,
+            card_source=Path(values["card"]).expanduser(),
+            event_name=str(values["event"]),
+            event_date=date.fromisoformat(str(values["date"])),
+            project_title=str(values["project"]),
+            venue=values.get("venue"),
+            note=values.get("note"),
+            channel=str(values.get("channel") or "whatsapp"),
+            phone_region=values.get("phone_region"),
+            where=values.get("where"),
         )
     if action == "migrate-plan":
         from constellation.migration import plan_migration

@@ -15,6 +15,7 @@ public_roots:
 - docs/model-provider-portability.md
 - docs/egress-policy.md
 - docs/gmail-workflow.md
+- docs/project-manager-crm.md
 - docs/integrations.md
 - docs/connector-contract.md
 - docs/token-aware-research.md
@@ -57,6 +58,8 @@ files:
   docs/model-provider-portability.md:
     lineage: handwritten-generic
   docs/gmail-workflow.md:
+    lineage: handwritten-generic
+  docs/project-manager-crm.md:
     lineage: handwritten-generic
   docs/integrations.md:
     lineage: handwritten-generic
@@ -170,6 +173,12 @@ files:
     lineage: handwritten-generic
   src/constellation/privacy.py:
     lineage: handwritten-generic
+  src/constellation/project_manager.py:
+    lineage: handwritten-generic
+  src/constellation/conference.py:
+    lineage: handwritten-generic
+  src/constellation/lead_pipeline.py:
+    lineage: handwritten-generic
   src/constellation/release.py:
     lineage: handwritten-generic
   src/constellation/research.py:
@@ -239,6 +248,10 @@ files:
   tests/test_plugin.py:
     lineage: handwritten-generic
   tests/test_privacy.py:
+    lineage: handwritten-generic
+  tests/test_project_manager.py:
+    lineage: handwritten-generic
+  tests/test_conference_lead.py:
     lineage: handwritten-generic
   tests/test_release.py:
     lineage: handwritten-generic

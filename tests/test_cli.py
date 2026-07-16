@@ -75,6 +75,33 @@ def test_ingest_cli_accepts_meeting_transcript_format_hint():
     assert values["meeting_format"] == "meetily"
 
 
+def test_lead_cli_accepts_conference_capture_args():
+    values = vars(
+        build_parser().parse_args(
+            [
+                "lead",
+                "/tmp/vault",
+                "capture",
+                "--event",
+                "InfoComm Asia",
+                "--date",
+                "2026-07-21",
+                "--project",
+                "InfoComm Asia 2026 Leads",
+                "--card",
+                "Inbox/card.png",
+                "--note",
+                "Met near hall 3",
+                "--channel",
+                "whatsapp",
+            ]
+        )
+    )
+    assert values["event"] == "InfoComm Asia"
+    assert values["project"] == "InfoComm Asia 2026 Leads"
+    assert values["channel"] == "whatsapp"
+
+
 def test_synthesize_cli_accepts_task_plan_args():
     values = vars(
         build_parser().parse_args(
