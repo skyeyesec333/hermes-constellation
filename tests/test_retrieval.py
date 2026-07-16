@@ -7,7 +7,7 @@ from constellation.vault import initialize_vault
 SOURCE = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 
 
-def note(note_id, title, statement, sensitivity="internal"):
+def note(note_id, title, predicate, object_literal, sensitivity="internal"):
     return render_frontmatter(
         {
             "schema_version": "0.1",
@@ -18,10 +18,12 @@ def note(note_id, title, statement, sensitivity="internal"):
             "sensitivity": sensitivity,
             "created_at": datetime(2026, 1, 1, tzinfo=UTC).isoformat(),
             "updated_at": datetime(2026, 1, 1, tzinfo=UTC).isoformat(),
-            "statement": statement,
+            "subject_id": SOURCE,
+            "predicate": predicate,
+            "object_literal": object_literal,
             "source_ids": [SOURCE],
         },
-        f"# {title}\n\n{statement}\n",
+        f"# {title}\n\n{object_literal}\n",
     )
 
 
@@ -29,15 +31,15 @@ def make_vault(tmp_path):
     root = tmp_path / "vault"
     initialize_vault(root)
     (root / "claims/public.md").write_text(
-        note("01ARZ3NDEKTSV4RRFFQ69G5FAW", "Public nebula", "A fictional azure nebula.", "public"),
+        note("01ARZ3NDEKTSV4RRFFQ69G5FAW", "Public nebula", "located_in", "azure nebula", "public"),
         encoding="utf-8",
     )
     (root / "claims/internal.md").write_text(
-        note("01ARZ3NDEKTSV4RRFFQ69G5FAX", "Internal comet", "A fictional copper comet."),
+        note("01ARZ3NDEKTSV4RRFFQ69G5FAX", "Internal comet", "classified_as", "copper comet"),
         encoding="utf-8",
     )
     (root / ".constellation/candidates/hidden.md").write_text(
-        note("01ARZ3NDEKTSV4RRFFQ69G5FAY", "Candidate", "candidate-only quasar"),
+        note("01ARZ3NDEKTSV4RRFFQ69G5FAY", "Candidate", "named", "candidate-only quasar"),
         encoding="utf-8",
     )
     return root
@@ -113,7 +115,7 @@ def test_missing_or_stale_index_reports_not_retrieved(tmp_path):
     assert search(root, "nebula")["status"] == "evidence_not_retrieved"
     build_index(root)
     (root / "claims/public.md").write_text(
-        note("01ARZ3NDEKTSV4RRFFQ69G5FAW", "Changed", "changed evidence"), encoding="utf-8"
+        note("01ARZ3NDEKTSV4RRFFQ69G5FAW", "Changed", "described_as", "changed evidence"), encoding="utf-8"
     )
     assert search(root, "nebula")["status"] == "evidence_not_retrieved"
 

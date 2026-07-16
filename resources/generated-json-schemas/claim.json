@@ -1,5 +1,17 @@
 {
   "$defs": {
+    "ClaimStatus": {
+      "enum": [
+        "source-claimed",
+        "corroborated",
+        "disputed",
+        "inferred",
+        "superseded",
+        "stale"
+      ],
+      "title": "ClaimStatus",
+      "type": "string"
+    },
     "Sensitivity": {
       "enum": [
         "public",
@@ -13,14 +25,110 @@
   },
   "additionalProperties": false,
   "properties": {
+    "claim_status": {
+      "$ref": "#/$defs/ClaimStatus",
+      "default": "source-claimed"
+    },
+    "confidence": {
+      "anyOf": [
+        {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Confidence"
+    },
+    "contradicts": {
+      "items": {
+        "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+        "type": "string"
+      },
+      "title": "Contradicts",
+      "type": "array"
+    },
     "created_at": {
       "format": "date-time",
       "title": "Created At",
       "type": "string"
     },
+    "evidence_anchor": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Evidence Anchor"
+    },
+    "evidence_excerpt": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Evidence Excerpt"
+    },
     "id": {
       "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
       "title": "Id",
+      "type": "string"
+    },
+    "object_id": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Object Id"
+    },
+    "object_literal": {
+      "anyOf": [
+        {
+          "maxLength": 500,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Object Literal"
+    },
+    "observed_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Observed At"
+    },
+    "predicate": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Predicate",
       "type": "string"
     },
     "schema_version": {
@@ -41,16 +149,32 @@
       "title": "Source Ids",
       "type": "array"
     },
-    "statement": {
-      "minLength": 1,
-      "title": "Statement",
-      "type": "string"
-    },
     "status": {
       "maxLength": 100,
       "minLength": 1,
       "title": "Status",
       "type": "string"
+    },
+    "subject_id": {
+      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+      "title": "Subject Id",
+      "type": "string"
+    },
+    "supersedes": {
+      "items": {
+        "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+        "type": "string"
+      },
+      "title": "Supersedes",
+      "type": "array"
+    },
+    "supports": {
+      "items": {
+        "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+        "type": "string"
+      },
+      "title": "Supports",
+      "type": "array"
     },
     "title": {
       "maxLength": 300,
@@ -59,8 +183,8 @@
       "type": "string"
     },
     "type": {
-      "maxLength": 100,
-      "minLength": 1,
+      "const": "claim",
+      "default": "claim",
       "title": "Type",
       "type": "string"
     },
@@ -68,16 +192,42 @@
       "format": "date-time",
       "title": "Updated At",
       "type": "string"
+    },
+    "valid_from": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Valid From"
+    },
+    "valid_to": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Valid To"
     }
   },
   "required": [
-    "type",
     "title",
     "status",
     "sensitivity",
     "created_at",
     "updated_at",
-    "statement",
+    "subject_id",
+    "predicate",
     "source_ids"
   ],
   "title": "Claim",

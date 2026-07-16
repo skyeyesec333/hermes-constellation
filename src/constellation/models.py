@@ -174,9 +174,53 @@ class RelationshipRecord(BaseRecord):
         return self
 
 
+class ClaimStatus(StrEnum):
+    SOURCE_CLAIMED = "source-claimed"
+    CORROBORATED = "corroborated"
+    DISPUTED = "disputed"
+    INFERRED = "inferred"
+    SUPERSEDED = "superseded"
+    STALE = "stale"
+
+
 class Claim(BaseRecord):
-    statement: Annotated[str, Field(min_length=1)]
+    type: Literal["claim"] = "claim"  # pyright: ignore[reportIncompatibleVariableOverride]
+    subject_id: Ulid
+    predicate: Annotated[str, Field(min_length=1, max_length=100)]
+    object_id: Ulid | None = None
+    object_literal: Annotated[str, Field(min_length=1, max_length=500)] | None = None
     source_ids: Annotated[list[Ulid], Field(min_length=1)]
+    evidence_anchor: str | None = None
+    evidence_excerpt: str | None = None
+    claim_status: ClaimStatus = ClaimStatus.SOURCE_CLAIMED
+    confidence: Annotated[float, Field(ge=0.0, le=1.0)] | None = None
+    observed_at: datetime | None = None
+    valid_from: datetime | None = None
+    valid_to: datetime | None = None
+    contradicts: list[Ulid] = Field(default_factory=list)
+    supports: list[Ulid] = Field(default_factory=list)
+    supersedes: list[Ulid] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def object_is_specified(self) -> "Claim":
+        if self.object_id is None and self.object_literal is None:
+            raise ValueError("claim requires object_id or object_literal")
+        if self.object_id is not None and self.object_literal is not None:
+            raise ValueError("claim cannot have both object_id and object_literal")
+        return self
+
+    @field_validator("observed_at", "valid_from", "valid_to")
+    @classmethod
+    def optional_aware_datetime(cls, value: datetime | None) -> datetime | None:
+        if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+            raise ValueError("claim temporal fields must include a timezone when set")
+        return value
+
+    @model_validator(mode="after")
+    def valid_range_is_ordered(self) -> "Claim":
+        if self.valid_from is not None and self.valid_to is not None and self.valid_to < self.valid_from:
+            raise ValueError("valid_to cannot be earlier than valid_from")
+        return self
 
 
 class CandidatePatch(BaseRecord):

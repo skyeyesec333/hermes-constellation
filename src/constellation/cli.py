@@ -148,6 +148,21 @@ def build_parser() -> argparse.ArgumentParser:
     synthesize.add_argument("--pages", type=int)
     synthesize.add_argument("--audio-minutes", type=float)
 
+    claim = sub.add_parser("claim", help="Stage or list review-only claims")
+    claim.add_argument("vault", type=Path)
+    claim.add_argument("action", choices=["stage", "list"])
+    claim.add_argument("--subject-id", help="ULID of the subject entity (required for stage)")
+    claim.add_argument("--predicate", help="Relationship predicate, e.g. works_at (required for stage)")
+    claim.add_argument("--object-id", help="ULID of the object entity")
+    claim.add_argument("--object-literal", help="Literal value when no object entity exists")
+    claim.add_argument("--source-ids", nargs="+", help="ULIDs of supporting sources (required for stage)")
+    claim.add_argument("--evidence-anchor", help="Section/page anchor in the source")
+    claim.add_argument("--evidence-excerpt", help="Short quoted excerpt from source")
+    claim.add_argument("--claim-status", default="source-claimed",
+                       choices=["source-claimed", "corroborated", "disputed", "inferred", "superseded", "stale"])
+    claim.add_argument("--confidence", type=float)
+    claim.add_argument("--limit", type=int, default=50, help="Max claims to list")
+
     lead = sub.add_parser(
         "lead",
         help="Conference lead capture into Project Manager CRM notes (review-only drafts)",
@@ -353,6 +368,28 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
             str(values.get("candidate") or ""),
             confirm=bool(values.get("confirm")),
             expected_base_hash=values.get("expected_base_hash"),
+        )
+    if action == "claim":
+        from constellation.claim import list_staged_claims, stage_claim
+
+        if values.get("action") == "list":
+            return list_staged_claims(vault, limit=int(values.get("limit", 50)))
+        subject_id = values.get("subject_id")
+        predicate = values.get("predicate")
+        source_ids = values.get("source_ids") or []
+        if not subject_id or not predicate or not source_ids:
+            raise ValueError("--subject-id, --predicate, and --source-ids are required for claim stage")
+        return stage_claim(
+            vault,
+            subject_id=str(subject_id),
+            predicate=str(predicate),
+            object_id=values.get("object_id"),
+            object_literal=values.get("object_literal"),
+            source_ids=[str(s) for s in source_ids],
+            evidence_anchor=values.get("evidence_anchor"),
+            evidence_excerpt=values.get("evidence_excerpt"),
+            claim_status=str(values.get("claim_status", "source-claimed")),
+            confidence=values.get("confidence"),
         )
     if action == "research":
         from constellation.research import research_command

@@ -10,6 +10,7 @@ from constellation.models import (
     BaseRecord,
     CandidatePatch,
     Claim,
+    ClaimStatus,
     EntityKind,
     EntityRecord,
     EntityResolutionState,
@@ -57,7 +58,13 @@ def test_specialized_records_validate_their_required_fields():
         original_path="Library/Files/2026/source/file.txt",
         media_type="text/plain",
     )
-    claim = Claim(**common(), statement="A supported statement.", source_ids=[source.id])
+    claim = Claim(
+        **common(type="claim"),
+        subject_id=source.id,
+        predicate="works_at",
+        object_literal="Fictional Corp",
+        source_ids=[source.id],
+    )
     candidate = CandidatePatch(
         **common(), target_path="claims/example.md", content="---\nid: example\n---\n"
     )
@@ -112,6 +119,79 @@ def test_canonical_research_receipt_must_match_its_terminal_run():
             id=run_id,
             receipt=receipt,
         )
+
+
+def test_claim_requires_object_id_or_object_literal():
+
+    source_id = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    with pytest.raises(ValidationError, match="claim requires object_id or object_literal"):
+        Claim(
+            **common(type="claim"),
+            subject_id=source_id,
+            predicate="works_at",
+            source_ids=[source_id],
+        )
+    with pytest.raises(ValidationError, match="claim cannot have both object_id and object_literal"):
+        Claim(
+            **common(type="claim"),
+            subject_id=source_id,
+            predicate="works_at",
+            object_id=source_id,
+            object_literal="Fictional Corp",
+            source_ids=[source_id],
+        )
+
+
+def test_claim_supports_temporal_claims_and_cross_linking():
+    source_id = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    other_id = "01ARZ3NDEKTSV4RRFFQ69G5FZZ"
+    claim = Claim(
+        **common(type="claim"),
+        subject_id=source_id,
+        predicate="worked_at",
+        object_literal="Fictional Corp",
+        source_ids=[source_id],
+        claim_status=ClaimStatus.SUPERSEDED,
+        observed_at=datetime(2025, 6, 1, tzinfo=UTC),
+        valid_from=datetime(2020, 1, 1, tzinfo=UTC),
+        valid_to=datetime(2024, 12, 31, tzinfo=UTC),
+        confidence=0.95,
+        evidence_anchor="source-items/source-FZ.md#L10-L20",
+        evidence_excerpt="Previously served as CTO at Fictional Corp until Dec 2024",
+        contradicts=[other_id],
+    )
+    assert claim.claim_status == ClaimStatus.SUPERSEDED
+    assert claim.valid_to is not None
+    assert claim.confidence == 0.95
+    assert claim.contradicts == [other_id]
+    assert claim.evidence_anchor is not None
+
+    with pytest.raises(ValidationError, match="valid_to cannot be earlier"):
+        Claim(
+            **common(type="claim"),
+            subject_id=source_id,
+            predicate="works_at",
+            object_literal="Fictional Corp",
+            source_ids=[source_id],
+            valid_from=datetime(2025, 1, 1, tzinfo=UTC),
+            valid_to=datetime(2024, 1, 1, tzinfo=UTC),
+        )
+
+
+def test_claim_defaults_to_source_claimed():
+
+    source_id = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    claim = Claim(
+        **common(type="claim"),
+        subject_id=source_id,
+        predicate="located_in",
+        object_literal="Bangkok",
+        source_ids=[source_id],
+    )
+    assert claim.claim_status == ClaimStatus.SOURCE_CLAIMED
+    assert claim.contradicts == []
+    assert claim.supports == []
+    assert claim.supersedes == []
 
 
 def test_schema_and_note_template_generation_are_deterministic():

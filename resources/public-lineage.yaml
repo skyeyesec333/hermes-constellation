@@ -137,6 +137,8 @@ files:
     lineage: handwritten-generic
   src/constellation/card_ingest.py:
     lineage: handwritten-generic
+  src/constellation/claim.py:
+    lineage: handwritten-generic
   src/constellation/cli.py:
     lineage: handwritten-generic
   src/constellation/deck_ingest.py:

@@ -18,7 +18,7 @@ SOURCE_ID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 CLAIM_ID = "01ARZ3NDEKTSV4RRFFQ69G5FAW"
 
 
-def claim_text(statement="Supported fictional statement."):
+def claim_text(object_literal="Fictional Corp."):
     return render_frontmatter(
         {
             "schema_version": "0.1",
@@ -29,7 +29,9 @@ def claim_text(statement="Supported fictional statement."):
             "sensitivity": "internal",
             "created_at": NOW.isoformat(),
             "updated_at": NOW.isoformat(),
-            "statement": statement,
+            "subject_id": SOURCE_ID,
+            "predicate": "works_at",
+            "object_literal": object_literal,
             "source_ids": [SOURCE_ID],
         },
         "Evidence summary.\n",
