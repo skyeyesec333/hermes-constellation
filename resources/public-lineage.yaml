@@ -165,6 +165,8 @@ files:
     lineage: handwritten-generic
   src/constellation/frontmatter.py:
     lineage: handwritten-generic
+  src/constellation/firecrawl_adapter.py:
+    lineage: handwritten-generic
   src/constellation/gmail_capture.py:
     lineage: handwritten-generic
   src/constellation/graph.py:
