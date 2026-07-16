@@ -145,6 +145,10 @@ files:
     lineage: handwritten-generic
   src/constellation/ingest.py:
     lineage: handwritten-generic
+  src/constellation/audio_ingest.py:
+    lineage: handwritten-generic
+  src/constellation/meeting.py:
+    lineage: handwritten-generic
   src/constellation/intelligence.py:
     lineage: handwritten-generic
   src/constellation/identity.py:
@@ -190,6 +194,10 @@ files:
   tests/test_cli.py:
     lineage: handwritten-generic
   tests/test_deck_ingest.py:
+    lineage: handwritten-generic
+  tests/test_meeting.py:
+    lineage: handwritten-generic
+  tests/test_audio_ingest.py:
     lineage: handwritten-generic
   tests/test_cli_integration.py:
     lineage: handwritten-generic

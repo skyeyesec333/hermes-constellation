@@ -51,10 +51,19 @@ def build_parser() -> argparse.ArgumentParser:
     ingest.add_argument("vault", type=Path)
     ingest.add_argument("source", type=Path)
     ingest.add_argument("--source-url", help="Original capture URL; Constellation never fetches it")
-    ingest.add_argument("--kind", choices=["generic", "business-card", "pdf-deck"], default="generic")
+    ingest.add_argument(
+        "--kind",
+        choices=["generic", "business-card", "pdf-deck", "meeting-transcript", "meeting-notes"],
+        default="generic",
+    )
     ingest.add_argument(
         "--phone-region",
         help="Explicit ISO region for business-card phone normalization (for example, US)",
+    )
+    ingest.add_argument(
+        "--meeting-format",
+        choices=["tactiq", "meetily", "openwhispr", "generic"],
+        help="Optional meeting export format hint for meeting-transcript intake",
     )
 
     preflight = sub.add_parser("preflight", help="Plan bounded local processing without ingesting")
@@ -256,6 +265,7 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
             source_url=values.get("source_url"),
             kind=str(values.get("kind", "generic")),
             phone_region=values.get("phone_region"),
+            meeting_format=values.get("meeting_format"),
         )
     if action == "validate":
         from constellation.validation import validate_vault

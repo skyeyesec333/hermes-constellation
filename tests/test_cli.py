@@ -54,3 +54,22 @@ def test_ingest_cli_accepts_business_card_routing_and_phone_region():
 
     assert values["kind"] == "business-card"
     assert values["phone_region"] == "US"
+
+
+def test_ingest_cli_accepts_meeting_transcript_format_hint():
+    values = vars(
+        build_parser().parse_args(
+            [
+                "ingest",
+                "/tmp/vault",
+                "/tmp/meeting.md",
+                "--kind",
+                "meeting-transcript",
+                "--meeting-format",
+                "meetily",
+            ]
+        )
+    )
+
+    assert values["kind"] == "meeting-transcript"
+    assert values["meeting_format"] == "meetily"

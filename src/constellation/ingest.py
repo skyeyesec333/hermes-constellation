@@ -19,6 +19,7 @@ import yaml
 
 from .card_ingest import extract_business_card_fields
 from .deck_ingest import build_pdf_deck_map
+from .meeting import build_meeting_notes_map, build_meeting_transcript_map
 from .frontmatter import parse_frontmatter, render_frontmatter
 from .models import CandidatePatch, Sensitivity, SourceItem
 from .storage import (
@@ -863,9 +864,16 @@ def ingest_file(
     source_url: str | None = None,
     kind: str = "generic",
     phone_region: str | None = None,
+    meeting_format: str | None = None,
 ) -> dict[str, str]:
     """Ingest one local file; an optional URL is provenance, never fetched evidence."""
-    if kind not in {"generic", "business-card", "pdf-deck"}:
+    if kind not in {
+        "generic",
+        "business-card",
+        "pdf-deck",
+        "meeting-transcript",
+        "meeting-notes",
+    }:
         raise IngestError("ingest kind is not supported")
     vault = Path(root).absolute()
     source_url = _validated_source_url(source_url)
@@ -911,6 +919,15 @@ def ingest_file(
         if kind == "pdf-deck"
         else None
     )
+    meeting = None
+    if kind == "meeting-transcript":
+        meeting = build_meeting_transcript_map(
+            source_id=source_id,
+            text=text,
+            format_hint=meeting_format,
+        )
+    elif kind == "meeting-notes":
+        meeting = build_meeting_notes_map(source_id=source_id, text=text)
     manifest_relative = Path(".constellation/manifests") / f"{digest}.json"
     manifest_path = vault / manifest_relative
     instant = now or datetime.now(UTC)
@@ -925,10 +942,13 @@ def ingest_file(
         candidate_path = str(manifest["candidate_path"])
         card_updated = business_card is not None and manifest.get("business_card") != business_card
         deck_updated = deck is not None and manifest.get("deck") != deck
+        meeting_updated = meeting is not None and manifest.get("meeting") != meeting
         if card_updated:
             manifest["business_card"] = business_card
         if deck_updated:
             manifest["deck"] = deck
+        if meeting_updated:
+            manifest["meeting"] = meeting
         upgraded = "extraction" not in manifest
         if upgraded:
             atomic_write_text(vault, str(manifest["text_path"]), text)
@@ -948,7 +968,7 @@ def ingest_file(
             instant,
         )
         candidate_path = str(manifest["candidate_path"])
-        if upgraded or source_patch_staged or card_updated or deck_updated:
+        if upgraded or source_patch_staged or card_updated or deck_updated or meeting_updated:
             atomic_write_text(
                 vault,
                 manifest_relative,
@@ -975,6 +995,15 @@ def ingest_file(
             **(
                 {"deck_slides": str(len(deck["slides"]))}
                 if deck is not None
+                else {}
+            ),
+            **(
+                {
+                    "meeting_segments": str(
+                        len(meeting.get("segments") or meeting.get("items") or [])
+                    )
+                }
+                if meeting is not None
                 else {}
             ),
         }
@@ -1027,6 +1056,7 @@ def ingest_file(
         **({"source_url": source_url} if source_url else {}),
         **({"business_card": business_card} if business_card is not None else {}),
         **({"deck": deck} if deck is not None else {}),
+        **({"meeting": meeting} if meeting is not None else {}),
         "preserved_path": preserved_relative.as_posix(),
         "text_path": text_relative.as_posix(),
         "source_item_path": source_item_relative.as_posix(),
@@ -1060,7 +1090,7 @@ def ingest_file(
         **{
             key: str(value)
             for key, value in manifest.items()
-            if key not in {"extraction", "registration", "business_card", "deck"}
+            if key not in {"extraction", "registration", "business_card", "deck", "meeting"}
         },
         **(
             {"business_card_fields": str(len(business_card["fields"]))}
@@ -1068,6 +1098,15 @@ def ingest_file(
             else {}
         ),
         **({"deck_slides": str(len(deck["slides"]))} if deck is not None else {}),
+        **(
+            {
+                "meeting_segments": str(
+                    len(meeting.get("segments") or meeting.get("items") or [])
+                )
+            }
+            if meeting is not None
+            else {}
+        ),
     }
     if promotion:
         result["index_generation"] = promotion["index_generation"]

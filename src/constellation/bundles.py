@@ -16,6 +16,8 @@ _ALLOWED_MEMBER_ROLES = frozenset(
     {
         "audio-original",
         "tactiq-transcript",
+        "meetily-transcript",
+        "openwhispr-transcript",
         "typed-notes",
         "handwritten-notes",
         "page-render",
