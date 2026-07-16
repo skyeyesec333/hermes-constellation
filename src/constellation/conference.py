@@ -30,11 +30,18 @@ def _is_likely_person_name(value: str) -> bool:
     """Return True when `value` looks more like a person name than an address/region/company."""
     if _is_likely_address(value):
         return False
-    # A person name: 1-4 words, each capitalized; may have a honorific prefix.
-    stripped = value.strip().removesuffix(";").removesuffix(",")
+    stripped = value.strip().removesuffix(";").removesuffix(",").removesuffix(".")
     words = stripped.split()
     if not 1 <= len(words) <= 5:
         return False
+    # Reject company legal suffixes and acronyms
+    _COMPANY_SUFFIXES = frozenset(
+        {"co.", "co", "ltd.", "ltd", "inc.", "inc", "corp.", "corp", "llc", "plc",
+         "pty", "pte", "gmbh", "sarl", "nv", "bv", "sa", "spa", "kk", "sdn", "bhd"}
+    )
+    for word in words:
+        if word.casefold() in _COMPANY_SUFFIXES:
+            return False
     # Allow honorific prefixes: Mr., Ms., Mrs., Dr., Prof.
     honorifics = {"Mr.", "Mrs.", "Ms.", "Miss", "Dr.", "Prof.", "Mr", "Dr"}
     for word in words:
@@ -43,6 +50,39 @@ def _is_likely_person_name(value: str) -> bool:
         if not word[0].isupper():
             return False
     return True
+
+
+def _name_confidence(value: str) -> float:
+    """Score a candidate person name. Higher = more name-like. Not a percentage."""
+    stripped = value.strip()
+    words = stripped.split()
+    score = 0.0
+    # Favor shorter names (1-2 real-name words, 3 max with middle)
+    if 2 <= len(words) <= 3:
+        score += 0.3
+    elif len(words) == 1:
+        score += 0.1
+    else:
+        score -= 0.2
+    # Favor things that look like given-name/surname pairs
+    # (both short words, not industry terms like "Energy", "Solar", "Tech")
+    _INDUSTRY_TERMS = frozenset(
+        {"energy", "solar", "tech", "group", "holdings", "international", "global",
+         "solutions", "systems", "services", "capital", "partners", "ventures",
+         "industries", "corporation", "limited", "trading", "enterprise", "marketing"}
+    )
+    for word in words:
+        if word.casefold() in _INDUSTRY_TERMS:
+            score -= 0.4
+    # Favor honorific-prefixed names
+    honorifics = {"Mr.", "Mrs.", "Ms.", "Miss", "Dr.", "Prof.", "Mr", "Dr"}
+    if words[0] in honorifics:
+        score += 0.5
+    # Favor typical person-name length (2-8 chars per word)
+    for word in words:
+        if 2 <= len(word) <= 10:
+            score += 0.05
+    return score
 
 
 def _hint_from_card_fields(fields: list[dict[str, Any]]) -> dict[str, str | None]:
@@ -65,15 +105,17 @@ def _hint_from_card_fields(fields: list[dict[str, Any]]) -> dict[str, str | None
             unclassified.append(value)
 
     # Prefer a likely person name over address/region junk.
+    # Score candidates so "Jane Lee" beats "I-Solar Energy" (industry terms penalized).
     name_candidates = [v for v in unclassified if _is_likely_person_name(v)]
+    if name_candidates:
+        name_candidates.sort(key=_name_confidence, reverse=True)
     non_name = [v for v in unclassified if not _is_likely_person_name(v)]
     raw_name = name_candidates[0] if name_candidates else (unclassified[0] if unclassified else None)
-    # Company hint: prefer the second name-like candidate; otherwise, first non-name that isn't an address.
+    # Company hint: prefer the second-highest-scoring name candidate; otherwise, first non-name that isn't an address.
     company_hint: str | None = None
     if len(name_candidates) > 1:
         company_hint = name_candidates[1]
     elif non_name:
-        # First non-address, non-name string — likely an org or title.
         org_candidates = [v for v in non_name if not _is_likely_address(v)]
         company_hint = org_candidates[0] if org_candidates else None
 

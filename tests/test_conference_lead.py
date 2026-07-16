@@ -56,6 +56,22 @@ def test_hint_falls_back_when_no_clear_name():
     assert hint["company_hint"] is None
 
 
+def test_name_scoring_prefers_person_over_company():
+    """Regression: Jane Lee card — 'I-Solar Energy' (company) should NOT beat 'Jane Lee' (person)."""
+    hint = _hint_from_card_fields(
+        [
+            {"field": "unclassified_text", "value": "Jane Lee", "anchor": "OCR:R0001"},
+            {"field": "unclassified_text", "value": "Manager", "anchor": "OCR:R0002"},
+            {"field": "unclassified_text", "value": "I-Solar Energy", "anchor": "OCR:R0003"},
+            {"field": "unclassified_text", "value": "Co., Ltd.", "anchor": "OCR:R0004"},
+            {"field": "email", "value": "janalee@" + "example.test", "anchor": "OCR:R0010"},
+        ]
+    )
+    assert hint["raw_name"] == "Jane Lee", f"expected 'Jane Lee', got {hint['raw_name']}"
+    # Company hint should be the second-highest name candidate
+    assert hint["company_hint"] == "I-Solar Energy" or hint["company_hint"] == "Manager"
+
+
 def test_encounter_keeps_role_unconfirmed_and_requires_event_project():
     encounter = build_conference_encounter(
         event_name="InfoComm Asia",
