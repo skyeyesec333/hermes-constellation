@@ -101,6 +101,8 @@ files:
     lineage: generated-from-python-schema
   resources/generated-json-schemas/inquiry.json:
     lineage: generated-from-python-schema
+  resources/generated-json-schemas/opportunity.json:
+    lineage: generated-from-python-schema
   resources/generated-json-schemas/relationshiprecord.json:
     lineage: generated-from-python-schema
   resources/generated-json-schemas/searchresult.json:
@@ -122,6 +124,8 @@ files:
   resources/generated-note-templates/interaction.md:
     lineage: generated-from-python-schema
   resources/generated-note-templates/inquiry.md:
+    lineage: generated-from-python-schema
+  resources/generated-note-templates/opportunity.md:
     lineage: generated-from-python-schema
   resources/generated-note-templates/relationshiprecord.md:
     lineage: generated-from-python-schema

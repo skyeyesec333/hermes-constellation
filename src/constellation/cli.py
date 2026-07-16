@@ -208,6 +208,23 @@ def build_parser() -> argparse.ArgumentParser:
                           choices=["review-all", "auto-source-only", "manual-only"])
     inquiry.add_argument("--limit", type=int, default=50, help="Max to list")
 
+    opportunity = sub.add_parser("opportunity", help="Stage or list review-only opportunities")
+    opportunity.add_argument("vault", type=Path)
+    opportunity.add_argument("action", choices=["stage", "list"])
+    opportunity.add_argument("--subject-ids", nargs="+", help="ULIDs of linked people/companies (required for stage)")
+    opportunity.add_argument("--stage", default="test",
+                             choices=["test", "review", "qualifying", "proposal", "negotiation",
+                                      "closed-won", "closed-lost", "on-hold"])
+    opportunity.add_argument("--probability", type=float, help="Estimated probability 0.0-1.0")
+    opportunity.add_argument("--expected-value", help="Expected value if applicable")
+    opportunity.add_argument("--next-action", help="Concrete next step")
+    opportunity.add_argument("--feeding-interactions", nargs="+", help="ULIDs of related interactions")
+    opportunity.add_argument("--supporting-claims", nargs="+", help="ULIDs of supporting claims")
+    opportunity.add_argument("--supporting-decisions", nargs="+", help="ULIDs of supporting decisions")
+    opportunity.add_argument("--source-ids", nargs="+", help="ULIDs of evidence sources")
+    opportunity.add_argument("--kanban-card", help="Path to the PM kanban card")
+    opportunity.add_argument("--limit", type=int, default=50, help="Max to list")
+
     lead = sub.add_parser(
         "lead",
         help="Conference lead capture into Project Manager CRM notes (review-only drafts)",
@@ -542,6 +559,43 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
         candidate_path = _sr3(vault, Path(".constellation/candidates") / f"inquiry-{inquiry_obj.id}.json")
         _awt3(vault, candidate_path.relative_to(vault), inquiry_obj.model_dump_json(indent=2) + "\n")
         return {"status": "staged", "inquiry_id": inquiry_obj.id, "candidate_path": candidate_path.relative_to(vault).as_posix()}
+    if action == "opportunity":
+        from datetime import datetime as dt
+
+        from constellation.models import Opportunity, Sensitivity as _Sens4
+
+        if values.get("action") == "list":
+            from constellation.review import list_candidates as list_opportunities
+            return list_opportunities(vault)
+        subject_ids = values.get("subject_ids") or []
+        if not subject_ids:
+            raise ValueError("--subject-ids is required for opportunity stage")
+        feeding = values.get("feeding_interactions") or []
+        claims = values.get("supporting_claims") or []
+        decisions = values.get("supporting_decisions") or []
+        source_ids = values.get("source_ids") or []
+        opp = Opportunity(
+            type="opportunity",
+            title=f"opportunity-{subject_ids[0][:8]}",
+            status="review-required",
+            sensitivity=_Sens4.INTERNAL,
+            subject_ids=[str(s) for s in subject_ids],
+            stage=values.get("stage", "test"),
+            probability=values.get("probability"),
+            expected_value=values.get("expected_value"),
+            next_action=values.get("next_action") or "",
+            feeding_interactions=[str(f) for f in feeding],
+            supporting_claims=[str(c) for c in claims],
+            supporting_decisions=[str(d) for d in decisions],
+            source_ids=[str(s) for s in source_ids],
+            kanban_card_path=values.get("kanban_card"),
+            created_at=dt.now().astimezone(),
+            updated_at=dt.now().astimezone(),
+        )
+        from constellation.storage import atomic_write_text as _awt4, safe_relative_path as _sr4
+        candidate_path = _sr4(vault, Path(".constellation/candidates") / f"opportunity-{opp.id}.json")
+        _awt4(vault, candidate_path.relative_to(vault), opp.model_dump_json(indent=2) + "\n")
+        return {"status": "staged", "opportunity_id": opp.id, "candidate_path": candidate_path.relative_to(vault).as_posix()}
     if action == "research":
         from constellation.research import research_command
 

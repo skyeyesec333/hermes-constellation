@@ -306,6 +306,39 @@ class SearchResult(BaseRecord):
     source_id: Ulid | None = None
 
 
+class OpportunityStage(StrEnum):
+    TEST = "test"
+    REVIEW = "review"
+    QUALIFYING = "qualifying"
+    PROPOSAL = "proposal"
+    NEGOTIATION = "negotiation"
+    CLOSED_WON = "closed-won"
+    CLOSED_LOST = "closed-lost"
+    ON_HOLD = "on-hold"
+
+
+class Opportunity(BaseRecord):
+    type: Literal["opportunity"] = "opportunity"  # pyright: ignore[reportIncompatibleVariableOverride]
+    subject_ids: Annotated[list[Ulid], Field(min_length=1)]
+    stage: OpportunityStage = OpportunityStage.TEST
+    probability: Annotated[float, Field(ge=0.0, le=1.0)] | None = None
+    expected_value: str | None = None
+    next_action: str = ""
+    next_action_due: datetime | None = None
+    feeding_interactions: list[Ulid] = Field(default_factory=list)
+    supporting_claims: list[Ulid] = Field(default_factory=list)
+    supporting_decisions: list[Ulid] = Field(default_factory=list)
+    source_ids: list[Ulid] = Field(default_factory=list)
+    kanban_card_path: str | None = None
+
+    @field_validator("next_action_due")
+    @classmethod
+    def due_date_requires_timezone(cls, value: datetime | None) -> datetime | None:
+        if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+            raise ValueError("opportunity next_action_due must include a timezone when set")
+        return value
+
+
 class CandidatePatch(BaseRecord):
     target_path: str
     content: Annotated[str, Field(min_length=1)]
@@ -350,4 +383,4 @@ class ResearchRun(BaseRecord):
         return self
 
 
-RECORD_MODELS = (BaseRecord, SourceItem, EntityRecord, RelationshipRecord, Claim, Interaction, Decision, Inquiry, SearchResult, CandidatePatch, ResearchRun)
+RECORD_MODELS = (BaseRecord, SourceItem, EntityRecord, RelationshipRecord, Claim, Interaction, Decision, Inquiry, SearchResult, Opportunity, CandidatePatch, ResearchRun)
