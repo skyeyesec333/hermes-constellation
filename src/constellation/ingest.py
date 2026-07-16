@@ -21,6 +21,7 @@ from .card_ingest import extract_business_card_fields
 from .deck_ingest import build_pdf_deck_map
 from .meeting import build_meeting_notes_map, build_meeting_transcript_map
 from .longform import build_document_map, segment_document
+from .gmail_capture import GmailCaptureError, validate_gmail_capture
 from .segment_index import build_segment_index
 from .frontmatter import parse_frontmatter, render_frontmatter
 from .models import CandidatePatch, Sensitivity, SourceItem
@@ -765,8 +766,13 @@ def _read_source(path: Path) -> ExtractedSource:
     detected_media_type = _detect_media_type(data)
     if suffix in OOXML_MAIN_CONTENT_TYPES:
         _validate_ooxml_archive(data, suffix)
-    if suffix in {".txt", ".md", ".markdown"}:
-        if not detected_media_type.startswith("text/"):
+    if suffix in {".txt", ".md", ".markdown", ".json"}:
+        if suffix == ".json":
+            if detected_media_type not in {"application/json", "text/plain", "text/json"}:
+                # python-magic may report text/plain for small JSON fixtures
+                if not detected_media_type.startswith("text/") and detected_media_type != "application/json":
+                    raise IngestError("file extension and detected JSON media type do not match")
+        elif not detected_media_type.startswith("text/"):
             raise IngestError("file extension and detected text media type do not match")
         if b"\x00" in data:
             raise IngestError("text source contains binary NUL bytes")
@@ -776,7 +782,12 @@ def _read_source(path: Path) -> ExtractedSource:
             raise IngestError("text sources must be UTF-8") from exc
         if len(text) > MAX_EXTRACTED_CHARS:
             raise IngestError("extracted text exceeds the configured size limit")
-        media_type = "text/markdown" if suffix in {".md", ".markdown"} else "text/plain"
+        if suffix == ".json":
+            media_type = "application/json"
+        elif suffix in {".md", ".markdown"}:
+            media_type = "text/markdown"
+        else:
+            media_type = "text/plain"
         extracted = _text_extraction(data, text, media_type)
     elif suffix == ".pdf":
         if detected_media_type != "application/pdf" or not data.startswith(b"%PDF-"):
@@ -876,6 +887,7 @@ def ingest_file(
         "meeting-transcript",
         "meeting-notes",
         "long-form",
+        "gmail-capture",
     }:
         raise IngestError("ingest kind is not supported")
     vault = Path(root).absolute()
@@ -950,6 +962,16 @@ def ingest_file(
                 "segment_ids": [seg["segment_id"] for seg in segmented["segments"]],
             },
         }
+    gmail = None
+    if kind == "gmail-capture":
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise IngestError("gmail-capture sources must be JSON") from exc
+        try:
+            gmail = validate_gmail_capture(payload)
+        except GmailCaptureError as exc:
+            raise IngestError(str(exc)) from exc
     manifest_relative = Path(".constellation/manifests") / f"{digest}.json"
     manifest_path = vault / manifest_relative
     instant = now or datetime.now(UTC)
@@ -966,6 +988,7 @@ def ingest_file(
         deck_updated = deck is not None and manifest.get("deck") != deck
         meeting_updated = meeting is not None and manifest.get("meeting") != meeting
         longform_updated = longform is not None and manifest.get("longform") != longform
+        gmail_updated = gmail is not None and manifest.get("gmail") != gmail
         if card_updated:
             manifest["business_card"] = business_card
         if deck_updated:
@@ -974,6 +997,8 @@ def ingest_file(
             manifest["meeting"] = meeting
         if longform_updated:
             manifest["longform"] = longform
+        if gmail_updated:
+            manifest["gmail"] = gmail
         upgraded = "extraction" not in manifest
         if upgraded:
             atomic_write_text(vault, str(manifest["text_path"]), text)
@@ -993,7 +1018,7 @@ def ingest_file(
             instant,
         )
         candidate_path = str(manifest["candidate_path"])
-        if upgraded or source_patch_staged or card_updated or deck_updated or meeting_updated or longform_updated:
+        if upgraded or source_patch_staged or card_updated or deck_updated or meeting_updated or longform_updated or gmail_updated:
             atomic_write_text(
                 vault,
                 manifest_relative,
@@ -1034,6 +1059,11 @@ def ingest_file(
             **(
                 {"longform_segments": str(longform["segments"]["count"])}
                 if longform is not None
+                else {}
+            ),
+            **(
+                {"gmail_messages": str(len(gmail["messages"]))}
+                if gmail is not None
                 else {}
             ),
         }
@@ -1088,6 +1118,7 @@ def ingest_file(
         **({"deck": deck} if deck is not None else {}),
         **({"meeting": meeting} if meeting is not None else {}),
         **({"longform": longform} if longform is not None else {}),
+        **({"gmail": gmail} if gmail is not None else {}),
         "preserved_path": preserved_relative.as_posix(),
         "text_path": text_relative.as_posix(),
         "source_item_path": source_item_relative.as_posix(),
@@ -1121,7 +1152,7 @@ def ingest_file(
         **{
             key: str(value)
             for key, value in manifest.items()
-            if key not in {"extraction", "registration", "business_card", "deck", "meeting", "longform"}
+            if key not in {"extraction", "registration", "business_card", "deck", "meeting", "longform", "gmail"}
         },
         **(
             {"business_card_fields": str(len(business_card["fields"]))}
@@ -1141,6 +1172,11 @@ def ingest_file(
         **(
             {"longform_segments": str(longform["segments"]["count"])}
             if longform is not None
+            else {}
+        ),
+        **(
+            {"gmail_messages": str(len(gmail["messages"]))}
+            if gmail is not None
             else {}
         ),
     }

@@ -14,6 +14,7 @@ public_roots:
 - docs/first-distillation-contract.md
 - docs/model-provider-portability.md
 - docs/egress-policy.md
+- docs/gmail-workflow.md
 - docs/integrations.md
 - docs/connector-contract.md
 - docs/token-aware-research.md
@@ -54,6 +55,8 @@ files:
   docs/first-distillation-contract.md:
     lineage: handwritten-generic
   docs/model-provider-portability.md:
+    lineage: handwritten-generic
+  docs/gmail-workflow.md:
     lineage: handwritten-generic
   docs/integrations.md:
     lineage: handwritten-generic
@@ -141,6 +144,8 @@ files:
     lineage: handwritten-generic
   src/constellation/frontmatter.py:
     lineage: handwritten-generic
+  src/constellation/gmail_capture.py:
+    lineage: handwritten-generic
   src/constellation/graph.py:
     lineage: handwritten-generic
   src/constellation/ingest.py:
@@ -210,6 +215,8 @@ files:
   tests/test_distribution.py:
     lineage: handwritten-generic
   tests/test_egress.py:
+    lineage: handwritten-generic
+  tests/test_gmail_capture_contract.py:
     lineage: handwritten-generic
   tests/test_graph.py:
     lineage: handwritten-generic

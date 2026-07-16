@@ -53,7 +53,7 @@ def build_parser() -> argparse.ArgumentParser:
     ingest.add_argument("--source-url", help="Original capture URL; Constellation never fetches it")
     ingest.add_argument(
         "--kind",
-        choices=["generic", "business-card", "pdf-deck", "meeting-transcript", "meeting-notes", "long-form"],
+        choices=["generic", "business-card", "pdf-deck", "meeting-transcript", "meeting-notes", "long-form", "gmail-capture"],
         default="generic",
     )
     ingest.add_argument(
