@@ -33,6 +33,11 @@
       "title": "Max Model Calls",
       "type": "integer"
     },
+    "max_pages": {
+      "default": 5,
+      "title": "Max Pages",
+      "type": "integer"
+    },
     "max_search_queries": {
       "default": 5,
       "title": "Max Search Queries",

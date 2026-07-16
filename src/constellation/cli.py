@@ -191,7 +191,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     inquiry = sub.add_parser("inquiry", help="Stage or list research inquiries")
     inquiry.add_argument("vault", type=Path)
-    inquiry.add_argument("action", choices=["stage", "list"])
+    inquiry.add_argument("action", choices=["stage", "list", "run"])
     inquiry.add_argument("--question", help="Research question (required for stage)")
     inquiry.add_argument("--why", help="Why this matters")
     inquiry.add_argument("--scope", help="Target scope")
@@ -204,6 +204,9 @@ def build_parser() -> argparse.ArgumentParser:
     inquiry.add_argument("--max-model-calls", type=int, default=3, help="Max LLM calls")
     inquiry.add_argument("--synthesis-reserve", type=int, default=25, help="Reserve % for synthesis (0-50)")
     inquiry.add_argument("--stop-conditions", nargs="+", help="When to stop")
+    inquiry.add_argument("--sensitivity", default="internal",
+                         choices=["public", "internal", "confidential", "restricted"])
+    inquiry.add_argument("--max-pages", type=int, default=5, help="Max pages to extract")
     inquiry.add_argument("--promotion-policy", default="review-all",
                           choices=["review-all", "auto-source-only", "manual-only"])
     inquiry.add_argument("--limit", type=int, default=50, help="Max to list")
@@ -538,6 +541,42 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
         if values.get("action") == "list":
             from constellation.review import list_candidates as list_inquiries
             return list_inquiries(vault)
+        if values.get("action") == "run":
+            from constellation.research_runner import run_inquiry as _run
+
+            question = values.get("question")
+            if not question:
+                raise ValueError("--question is required for inquiry run")
+            sensitivity_str = values.get("sensitivity", "internal")
+            sensitivity_map = {
+                "public": _Sens3.PUBLIC,
+                "internal": _Sens3.INTERNAL,
+                "confidential": _Sens3.CONFIDENTIAL,
+                "restricted": _Sens3.RESTRICTED,
+            }
+            sensitivity = sensitivity_map.get(sensitivity_str, _Sens3.INTERNAL)
+            inquiry = Inquiry(
+                type="inquiry",
+                title=f"inquiry-{question[:40]}",
+                status="active",
+                sensitivity=sensitivity,
+                question=str(question),
+                why_it_matters=values.get("why") or "",
+                target_scope=values.get("scope") or "",
+                evidence_needed=values.get("evidence_needed") or "",
+                source_priority=values.get("source_priority", "primary"),
+                promotion_policy=values.get("promotion_policy", "review-all"),
+                subject_ids=[str(s) for s in (values.get("subject_ids") or [])],
+                max_search_queries=int(values.get("max_searches", 5)),
+                max_unique_sources=int(values.get("max_sources", 10)),
+                max_model_calls=int(values.get("max_model_calls", 3)),
+                synthesis_reserve_percent=int(values.get("synthesis_reserve", 25)),
+                stop_conditions=list(values.get("stop_conditions") or []),
+                max_pages=int(values.get("max_pages", 5)),
+                created_at=dt.now().astimezone(),
+                updated_at=dt.now().astimezone(),
+            )
+            return _run(vault, inquiry, sensitivity=sensitivity)
         question = values.get("question")
         if not question:
             raise ValueError("--question is required for inquiry stage")

@@ -286,6 +286,7 @@ class Inquiry(BaseRecord):
     max_search_queries: int = 5
     max_unique_sources: int = 10
     max_model_calls: int = 3
+    max_pages: int = 5
     synthesis_reserve_percent: Annotated[int, Field(ge=0, le=50)] = 25
     stop_conditions: list[str] = Field(default_factory=list)
     research_run_ids: list[Ulid] = Field(default_factory=list)
