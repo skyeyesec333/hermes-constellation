@@ -114,6 +114,39 @@ def build_parser() -> argparse.ArgumentParser:
     research.add_argument("vault", type=Path)
     research.add_argument("action", choices=["start", "status"])
     research.add_argument("--run-id")
+    research.add_argument(
+        "--task",
+        choices=[
+            "business_card",
+            "meeting",
+            "deck",
+            "paper",
+            "book",
+            "email_refresh",
+            "competitive_analysis",
+        ],
+        help="Optional task profile for start; applies synthesis-aware budget defaults",
+    )
+
+    synthesize = sub.add_parser("synthesize", help="Plan task-specific synthesis budgets without calling a model")
+    synthesize.add_argument("vault", type=Path)
+    synthesize.add_argument("action", choices=["plan"])
+    synthesize.add_argument(
+        "--task",
+        required=True,
+        choices=[
+            "business_card",
+            "meeting",
+            "deck",
+            "paper",
+            "book",
+            "email_refresh",
+            "competitive_analysis",
+        ],
+    )
+    synthesize.add_argument("--source-bytes", type=int, default=0)
+    synthesize.add_argument("--pages", type=int)
+    synthesize.add_argument("--audio-minutes", type=float)
 
     migrate = sub.add_parser("migrate-plan", help="Inventory a legacy vault without writing")
     migrate.add_argument("vault", type=Path)
@@ -299,6 +332,20 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
         from constellation.research import research_command
 
         return research_command(vault, values)
+    if action == "synthesize":
+        from constellation.synthesis import build_synthesis_plan
+        from constellation.vault import is_initialized
+
+        if not is_initialized(vault):
+            raise ValueError("vault is not initialized")
+        if values.get("action") != "plan":
+            raise ValueError("synthesize action must be plan")
+        return build_synthesis_plan(
+            task_kind=values["task"],
+            source_bytes=int(values.get("source_bytes") or 0),
+            estimated_pages=values.get("pages"),
+            estimated_audio_minutes=values.get("audio_minutes"),
+        )
     if action == "migrate-plan":
         from constellation.migration import plan_migration
 

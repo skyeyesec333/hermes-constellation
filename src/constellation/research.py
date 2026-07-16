@@ -340,9 +340,18 @@ def research_command(vault: Path, values: dict[str, Any]) -> dict[str, Any]:
     state = vault / ".constellation" / "research-runs"
     action = values.get("action")
     if action == "start":
-        ledger = ResearchLedger(
-            ResearchBudget(max_calls=8, max_tokens=8000, max_cost_usd=8.0, max_context_bytes=80_000)
-        )
+        task = values.get("task")
+        if task:
+            from .synthesis import research_budget_for_task
+
+            budget = research_budget_for_task(str(task), source_bytes=0)
+            workflow = f"research:{task}"
+        else:
+            budget = ResearchBudget(
+                max_calls=8, max_tokens=8000, max_cost_usd=8.0, max_context_bytes=80_000
+            )
+            workflow = "research"
+        ledger = ResearchLedger(budget, workflow=workflow, workflow_version="0.1", prompt_version="unknown")
         relative = Path(".constellation/research-runs") / f"{ledger.run_id}.json"
         atomic_write_text(vault, relative, ledger.receipt_json() + "\n")
         return ledger.receipt()

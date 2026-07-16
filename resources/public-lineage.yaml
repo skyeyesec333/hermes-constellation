@@ -182,6 +182,8 @@ files:
     lineage: handwritten-generic
   src/constellation/storage.py:
     lineage: handwritten-generic
+  src/constellation/synthesis.py:
+    lineage: handwritten-generic
   src/constellation/validation.py:
     lineage: handwritten-generic
   src/constellation/vault.py:
@@ -241,6 +243,8 @@ files:
   tests/test_release.py:
     lineage: handwritten-generic
   tests/test_research.py:
+    lineage: handwritten-generic
+  tests/test_synthesis.py:
     lineage: handwritten-generic
   tests/test_relationship.py:
     lineage: handwritten-generic

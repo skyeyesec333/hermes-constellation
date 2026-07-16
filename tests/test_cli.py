@@ -73,3 +73,24 @@ def test_ingest_cli_accepts_meeting_transcript_format_hint():
 
     assert values["kind"] == "meeting-transcript"
     assert values["meeting_format"] == "meetily"
+
+
+def test_synthesize_cli_accepts_task_plan_args():
+    values = vars(
+        build_parser().parse_args(
+            [
+                "synthesize",
+                "/tmp/vault",
+                "plan",
+                "--task",
+                "book",
+                "--source-bytes",
+                "1000",
+                "--pages",
+                "20",
+            ]
+        )
+    )
+    assert values["task"] == "book"
+    assert values["source_bytes"] == 1000
+    assert values["pages"] == 20

@@ -293,3 +293,23 @@ def stage_strategy_candidate(
         "path": relative.as_posix(),
         "packet_path": packet_relative.as_posix(),
     }
+
+
+def plan_task_synthesis(
+    *,
+    task_kind: str,
+    source_bytes: int,
+    estimated_pages: int | None = None,
+    estimated_audio_minutes: float | None = None,
+    derived_artifacts: list[dict[str, str]] | None = None,
+) -> dict:
+    """Return a review-only synthesis plan for intelligence work; no provider calls."""
+    from .synthesis import build_synthesis_plan
+
+    return build_synthesis_plan(
+        task_kind=task_kind,  # type: ignore[arg-type]
+        source_bytes=source_bytes,
+        estimated_pages=estimated_pages,
+        estimated_audio_minutes=estimated_audio_minutes,
+        derived_artifacts=derived_artifacts,
+    )
