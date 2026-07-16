@@ -282,6 +282,14 @@ def build_parser() -> argparse.ArgumentParser:
     activate.add_argument("--expected-source-sha256", required=True)
     activate.add_argument("--confirm-canonical-apply", action="store_true")
 
+    migrate_entities = sub.add_parser("migrate-entities", help="Plan or execute legacy entity migration into canonical entities/")
+    migrate_entities.add_argument("vault", type=Path)
+    migrate_entities.add_argument("action", choices=["plan", "execute"])
+    migrate_entities.add_argument("--dry-run", action="store_true", default=True,
+                                  help="Preview without changes (default)")
+    migrate_entities.add_argument("--apply", dest="dry_run", action="store_false",
+                                  help="Execute the migration")
+
     return parser
 
 
@@ -671,6 +679,11 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
             expected_source_sha256=str(values["expected_source_sha256"]),
             confirm_canonical_apply=bool(values.get("confirm_canonical_apply")),
         )
+    if action == "migrate-entities":
+        from constellation.entity_migration import execute_entity_migration
+
+        dry_run = bool(values.get("dry_run", True))
+        return execute_entity_migration(vault, dry_run=dry_run)
     raise ValueError(f"Unknown action: {action}")
 
 

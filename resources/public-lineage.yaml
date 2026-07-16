@@ -167,6 +167,8 @@ files:
     lineage: handwritten-generic
   src/constellation/egress.py:
     lineage: handwritten-generic
+  src/constellation/entity_migration.py:
+    lineage: handwritten-generic
   src/constellation/frontmatter.py:
     lineage: handwritten-generic
   src/constellation/firecrawl_adapter.py:
