@@ -80,6 +80,7 @@ def capture_conference_lead(
     channel: str = "whatsapp",
     phone_region: str | None = None,
     where: str | None = None,
+    todos: list[str] | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     """Ingest a card, stage an encounter, and upsert a Project Manager lead task."""
@@ -196,6 +197,17 @@ def capture_conference_lead(
         body_lines.append(f"- person hint: {person['raw_name']}")
     if person.get("company_hint"):
         body_lines.append(f"- company hint: {person['company_hint']}")
+    if todos:
+        body_lines.append("")
+        body_lines.append("## Todos (confirmed with Bryan)")
+        for item in todos:
+            item = str(item).strip()
+            if not item:
+                continue
+            if item.startswith("- ["):
+                body_lines.append(item)
+            else:
+                body_lines.append(f"- [ ] {item}")
 
     try:
         task = create_or_update_task(

@@ -24,7 +24,8 @@ constellation lead <vault> capture \
   --card Inbox/cards/person.jpg \
   --note "Met near hall 3; wants one-pager" \
   --channel whatsapp \
-  --phone-region TH
+  --phone-region TH \
+  --todos "Confirm name/company" "Draft WhatsApp" "Bryan approve" "Send" "Wait for reply"
 ```
 
 This will:
@@ -32,6 +33,7 @@ This will:
 2. optional note as meeting-notes
 3. stage encounter + follow-up drafts (send_allowed=false)
 4. create/update a Project Manager task on the event project
+5. attach confirmed per-card todos (only after Bryan finalizes the list with Aiko)
 
 Open the project in Obsidian Project Manager to review on kanban/gantt.
 

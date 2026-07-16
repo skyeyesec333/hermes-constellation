@@ -167,6 +167,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     lead.add_argument("--phone-region", help="ISO region for card phone normalization")
     lead.add_argument("--where", help="Booth / hall / panel location")
+    lead.add_argument(
+        "--todos",
+        nargs="*",
+        default=None,
+        help="Confirmed per-card todos to attach to the Project Manager task (only after Bryan finalizes the list)",
+    )
 
     migrate = sub.add_parser("migrate-plan", help="Inventory a legacy vault without writing")
     migrate.add_argument("vault", type=Path)
@@ -384,6 +390,7 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
             channel=str(values.get("channel") or "whatsapp"),
             phone_region=values.get("phone_region"),
             where=values.get("where"),
+            todos=values.get("todos"),
         )
     if action == "migrate-plan":
         from constellation.migration import plan_migration
