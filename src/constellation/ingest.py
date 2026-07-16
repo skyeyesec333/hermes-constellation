@@ -20,6 +20,8 @@ import yaml
 from .card_ingest import extract_business_card_fields
 from .deck_ingest import build_pdf_deck_map
 from .meeting import build_meeting_notes_map, build_meeting_transcript_map
+from .longform import build_document_map, segment_document
+from .segment_index import build_segment_index
 from .frontmatter import parse_frontmatter, render_frontmatter
 from .models import CandidatePatch, Sensitivity, SourceItem
 from .storage import (
@@ -873,6 +875,7 @@ def ingest_file(
         "pdf-deck",
         "meeting-transcript",
         "meeting-notes",
+        "long-form",
     }:
         raise IngestError("ingest kind is not supported")
     vault = Path(root).absolute()
@@ -928,6 +931,25 @@ def ingest_file(
         )
     elif kind == "meeting-notes":
         meeting = build_meeting_notes_map(source_id=source_id, text=text)
+    longform = None
+    if kind == "long-form":
+        document_map = build_document_map(source_id=source_id, text=text)
+        segmented = segment_document(document_map=document_map, text=text)
+        build_segment_index(
+            vault,
+            source_id=source_id,
+            segments=segmented["segments"],
+            document_map=document_map,
+        )
+        longform = {
+            "document_map": document_map,
+            "segments": {
+                "count": len(segmented["segments"]),
+                "target_tokens": segmented["target_tokens"],
+                "whole_document_prompt_allowed": False,
+                "segment_ids": [seg["segment_id"] for seg in segmented["segments"]],
+            },
+        }
     manifest_relative = Path(".constellation/manifests") / f"{digest}.json"
     manifest_path = vault / manifest_relative
     instant = now or datetime.now(UTC)
@@ -943,12 +965,15 @@ def ingest_file(
         card_updated = business_card is not None and manifest.get("business_card") != business_card
         deck_updated = deck is not None and manifest.get("deck") != deck
         meeting_updated = meeting is not None and manifest.get("meeting") != meeting
+        longform_updated = longform is not None and manifest.get("longform") != longform
         if card_updated:
             manifest["business_card"] = business_card
         if deck_updated:
             manifest["deck"] = deck
         if meeting_updated:
             manifest["meeting"] = meeting
+        if longform_updated:
+            manifest["longform"] = longform
         upgraded = "extraction" not in manifest
         if upgraded:
             atomic_write_text(vault, str(manifest["text_path"]), text)
@@ -968,7 +993,7 @@ def ingest_file(
             instant,
         )
         candidate_path = str(manifest["candidate_path"])
-        if upgraded or source_patch_staged or card_updated or deck_updated or meeting_updated:
+        if upgraded or source_patch_staged or card_updated or deck_updated or meeting_updated or longform_updated:
             atomic_write_text(
                 vault,
                 manifest_relative,
@@ -1004,6 +1029,11 @@ def ingest_file(
                     )
                 }
                 if meeting is not None
+                else {}
+            ),
+            **(
+                {"longform_segments": str(longform["segments"]["count"])}
+                if longform is not None
                 else {}
             ),
         }
@@ -1057,6 +1087,7 @@ def ingest_file(
         **({"business_card": business_card} if business_card is not None else {}),
         **({"deck": deck} if deck is not None else {}),
         **({"meeting": meeting} if meeting is not None else {}),
+        **({"longform": longform} if longform is not None else {}),
         "preserved_path": preserved_relative.as_posix(),
         "text_path": text_relative.as_posix(),
         "source_item_path": source_item_relative.as_posix(),
@@ -1090,7 +1121,7 @@ def ingest_file(
         **{
             key: str(value)
             for key, value in manifest.items()
-            if key not in {"extraction", "registration", "business_card", "deck", "meeting"}
+            if key not in {"extraction", "registration", "business_card", "deck", "meeting", "longform"}
         },
         **(
             {"business_card_fields": str(len(business_card["fields"]))}
@@ -1105,6 +1136,11 @@ def ingest_file(
                 )
             }
             if meeting is not None
+            else {}
+        ),
+        **(
+            {"longform_segments": str(longform["segments"]["count"])}
+            if longform is not None
             else {}
         ),
     }

@@ -29,6 +29,7 @@ A planned tool is not a promise that it is bundled or safe to use with private d
 | PDF-deck intake lane | Supported now | Page/slide map with source anchors, extracted text, title candidates, repeated header/footer suppression in the derived view, and vision-review flags | Local; raw extracted text remains authoritative and no whole-deck prompt is constructed |
 | Meeting transcript / notes intake | Supported now | Review-only meeting maps from Tactiq-style, Meetily markdown, OpenWhispr-style, or generic timestamped exports, plus typed notes | Local; speaker labels stay opaque, no speaker identity invention, no automatic decisions/owners |
 | Local audio transcription helper | Optional now | Explicit-confirm local Faster Whisper transcription into timestamped review-only segments | Local; install with `pip install -e '.[audio]'`; no remote transcription API and no diarization |
+| Long-form document map + segment FTS | Supported now | Hierarchical heading/page maps, bounded stable segments, rebuildable per-source segment FTS | Local; whole-document prompts remain forbidden; retrieval returns source anchors only |
 
 PDF extraction uses native text first. Pages without native text are rendered locally and passed to RapidOCR; pages still lacking reliable text are marked `blank-needs-vision`, and an all-unreadable PDF fails closed.
 
