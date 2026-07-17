@@ -9,6 +9,7 @@ htmlcov/
 dist/
 build/
 *.egg-info/
+.worktrees/
 .constellation/
 *.sqlite*
 .DS_Store

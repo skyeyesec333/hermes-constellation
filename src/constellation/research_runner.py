@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import Any
-
 from .models import Inquiry, Sensitivity
 from .search_adapter import SearchAdapterError, search_web
 

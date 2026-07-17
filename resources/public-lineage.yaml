@@ -1,7 +1,12 @@
 version: 1
 public_roots:
 - .gitignore
+- .github/workflows/ci.yml
+- .kilo/agents/constellation-maintainer.md
+- .kilo/agents/constellation-reviewer.md
 - __init__.py
+- AGENTS.md
+- ROADMAP.md
 - README.md
 - LICENSE
 - SECURITY.md
@@ -22,6 +27,7 @@ public_roots:
 - docs/clean-room-release.md
 - docs/threat-model.md
 - docs/migration.md
+- docs/plans/01-release-integrity.md
 - src
 - skills
 - examples
@@ -31,11 +37,21 @@ public_roots:
 files:
   .gitignore:
     lineage: handwritten-generic
+  .github/workflows/ci.yml:
+    lineage: handwritten-generic
+  .kilo/agents/constellation-maintainer.md:
+    lineage: handwritten-generic
+  .kilo/agents/constellation-reviewer.md:
+    lineage: handwritten-generic
+  AGENTS.md:
+    lineage: handwritten-generic
   CONTRIBUTING.md:
     lineage: handwritten-generic
   LICENSE:
     lineage: public-license-text
   PRIVACY.md:
+    lineage: handwritten-generic
+  ROADMAP.md:
     lineage: handwritten-generic
   README.md:
     lineage: handwritten-generic
@@ -64,6 +80,8 @@ files:
   docs/integrations.md:
     lineage: handwritten-generic
   docs/migration.md:
+    lineage: handwritten-generic
+  docs/plans/01-release-integrity.md:
     lineage: handwritten-generic
   docs/threat-model.md:
     lineage: handwritten-generic
@@ -140,6 +158,10 @@ files:
   scripts/build_release.py:
     lineage: handwritten-generic
   scripts/privacy_audit.py:
+    lineage: handwritten-generic
+  scripts/verify_fast.sh:
+    lineage: handwritten-generic
+  scripts/verify_release.sh:
     lineage: handwritten-generic
   skills/constellation/SKILL.md:
     lineage: handwritten-generic
@@ -244,6 +266,8 @@ files:
   tests/test_cli.py:
     lineage: handwritten-generic
   tests/test_deck_ingest.py:
+    lineage: handwritten-generic
+  tests/test_development_contract.py:
     lineage: handwritten-generic
   tests/test_meeting.py:
     lineage: handwritten-generic

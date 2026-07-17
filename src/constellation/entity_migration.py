@@ -7,8 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .frontmatter import FrontmatterError, parse_frontmatter
-from .identity import propose_identity_candidates_from_vault
-from .models import EntityKind, EntityRecord, EntityResolutionState, Sensitivity, generate_ulid
+from .models import EntityKind, EntityRecord, Sensitivity
 from .storage import atomic_write_text, safe_relative_path
 from .vault import is_initialized
 

@@ -6,7 +6,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from .models import Claim, ClaimStatus, Sensitivity, generate_ulid
+from .models import Claim, ClaimStatus, Sensitivity
 from .storage import atomic_write_text, safe_relative_path
 from .vault import is_initialized
 
