@@ -290,6 +290,8 @@ def build_parser() -> argparse.ArgumentParser:
     extract_claims.add_argument("vault", type=Path)
     extract_claims.add_argument("run_id", help="Research run ID to extract from")
     extract_claims.add_argument("--subject-id", required=True, help="Entity ULID the claims are about")
+    extract_claims.add_argument("--provider", required=True, help="Egress-policy provider name")
+    extract_claims.add_argument("--model", required=True, help="Egress-policy model name")
 
     enrich = sub.add_parser("enrich", help="Query external intelligence APIs (gdelt, edgar, polymarket)")
     enrich.add_argument("vault", type=Path)
@@ -812,7 +814,13 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
     if action == "extract-claims":
         from constellation.claim_extractor import extract_claims_from_run
 
-        return extract_claims_from_run(vault, str(values["run_id"]), subject_id=str(values["subject_id"]))
+        return extract_claims_from_run(
+            vault,
+            str(values["run_id"]),
+            subject_id=str(values["subject_id"]),
+            provider=str(values["provider"]),
+            model=str(values["model"]),
+        )
     if action == "enrich":
         from constellation.feeders import enrich_entity_gdelt, enrich_entity_edgar, enrich_entity_polymarket
 

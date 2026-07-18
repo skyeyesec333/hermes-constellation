@@ -22,6 +22,27 @@ def test_cli_exposes_trusted_loop_commands():
     assert "migrate-activate" in help_text
 
 
+def test_extract_claims_cli_requires_provider_and_model_identity():
+    values = vars(
+        build_parser().parse_args(
+            [
+                "extract-claims",
+                "/tmp/vault",
+                "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                "--subject-id",
+                "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+                "--provider",
+                "test-provider",
+                "--model",
+                "fictional-model-v1",
+            ]
+        )
+    )
+
+    assert values["provider"] == "test-provider"
+    assert values["model"] == "fictional-model-v1"
+
+
 def test_ingest_cli_accepts_local_capture_provenance_url():
     parser = build_parser()
 
