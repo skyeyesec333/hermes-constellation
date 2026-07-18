@@ -323,6 +323,33 @@ def build_parser() -> argparse.ArgumentParser:
     classify.add_argument("--supporting-source-ids", nargs="*", default=[], help="Supporting source-item ULIDs")
     classify.add_argument("--limit", type=int, default=50)
 
+    book = sub.add_parser("book", help="Manage ingested book intelligence")
+    book_subs = book.add_subparsers(dest="book_action", required=True)
+
+    book_ingest = book_subs.add_parser("ingest", help="Index a preserved book source into ChromaDB")
+    book_ingest.add_argument("vault", type=Path)
+    book_ingest.add_argument("source_path", type=Path, help="Path to preserved source markdown")
+    book_ingest.add_argument("--source-id", required=True, help="Canonical source-item ULID")
+    book_ingest.add_argument("--title", help="Book title (defaults to filename stem)")
+
+    book_status = book_subs.add_parser("status", help="Show book collection stats")
+    book_status.add_argument("vault", type=Path)
+
+    book_search = book_subs.add_parser("search", help="Semantic search across books")
+    book_search.add_argument("vault", type=Path)
+    book_search.add_argument("query", help="Natural language query")
+    book_search.add_argument("--limit", type=int, default=5, help="Max results")
+
+    book_delete = book_subs.add_parser("delete", help="Remove all chunks for a source")
+    book_delete.add_argument("vault", type=Path)
+    book_delete.add_argument("source_id", help="Canonical source-item ULID")
+
+    book_rebuild = book_subs.add_parser("rebuild", help="Delete and re-ingest a book")
+    book_rebuild.add_argument("vault", type=Path)
+    book_rebuild.add_argument("source_path", type=Path, help="Path to preserved source markdown")
+    book_rebuild.add_argument("--source-id", required=True, help="Canonical source-item ULID")
+    book_rebuild.add_argument("--title", help="Book title")
+
     trail = sub.add_parser("trail", help="Trace full provenance chain for a decision")
     trail.add_argument("vault", type=Path)
     trail.add_argument("decision_id", help="Canonical decision ULID")
@@ -927,6 +954,38 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
                 "classification_id": classification.id,
                 "candidate_path": candidate_rel.as_posix(),
             }
+    if action == "book":
+        book_action = str(values.get("book_action", ""))
+        if book_action == "ingest":
+            from constellation.book_intelligence import ingest_book
+
+            title = str(values.get("title") or "")
+            return ingest_book(
+                vault, values["source_path"],
+                source_id=str(values["source_id"]),
+                title=title or None,
+            )
+        elif book_action == "status":
+            from constellation.book_intelligence import book_status
+
+            return book_status(vault)
+        elif book_action == "search":
+            from constellation.book_intelligence import search_books
+
+            return search_books(vault, str(values["query"]), n_results=int(values.get("limit", 5)))
+        elif book_action == "delete":
+            from constellation.book_intelligence import delete_book
+
+            return delete_book(vault, str(values["source_id"]))
+        elif book_action == "rebuild":
+            from constellation.book_intelligence import rebuild_books
+
+            title = str(values.get("title") or "")
+            return rebuild_books(
+                vault, values["source_path"],
+                source_id=str(values["source_id"]),
+                title=title or None,
+            )
     raise ValueError(f"Unknown action: {action}")
 
 

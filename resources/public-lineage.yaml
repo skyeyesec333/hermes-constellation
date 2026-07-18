@@ -289,6 +289,8 @@ files:
     lineage: handwritten-generic
   tests/test_card_ingest.py:
     lineage: handwritten-generic
+  tests/test_book_intelligence.py:
+    lineage: handwritten-generic
   tests/test_claim_extractor.py:
     lineage: handwritten-generic
   tests/test_classification.py:

@@ -64,6 +64,8 @@ _CONFIGURED_VAULT_ACTIONS = frozenset(
         "search-books",
         "extract-claims",
         "enrich",
+        "classify",
+        "book",
         "trail",
         "migrate-plan",
         "migrate-rehearse",
