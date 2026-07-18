@@ -405,6 +405,18 @@ def list_candidates(root: Path | str) -> list[dict[str, object]]:
             if payload.get("type") == "analysis":
                 results.append(_analysis_candidate_summary(path, payload))
                 continue
+            if payload.get("type") == "watchlist":
+                results.append(_generic_candidate_summary(path, payload, "watchlists"))
+                continue
+            if payload.get("type") == "snapshot":
+                results.append(_generic_candidate_summary(path, payload, "snapshots"))
+                continue
+            if payload.get("type") == "observation":
+                results.append(_generic_candidate_summary(path, payload, "observations"))
+                continue
+            if payload.get("type") == "event":
+                results.append(_generic_candidate_summary(path, payload, "events"))
+                continue
             candidate = CandidatePatch.model_validate_json(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError, ValidationError, ValueError, PromotionError):
             continue
@@ -641,6 +653,8 @@ def promote_candidate(
         return _promote_classification_candidate(vault, candidate_path, payload, expected_base_hash)
     if isinstance(payload, dict) and payload.get("type") == "analysis":
         return _promote_analysis_candidate(vault, candidate_path, payload, expected_base_hash)
+    if isinstance(payload, dict) and payload.get("type") in ("watchlist", "snapshot", "observation", "event"):
+        return _promote_generic_candidate(vault, candidate_path, payload, expected_base_hash)
     if isinstance(payload, dict) and payload.get("kind") == "conference-encounter":
         raise PromotionError(
             "conference encounter candidates cannot be auto-promoted — "
@@ -741,6 +755,59 @@ def _promote_analysis_candidate(
         atomic_write_text(root, target_path, content)
     except (CanonicalValidationError, ConflictError) as exc:
         raise PromotionError("analysis candidate promotion failed") from exc
+    _append_action(
+        root,
+        {
+            "schema_version": "0.1",
+            "action": "candidate_promoted",
+            "candidate_id": candidate_path.stem,
+            "target_path": target_path,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "result_hash": sha256_file(target),
+        },
+    )
+    candidate_path.unlink()
+    return _rebuild_index_after_write(
+        root,
+        {"schema_version": "0.1", "status": "promoted", "target_path": target_path},
+    )
+
+
+def _generic_candidate_summary(path: Path, payload: dict[str, object], folder: str) -> dict[str, object]:
+    record_id = str(payload.get("id", ""))
+    title = str(payload.get("title", path.stem))
+    return {
+        "id": path.stem,
+        "kind": f"{folder}_candidate",
+        "title": f"Review {folder}: {title}",
+        "target_path": f"{folder}/{record_id}.md",
+        "expected_base_hash": None,
+        "promotable": True,
+    }
+
+
+def _promote_generic_candidate(
+    root: Path,
+    candidate_path: Path,
+    payload: dict[str, object],
+    expected_base_hash: str | None,
+) -> dict[str, str]:
+    summary = _generic_candidate_summary(candidate_path, payload, str(payload.get("type", "unknown")))
+    if expected_base_hash is not None:
+        raise PromotionError("generic candidate must be promoted as a create-only record")
+    target_path = str(summary["target_path"])
+    target = safe_relative_path(root, target_path)
+    if target.exists():
+        raise PromotionError("generic target already exists")
+    content = render_frontmatter(
+        {k: v for k, v in payload.items()},
+        str(payload.get("title", "")),
+    )
+    try:
+        validate_canonical_text(content, target_path)
+        atomic_write_text(root, target_path, content)
+    except (CanonicalValidationError, ConflictError) as exc:
+        raise PromotionError("generic candidate promotion failed") from exc
     _append_action(
         root,
         {

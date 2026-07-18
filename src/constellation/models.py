@@ -447,4 +447,52 @@ class Classification(BaseRecord):
         return value
 
 
-RECORD_MODELS = (BaseRecord, SourceItem, EntityRecord, RelationshipRecord, Claim, Interaction, Decision, Inquiry, SearchResult, Opportunity, CandidatePatch, ResearchRun, Analysis, Classification)
+class Watchlist(BaseRecord):
+    """A monitored entity or topic list with configuration."""
+
+    type: Literal["watchlist"] = "watchlist"  # pyright: ignore[reportIncompatibleVariableOverride]
+    entity_ids: list[Ulid] = Field(default_factory=list)
+    query_terms: list[str] = Field(default_factory=list)
+    sources: list[str] = Field(default_factory=list)  # e.g. gdelt, edgar, polymarket
+    schedule: str = ""  # cron-like schedule description
+    version: int = 1
+
+
+class Snapshot(BaseRecord):
+    """Immutable point-in-time capture of watchlist results."""
+
+    type: Literal["snapshot"] = "snapshot"  # pyright: ignore[reportIncompatibleVariableOverride]
+    watchlist_id: Ulid
+    source_ids: list[Ulid] = Field(default_factory=list)
+    material_diff_from: Ulid | None = None  # previous snapshot for diff
+    preserved_bytes_sha256: str = ""
+    version: int = 1
+
+
+class Observation(BaseRecord):
+    """A material change detected between snapshots — review-only candidate."""
+
+    type: Literal["observation"] = "observation"  # pyright: ignore[reportIncompatibleVariableOverride]
+    watchlist_id: Ulid
+    snapshot_id: Ulid
+    previous_snapshot_id: Ulid | None = None
+    change_summary: Annotated[str, Field(min_length=1, max_length=5000)]
+    entity_ids: list[Ulid] = Field(default_factory=list)
+    source_ids: list[Ulid] = Field(default_factory=list)
+    version: int = 1
+
+
+class Event(BaseRecord):
+    """A time-anchored canonical event derived from observations."""
+
+    type: Literal["event"] = "event"  # pyright: ignore[reportIncompatibleVariableOverride]
+    entity_ids: list[Ulid] = Field(default_factory=list)
+    event_date: Annotated[str, Field(min_length=1, max_length=100)] = ""
+    event_type: Annotated[str, Field(min_length=1, max_length=100)] = "general"
+    description: Annotated[str, Field(min_length=1, max_length=5000)]
+    observation_ids: list[Ulid] = Field(default_factory=list)
+    source_ids: list[Ulid] = Field(default_factory=list)
+    version: int = 1
+
+
+RECORD_MODELS = (BaseRecord, SourceItem, EntityRecord, RelationshipRecord, Claim, Interaction, Decision, Inquiry, SearchResult, Opportunity, CandidatePatch, ResearchRun, Analysis, Classification, Watchlist, Snapshot, Observation, Event)

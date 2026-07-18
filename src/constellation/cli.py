@@ -394,6 +394,40 @@ def build_parser() -> argparse.ArgumentParser:
     hybrid.add_argument("--limit", type=int, default=10)
     hybrid.add_argument("--sensitivity", default="internal")
 
+    watchlist = sub.add_parser("watchlist", help="Stage a watchlist to monitor entities/terms")
+    watchlist.add_argument("vault", type=Path)
+    watchlist.add_argument("--title", required=True)
+    watchlist.add_argument("--entity-ids", nargs="*", default=[])
+    watchlist.add_argument("--query-terms", nargs="*", default=[])
+    watchlist.add_argument("--sources", nargs="*", default=[], choices=["gdelt", "edgar", "polymarket"])
+    watchlist.add_argument("--schedule", default="")
+
+    snapshot = sub.add_parser("snapshot", help="Stage a point-in-time snapshot")
+    snapshot.add_argument("vault", type=Path)
+    snapshot.add_argument("--watchlist-id", required=True)
+    snapshot.add_argument("--source-ids", nargs="*", default=[])
+    snapshot.add_argument("--content", default="")
+    snapshot.add_argument("--previous-snapshot-id")
+
+    observation = sub.add_parser("observation", help="Stage a material-change observation")
+    observation.add_argument("vault", type=Path)
+    observation.add_argument("--watchlist-id", required=True)
+    observation.add_argument("--snapshot-id", required=True)
+    observation.add_argument("--change-summary", required=True)
+    observation.add_argument("--previous-snapshot-id")
+    observation.add_argument("--entity-ids", nargs="*", default=[])
+    observation.add_argument("--source-ids", nargs="*", default=[])
+
+    event = sub.add_parser("event", help="Stage a time-anchored canonical event")
+    event.add_argument("vault", type=Path)
+    event.add_argument("--title", required=True)
+    event.add_argument("--description", required=True)
+    event.add_argument("--entity-ids", nargs="*", default=[])
+    event.add_argument("--event-date", default="")
+    event.add_argument("--event-type", default="general")
+    event.add_argument("--observation-ids", nargs="*", default=[])
+    event.add_argument("--source-ids", nargs="*", default=[])
+
     trail = sub.add_parser("trail", help="Trace full provenance chain for a decision")
     trail.add_argument("vault", type=Path)
     trail.add_argument("decision_id", help="Canonical decision ULID")
@@ -1068,6 +1102,52 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
             str(values["query"]),
             n_results=int(values.get("limit", 10)),
             sensitivity_ceiling=str(values.get("sensitivity", "internal")),
+        )
+    if action == "watchlist":
+        from constellation.watchlists import stage_watchlist
+
+        return stage_watchlist(
+            vault,
+            title=str(values["title"]),
+            entity_ids=[str(e) for e in (values.get("entity_ids") or [])],
+            query_terms=[str(q) for q in (values.get("query_terms") or [])],
+            sources=[str(s) for s in (values.get("sources") or [])],
+            schedule=str(values.get("schedule", "")),
+        )
+    if action == "snapshot":
+        from constellation.watchlists import stage_snapshot
+
+        return stage_snapshot(
+            vault,
+            watchlist_id=str(values["watchlist_id"]),
+            source_ids=[str(s) for s in (values.get("source_ids") or [])],
+            preserved_content=str(values.get("content", "")),
+            previous_snapshot_id=str(values.get("previous_snapshot_id") or ""),
+        )
+    if action == "observation":
+        from constellation.watchlists import stage_observation
+
+        return stage_observation(
+            vault,
+            watchlist_id=str(values["watchlist_id"]),
+            snapshot_id=str(values["snapshot_id"]),
+            change_summary=str(values["change_summary"]),
+            previous_snapshot_id=str(values.get("previous_snapshot_id") or ""),
+            entity_ids=[str(e) for e in (values.get("entity_ids") or [])],
+            source_ids=[str(s) for s in (values.get("source_ids") or [])],
+        )
+    if action == "event":
+        from constellation.watchlists import stage_event
+
+        return stage_event(
+            vault,
+            title=str(values["title"]),
+            description=str(values["description"]),
+            entity_ids=[str(e) for e in (values.get("entity_ids") or [])],
+            event_date=str(values.get("event_date", "")),
+            event_type=str(values.get("event_type", "general")),
+            observation_ids=[str(o) for o in (values.get("observation_ids") or [])],
+            source_ids=[str(s) for s in (values.get("source_ids") or [])],
         )
     raise ValueError(f"Unknown action: {action}")
 

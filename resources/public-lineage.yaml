@@ -105,6 +105,14 @@ files:
     lineage: handwritten-generic
   resources/generated-json-schemas/analysis.json:
     lineage: generated-from-python-schema
+  resources/generated-json-schemas/watchlist.json:
+    lineage: generated-from-python-schema
+  resources/generated-json-schemas/snapshot.json:
+    lineage: generated-from-python-schema
+  resources/generated-json-schemas/observation.json:
+    lineage: generated-from-python-schema
+  resources/generated-json-schemas/event.json:
+    lineage: generated-from-python-schema
   resources/generated-json-schemas/baserecord.json:
     lineage: generated-from-python-schema
   resources/generated-json-schemas/candidatepatch.json:
@@ -132,6 +140,14 @@ files:
   resources/generated-json-schemas/sourceitem.json:
     lineage: generated-from-python-schema
   resources/generated-note-templates/analysis.md:
+    lineage: generated-from-python-schema
+  resources/generated-note-templates/watchlist.md:
+    lineage: generated-from-python-schema
+  resources/generated-note-templates/snapshot.md:
+    lineage: generated-from-python-schema
+  resources/generated-note-templates/observation.md:
+    lineage: generated-from-python-schema
+  resources/generated-note-templates/event.md:
     lineage: generated-from-python-schema
   resources/generated-note-templates/baserecord.md:
     lineage: generated-from-python-schema
@@ -194,6 +210,8 @@ files:
   src/constellation/claim.py:
     lineage: handwritten-generic
   src/constellation/crm.py:
+    lineage: handwritten-generic
+  src/constellation/watchlists.py:
     lineage: handwritten-generic
   src/constellation/semantic_index.py:
     lineage: handwritten-generic
@@ -308,6 +326,8 @@ files:
   tests/test_classification.py:
     lineage: handwritten-generic
   tests/test_feeders.py:
+    lineage: handwritten-generic
+  tests/test_watchlists.py:
     lineage: handwritten-generic
   tests/test_hybrid_retrieval.py:
     lineage: handwritten-generic

@@ -7,7 +7,7 @@ from pathlib import Path, PurePosixPath
 from pydantic import BaseModel, ValidationError
 
 from .frontmatter import FrontmatterError, parse_frontmatter
-from .models import Analysis, Claim, Classification, Decision, EntityRecord, Inquiry, Interaction, Opportunity, RelationshipRecord, ResearchRun, SourceItem
+from .models import Analysis, Claim, Classification, Decision, EntityRecord, Event, Inquiry, Interaction, Observation, Opportunity, RelationshipRecord, ResearchRun, Snapshot, SourceItem, Watchlist
 
 CANONICAL_MODELS: dict[str, type[BaseModel]] = {
     "claims": Claim,
@@ -21,6 +21,10 @@ CANONICAL_MODELS: dict[str, type[BaseModel]] = {
     "opportunities": Opportunity,
     "analyses": Analysis,
     "classifications": Classification,
+    "watchlists": Watchlist,
+    "snapshots": Snapshot,
+    "observations": Observation,
+    "events": Event,
 }
 ALLOWED_CANONICAL_FOLDERS = frozenset(CANONICAL_MODELS)
 
