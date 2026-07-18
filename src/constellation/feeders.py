@@ -1,356 +1,668 @@
 """External intelligence feeders — GDELT, SEC EDGAR, Polymarket.
 
-Phase 14: query external APIs, stage results as source-items and claims.
-Each feeder is self-contained and fail-safe — API errors produce graceful
-messages, not crashes.
+Each feeder queries one external API, preserves exact response bytes, creates
+a source-item candidate through the ingest pipeline, and writes a terminal
+receipt.  Claim extraction is a separate, explicit step — feeders never stage
+claims inline.
+
+Phase 16 rewrite: egress-gated, URL-safe, byte-bounded, receipt-tracked.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import urllib.error
 import urllib.parse
 import urllib.request
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Callable
 
-from .claim import stage_claim
-from .models import generate_ulid as _gen_ulid
+from .egress import (
+    EgressDecision,
+    EgressDenied,
+    EgressRequest,
+    authorize_egress,
+)
+from .frontmatter import parse_frontmatter
+from .ingest import ingest_file
+from .models import EntityRecord, Sensitivity, SourceItem, generate_ulid
+from .storage import atomic_write_bytes, atomic_write_text, safe_relative_path, sha256_bytes
+from .url_safety import UnsafeUrlError, validate_http_url
+from .vault import is_initialized
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+_MAX_RESPONSE_BYTES = 10 * 1024 * 1024  # 10 MiB
+_REQUEST_TIMEOUT = 30
+_FEEDER_PURPOSE = "research"
+
+GDELT_API = "https://api.gdeltproject.org/api/v2/doc/doc"
+EDGAR_API = "https://efts.sec.gov/LATEST/search-index"
+POLYMARKET_API = "https://gamma-api.polymarket.com"
+
+_GDELT_MODES = frozenset({"artlist", "timelinevol", "tonechart"})
+_FEEDER_SOURCES = frozenset({"gdelt", "edgar", "polymarket"})
+
+
+# ---------------------------------------------------------------------------
+# Errors
+# ---------------------------------------------------------------------------
 
 
 class FeederError(RuntimeError):
-    """Raised when an external feeder fails."""
+    """Raised when a feeder operation fails."""
 
 
-# ── GDELT ──────────────────────────────────────────────────────────
-
-GDELT_API = "https://api.gdeltproject.org/api/v2/doc/doc"
-
-_GDLET_MODE_MAP = {
-    "artlist": "artlist",
-    "timelinevol": "timelinevol",
-    "tonechart": "tonechart",
-}
+# ---------------------------------------------------------------------------
+# Request / result contract
+# ---------------------------------------------------------------------------
 
 
-def query_gdelt(
-    query: str,
+@dataclass(frozen=True, slots=True)
+class FeederRequest:
+    """One feeder collection request."""
+
+    source: str  # "gdelt" | "edgar" | "polymarket"
+    query: str
+    subject_id: str
+    provider: str  # egress provider name
+    model: str     # egress model name
+    max_results: int = 10
+
+    def __post_init__(self) -> None:
+        if self.source not in _FEEDER_SOURCES:
+            raise FeederError(f"unsupported source: {self.source}")
+        if not self.query.strip():
+            raise FeederError("query is required")
+        if not self.subject_id.strip():
+            raise FeederError("subject_id is required")
+        if not self.provider.strip() or not self.model.strip():
+            raise FeederError("provider and model are required")
+
+
+@dataclass(frozen=True, slots=True)
+class FeederResult:
+    status: str  # "ok" | "empty" | "denied" | "failed"
+    source_ids: tuple[str, ...] = ()
+    candidate_ids: tuple[str, ...] = ()
+    receipt_path: str = ""
+    items_found: int = 0
+    error: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Receipts
+# ---------------------------------------------------------------------------
+
+
+def _write_feeder_receipt(
+    vault: Path,
+    receipt_id: str,
     *,
-    mode: str = "artlist",
-    max_records: int = 10,
-    timespan: str = "7d",
-    timeout: int = 30,
-) -> dict[str, object]:
-    """Query the GDELT Project API for news articles matching a query.
-
-    Args:
-        query: Search terms (supports AND, OR, phrases in quotes)
-        mode: 'artlist' (articles), 'timelinevol' (volume), 'tonechart' (sentiment)
-        max_records: Max articles to return
-        timespan: Time window ('24h', '7d', '30d', '90d', '1y')
-        timeout: HTTP timeout in seconds
-
-    Returns:
-        Dict with status, articles list, and raw response metadata
-    """
-    if mode not in _GDLET_MODE_MAP:
-        raise FeederError(f"unsupported GDELT mode: {mode}")
-
-    params = {
+    status: str,
+    source: str,
+    provider: str,
+    model: str,
+    query: str,
+    subject_id: str,
+    authorization_id: str | None = None,
+    source_ids: tuple[str, ...] | None = None,
+    candidate_ids: tuple[str, ...] | None = None,
+    items_found: int = 0,
+    response_sha256: str | None = None,
+    error: str | None = None,
+) -> str:
+    relative = Path(".constellation/feeder-receipts") / f"{receipt_id}.json"
+    payload = {
+        "schema_version": "0.1",
+        "receipt_id": receipt_id,
+        "status": status,
+        "source": source,
+        "provider": provider,
+        "model": model,
         "query": query,
+        "subject_id": subject_id,
+        "authorization_id": authorization_id,
+        "source_ids": list(source_ids or ()),
+        "candidate_ids": list(candidate_ids or ()),
+        "items_found": items_found,
+        "response_sha256": response_sha256,
+        "error": error,
+        "recorded_at": datetime.now(UTC).isoformat(),
+    }
+    atomic_write_text(vault, relative, json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    return relative.as_posix()
+
+
+# ---------------------------------------------------------------------------
+# Entity / sensitivity helpers
+# ---------------------------------------------------------------------------
+
+
+def _require_canonical_subject(vault: Path, subject_id: str) -> EntityRecord:
+    try:
+        path = safe_relative_path(vault, Path("entities") / f"{subject_id}.md")
+    except ValueError as exc:
+        raise FeederError(f"canonical subject is invalid: {subject_id}") from exc
+    if not path.is_file() or path.is_symlink():
+        raise FeederError(f"canonical subject not found: {subject_id}")
+    try:
+        metadata, _ = parse_frontmatter(path.read_text(encoding="utf-8"))
+        subject = EntityRecord.model_validate(metadata, strict=False)
+    except Exception as exc:
+        raise FeederError(f"canonical subject is invalid: {subject_id}") from exc
+    if subject.id != subject_id:
+        raise FeederError(f"canonical subject does not match: {subject_id}")
+    return subject
+
+
+def _derive_sensitivity(subject: EntityRecord) -> Sensitivity:
+    return subject.sensitivity
+
+
+# ---------------------------------------------------------------------------
+# Egress helper
+# ---------------------------------------------------------------------------
+
+
+def _authorize_feeder(
+    vault: Path,
+    *,
+    provider: str,
+    model: str,
+    sensitivity: Sensitivity,
+    query: str,
+) -> EgressDecision:
+    query_hash = hashlib.sha256(query.encode()).hexdigest()
+    request = EgressRequest(
+        provider=provider,
+        model=model,
+        purpose=_FEEDER_PURPOSE,
+        sensitivity=sensitivity,
+        request_input_sha256=query_hash,
+    )
+    decision = authorize_egress(vault, request)
+    if not decision.allowed:
+        raise EgressDenied(decision)
+    return decision
+
+
+# ---------------------------------------------------------------------------
+# Safe HTTP fetch
+# ---------------------------------------------------------------------------
+
+
+def _safe_fetch(url: str, *, timeout: int = _REQUEST_TIMEOUT) -> bytes:
+    """Validate URL, fetch with byte/timeout bounds, return response bytes."""
+    try:
+        safe_url = validate_http_url(url)
+    except UnsafeUrlError as exc:
+        raise FeederError(f"unsafe feeder URL: {exc}") from exc
+    if not safe_url.startswith("https://"):
+        raise FeederError("feeder URLs must use HTTPS")
+
+    try:
+        with urllib.request.urlopen(safe_url, timeout=timeout) as resp:
+            data = resp.read(_MAX_RESPONSE_BYTES + 1)
+    except urllib.error.URLError as exc:
+        raise FeederError(f"feeder API unreachable: {exc}") from exc
+
+    if len(data) > _MAX_RESPONSE_BYTES:
+        raise FeederError(f"feeder response exceeds {_MAX_RESPONSE_BYTES} bytes")
+    return data
+
+
+# ---------------------------------------------------------------------------
+# Save response and call ingest
+# ---------------------------------------------------------------------------
+
+
+def _preserve_and_ingest(
+    vault: Path,
+    data: bytes,
+    *,
+    source_label: str,
+    sensitivity: Sensitivity,
+    source_url: str,
+) -> dict[str, str]:
+    """Write bytes to a temp file in the vault, then call ingest_file."""
+    response_dir = vault / ".constellation" / "feeder-responses"
+    response_dir.mkdir(parents=True, exist_ok=True)
+    digest = sha256_bytes(data)
+    dest = response_dir / f"{digest}.json"
+    # Only write if not already present (idempotent)
+    if not dest.exists():
+        atomic_write_bytes(vault, Path(".constellation/feeder-responses") / f"{digest}.json", data)
+    return ingest_file(
+        vault,
+        dest,
+        sensitivity=sensitivity,
+        source_url=source_url,
+        kind="generic",
+    )
+
+
+# ---------------------------------------------------------------------------
+# GDELT
+# ---------------------------------------------------------------------------
+
+
+def _collect_gdelt(
+    vault: Path,
+    request: FeederRequest,
+    *,
+    subject: EntityRecord,
+) -> FeederResult:
+    mode = "artlist"
+    params = {
+        "query": request.query,
         "mode": mode,
-        "maxrecords": str(max_records),
-        "timespan": timespan,
+        "maxrecords": str(request.max_results),
+        "timespan": "7d",
         "format": "json",
     }
     url = f"{GDELT_API}?{urllib.parse.urlencode(params)}"
 
+    sensitivity = _derive_sensitivity(subject)
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as response:
-            body = response.read().decode("utf-8")
-    except urllib.error.URLError as exc:
-        raise FeederError(f"GDELT API unreachable: {exc}") from exc
+        decision = _authorize_feeder(
+            vault,
+            provider=request.provider,
+            model=request.model,
+            sensitivity=sensitivity,
+            query=request.query,
+        )
+    except EgressDenied:
+        # Record denial without making a network call
+        receipt_id = generate_ulid()
+        receipt_path = _write_feeder_receipt(
+            vault,
+            receipt_id,
+            status="denied",
+            source=request.source,
+            provider=request.provider,
+            model=request.model,
+            query=request.query,
+            subject_id=request.subject_id,
+            error="egress denied",
+        )
+        return FeederResult(status="denied", receipt_path=receipt_path)
 
-    # GDELT sometimes returns empty responses
-    if not body.strip():
-        return {"status": "empty", "articles": [], "query": query}
+    receipt_id = generate_ulid()
+    try:
+        data = _safe_fetch(url)
+    except FeederError as exc:
+        _write_feeder_receipt(
+            vault,
+            receipt_id,
+            status="failed",
+            source=request.source,
+            provider=request.provider,
+            model=request.model,
+            query=request.query,
+            subject_id=request.subject_id,
+            authorization_id=decision.authorization_id,
+            error=str(exc),
+        )
+        raise
+
+    response_sha256 = sha256_bytes(data)
+    body_text = data.decode("utf-8", errors="replace")
+    if not body_text.strip():
+        receipt_path = _write_feeder_receipt(
+            vault,
+            receipt_id,
+            status="empty",
+            source=request.source,
+            provider=request.provider,
+            model=request.model,
+            query=request.query,
+            subject_id=request.subject_id,
+            authorization_id=decision.authorization_id,
+            response_sha256=response_sha256,
+        )
+        return FeederResult(status="empty", receipt_path=receipt_path, items_found=0)
 
     try:
-        data = json.loads(body)
+        payload = json.loads(body_text)
     except json.JSONDecodeError as exc:
-        raise FeederError(f"GDELT returned invalid JSON: {exc}") from exc
+        error = f"GDELT returned invalid JSON: {exc}"
+        _write_feeder_receipt(
+            vault, receipt_id, status="failed", source=request.source,
+            provider=request.provider, model=request.model,
+            query=request.query, subject_id=request.subject_id,
+            authorization_id=decision.authorization_id,
+            response_sha256=response_sha256, error=error,
+        )
+        raise FeederError(error) from exc
 
-    articles = data.get("articles", []) if isinstance(data, dict) else []
-    return {
-        "status": "ok" if articles else "no_results",
-        "articles": articles[:max_records],
-        "total": len(articles),
-        "query": query,
-    }
-
-
-def enrich_entity_gdelt(
-    vault: Path | str,
-    entity_name: str,
-    *,
-    subject_id: str | None = None,
-    max_claims: int = 10,
-) -> dict[str, object]:
-    """Query GDELT for an entity and stage news mentions as claims.
-
-    Returns stats: articles_found, claims_staged, run_id.
-    """
-    vault = Path(vault).absolute()
-    gdelt_result = query_gdelt(f'"{entity_name}"', mode="artlist", max_records=10)
-
-    articles = gdelt_result.get("articles", [])
+    articles = payload.get("articles", []) if isinstance(payload, dict) else []
     if not articles:
-        return {"status": "no_results", "articles_found": 0, "claims_staged": 0}
+        receipt_path = _write_feeder_receipt(
+            vault, receipt_id, status="empty", source=request.source,
+            provider=request.provider, model=request.model,
+            query=request.query, subject_id=request.subject_id,
+            authorization_id=decision.authorization_id,
+            response_sha256=response_sha256, items_found=0,
+        )
+        return FeederResult(status="empty", receipt_path=receipt_path)
 
-    entity_id = subject_id or _gen_ulid()
-    staged = 0
-    now = datetime.now(UTC)
+    # Preserve exact response bytes through ingest pipeline
+    ingest_result = _preserve_and_ingest(
+        vault, data,
+        source_label="gdelt",
+        sensitivity=sensitivity,
+        source_url=url,
+    )
 
-    for art in articles[:max_claims]:
-        if not isinstance(art, dict):
-            continue
-        title = str(art.get("title", ""))[:200]
-        url = str(art.get("url", ""))
-        tone = art.get("tone", {})
-
-        if not title:
-            continue
-
-        tone_str = ""
-        if isinstance(tone, dict):
-            avg_tone = tone.get("tone", 0)
-            tone_str = f" (tone: {avg_tone})" if avg_tone else ""
-
-        try:
-            stage_claim(
-                vault,
-                subject_id=entity_id,
-                predicate="mentioned_in_news",
-                object_literal=f"{title}{tone_str}",
-                source_ids=[],
-                evidence_excerpt=url,
-                claim_status="source-claimed",
-                confidence=0.70,
-                observed_at=now,
-            )
-            staged += 1
-        except Exception:
-            continue
-
-    return {
-        "status": "complete" if staged else "no_claims",
-        "articles_found": len(articles),
-        "claims_staged": staged,
-        "entity_name": entity_name,
-    }
+    source_id = ingest_result.get("source_id", "")
+    candidate_id = ingest_result.get("candidate_id", "")
+    receipt_path = _write_feeder_receipt(
+        vault, receipt_id, status="ok", source=request.source,
+        provider=request.provider, model=request.model,
+        query=request.query, subject_id=request.subject_id,
+        authorization_id=decision.authorization_id,
+        source_ids=(source_id,),
+        candidate_ids=(candidate_id,),
+        items_found=len(articles),
+        response_sha256=response_sha256,
+    )
+    return FeederResult(
+        status="ok",
+        source_ids=(source_id,),
+        candidate_ids=(candidate_id,),
+        receipt_path=receipt_path,
+        items_found=len(articles),
+    )
 
 
-# ── SEC EDGAR ───────────────────────────────────────────────────────
-
-EDGAR_API = "https://efts.sec.gov/LATEST/search-index"
-
-_COMPANY_KEYWORDS = {
-    "10-K": "annual report",
-    "8-K": "material event",
-    "13F-HR": "institutional holdings",
-    "4": "insider transaction",
-    "SC 13G": "beneficial ownership",
-}
+# ---------------------------------------------------------------------------
+# EDGAR
+# ---------------------------------------------------------------------------
 
 
-def query_edgar(
-    company_name: str,
+def _collect_edgar(
+    vault: Path,
+    request: FeederRequest,
     *,
-    form_types: list[str] | None = None,
-    max_results: int = 10,
-    timeout: int = 30,
-) -> dict[str, object]:
-    """Query SEC EDGAR for company filings.
-
-    Returns dict with filings list.
-    """
-    types = form_types or ["10-K", "8-K"]
-    query_parts = [f'companyName:"{company_name}"']
-    for ft in types:
+    subject: EntityRecord,
+) -> FeederResult:
+    form_types = ["10-K", "8-K"]
+    query_parts = [f'companyName:"{request.query}"']
+    for ft in form_types:
         query_parts.append(f'formType:"{ft}"')
-
     q = " AND ".join(query_parts)
     params = {
         "q": q,
         "sort": "filedAt",
         "order": "desc",
-        "pageSize": str(max_results),
+        "pageSize": str(request.max_results),
     }
     url = f"{EDGAR_API}?{urllib.parse.urlencode(params)}"
-    headers = {"User-Agent": "Constellation/0.2 (" + "contact" + "@" + "example.test" + ")"}
 
+    sensitivity = _derive_sensitivity(subject)
     try:
-        req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req, timeout=timeout) as response:
-            body = json.loads(response.read().decode("utf-8"))
-    except urllib.error.URLError as exc:
-        raise FeederError(f"EDGAR API unreachable: {exc}") from exc
+        decision = _authorize_feeder(
+            vault, provider=request.provider, model=request.model,
+            sensitivity=sensitivity, query=request.query,
+        )
+    except EgressDenied:
+        receipt_id = generate_ulid()
+        receipt_path = _write_feeder_receipt(
+            vault, receipt_id, status="denied", source=request.source,
+            provider=request.provider, model=request.model,
+            query=request.query, subject_id=request.subject_id,
+            error="egress denied",
+        )
+        return FeederResult(status="denied", receipt_path=receipt_path)
 
-    hits = body.get("hits", {}).get("hits", [])
-    filings = []
-    for hit in hits:
-        source = hit.get("_source", {})
-        filings.append({
-            "company": source.get("companyName", company_name),
-            "form": source.get("formType", ""),
-            "filed_at": source.get("filedAt", ""),
-            "description": source.get("fileDescription", ""),
-            "accession": source.get("accessionNumber", ""),
-        })
+    receipt_id = generate_ulid()
+    try:
+        safe_url = validate_http_url(url)
+        if not safe_url.startswith("https://"):
+            raise FeederError("EDGAR URL must use HTTPS")
+        req = urllib.request.Request(
+            safe_url,
+            headers={"User-Agent": "Constellation/0.2 (" + "contact" + "@" + "example.test" + ")"},
+        )
+        with urllib.request.urlopen(req, timeout=_REQUEST_TIMEOUT) as resp:
+            data = resp.read(_MAX_RESPONSE_BYTES + 1)
+    except (urllib.error.URLError, UnsafeUrlError) as exc:
+        error = f"EDGAR API unreachable: {exc}"
+        _write_feeder_receipt(
+            vault, receipt_id, status="failed", source=request.source,
+            provider=request.provider, model=request.model,
+            query=request.query, subject_id=request.subject_id,
+            authorization_id=decision.authorization_id, error=error,
+        )
+        raise FeederError(error) from exc
 
-    return {"status": "ok" if filings else "no_results", "filings": filings, "query": company_name}
+    if len(data) > _MAX_RESPONSE_BYTES:
+        error = f"EDGAR response exceeds {_MAX_RESPONSE_BYTES} bytes"
+        _write_feeder_receipt(
+            vault, receipt_id, status="failed", source=request.source,
+            provider=request.provider, model=request.model,
+            query=request.query, subject_id=request.subject_id,
+            authorization_id=decision.authorization_id, error=error,
+        )
+        raise FeederError(error)
+
+    response_sha256 = sha256_bytes(data)
+    try:
+        body = json.loads(data.decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        error = f"EDGAR returned invalid JSON: {exc}"
+        _write_feeder_receipt(
+            vault, receipt_id, status="failed", source=request.source,
+            provider=request.provider, model=request.model,
+            query=request.query, subject_id=request.subject_id,
+            authorization_id=decision.authorization_id,
+            response_sha256=response_sha256, error=error,
+        )
+        raise FeederError(error) from exc
+
+    hits = body.get("hits", {}).get("hits", []) if isinstance(body, dict) else []
+    if not hits:
+        receipt_path = _write_feeder_receipt(
+            vault, receipt_id, status="empty", source=request.source,
+            provider=request.provider, model=request.model,
+            query=request.query, subject_id=request.subject_id,
+            authorization_id=decision.authorization_id,
+            response_sha256=response_sha256, items_found=0,
+        )
+        return FeederResult(status="empty", receipt_path=receipt_path)
+
+    ingest_result = _preserve_and_ingest(
+        vault, data, source_label="edgar",
+        sensitivity=sensitivity, source_url=url,
+    )
+    source_id = ingest_result.get("source_id", "")
+    candidate_id = ingest_result.get("candidate_id", "")
+    receipt_path = _write_feeder_receipt(
+        vault, receipt_id, status="ok", source=request.source,
+        provider=request.provider, model=request.model,
+        query=request.query, subject_id=request.subject_id,
+        authorization_id=decision.authorization_id,
+        source_ids=(source_id,),
+        candidate_ids=(candidate_id,),
+        items_found=len(hits),
+        response_sha256=response_sha256,
+    )
+    return FeederResult(
+        status="ok", source_ids=(source_id,), candidate_ids=(candidate_id,),
+        receipt_path=receipt_path, items_found=len(hits),
+    )
 
 
-def enrich_entity_edgar(
-    vault: Path | str,
-    company_name: str,
+# ---------------------------------------------------------------------------
+# Polymarket
+# ---------------------------------------------------------------------------
+
+
+def _collect_polymarket(
+    vault: Path,
+    request: FeederRequest,
     *,
-    subject_id: str | None = None,
-    ticker: str | None = None,
-    max_claims: int = 10,
-) -> dict[str, object]:
-    """Query SEC EDGAR and stage filing info as claims."""
-    vault = Path(vault).absolute()
-    edgar_result = query_edgar(company_name, max_results=10)
-
-    filings = edgar_result.get("filings", [])
-    if not filings:
-        return {"status": "no_results", "filings_found": 0, "claims_staged": 0}
-
-    entity_id = subject_id or _gen_ulid()
-    staged = 0
-    now = datetime.now(UTC)
-
-    for filing in filings[:max_claims]:
-        form = filing.get("form", "")
-        desc = filing.get("description", "")[:200]
-        filed = filing.get("filed_at", "")
-        if not form:
-            continue
-
-        form_label = _COMPANY_KEYWORDS.get(form, form)
-        try:
-            stage_claim(
-                vault,
-                subject_id=entity_id,
-                predicate=f"filed_{form.lower().replace(' ', '_').replace('-', '_')}",
-                object_literal=f"{form_label}: {desc} (filed {filed})",
-                source_ids=[],
-                evidence_excerpt=f"SEC EDGAR {form} filing {filing.get('accession', '')}",
-                claim_status="source-claimed",
-                confidence=0.95,
-                observed_at=now,
-            )
-            staged += 1
-        except Exception:
-            continue
-
-    return {
-        "status": "complete" if staged else "no_claims",
-        "filings_found": len(filings),
-        "claims_staged": staged,
-        "company": company_name,
-    }
-
-
-# ── Polymarket ──────────────────────────────────────────────────────
-
-POLYMARKET_API = "https://gamma-api.polymarket.com"
-
-
-def query_polymarket(
-    query: str,
-    *,
-    limit: int = 10,
-    timeout: int = 30,
-) -> dict[str, object]:
-    """Query Polymarket for prediction markets matching a query."""
-    params = {
-        "query": query,
-        "limit": str(limit),
-    }
+    subject: EntityRecord,
+) -> FeederResult:
+    params = {"query": request.query, "limit": str(request.max_results)}
     url = f"{POLYMARKET_API}/markets?{urllib.parse.urlencode(params)}"
 
+    sensitivity = _derive_sensitivity(subject)
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as response:
-            body = json.loads(response.read().decode("utf-8"))
-    except urllib.error.URLError as exc:
-        raise FeederError(f"Polymarket API unreachable: {exc}") from exc
+        decision = _authorize_feeder(
+            vault, provider=request.provider, model=request.model,
+            sensitivity=sensitivity, query=request.query,
+        )
+    except EgressDenied:
+        receipt_id = generate_ulid()
+        receipt_path = _write_feeder_receipt(
+            vault, receipt_id, status="denied", source=request.source,
+            provider=request.provider, model=request.model,
+            query=request.query, subject_id=request.subject_id,
+            error="egress denied",
+        )
+        return FeederResult(status="denied", receipt_path=receipt_path)
 
-    if not isinstance(body, list):
-        return {"status": "no_results", "markets": [], "query": query}
+    receipt_id = generate_ulid()
+    try:
+        data = _safe_fetch(url)
+    except FeederError as exc:
+        _write_feeder_receipt(
+            vault, receipt_id, status="failed", source=request.source,
+            provider=request.provider, model=request.model,
+            query=request.query, subject_id=request.subject_id,
+            authorization_id=decision.authorization_id, error=str(exc),
+        )
+        raise
 
-    markets = []
-    for m in body[:limit]:
-        if not isinstance(m, dict):
-            continue
-        markets.append({
-            "title": m.get("title", ""),
-            "question": m.get("question", ""),
-            "outcome_prices": m.get("outcomePrices", []),
-            "volume": m.get("volume", 0),
-            "closed": m.get("closed", False),
-        })
+    response_sha256 = sha256_bytes(data)
+    try:
+        body = json.loads(data.decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        error = f"Polymarket returned invalid JSON: {exc}"
+        _write_feeder_receipt(
+            vault, receipt_id, status="failed", source=request.source,
+            provider=request.provider, model=request.model,
+            query=request.query, subject_id=request.subject_id,
+            authorization_id=decision.authorization_id,
+            response_sha256=response_sha256, error=error,
+        )
+        raise FeederError(error) from exc
 
-    return {"status": "ok" if markets else "no_results", "markets": markets, "query": query}
+    if not isinstance(body, list) or not body:
+        receipt_path = _write_feeder_receipt(
+            vault, receipt_id, status="empty", source=request.source,
+            provider=request.provider, model=request.model,
+            query=request.query, subject_id=request.subject_id,
+            authorization_id=decision.authorization_id,
+            response_sha256=response_sha256, items_found=0,
+        )
+        return FeederResult(status="empty", receipt_path=receipt_path)
+
+    ingest_result = _preserve_and_ingest(
+        vault, data, source_label="polymarket",
+        sensitivity=sensitivity, source_url=url,
+    )
+    source_id = ingest_result.get("source_id", "")
+    candidate_id = ingest_result.get("candidate_id", "")
+    receipt_path = _write_feeder_receipt(
+        vault, receipt_id, status="ok", source=request.source,
+        provider=request.provider, model=request.model,
+        query=request.query, subject_id=request.subject_id,
+        authorization_id=decision.authorization_id,
+        source_ids=(source_id,),
+        candidate_ids=(candidate_id,),
+        items_found=len(body),
+        response_sha256=response_sha256,
+    )
+    return FeederResult(
+        status="ok", source_ids=(source_id,), candidate_ids=(candidate_id,),
+        receipt_path=receipt_path, items_found=len(body),
+    )
 
 
-def enrich_entity_polymarket(
-    vault: Path | str,
-    query: str,
-    *,
-    subject_id: str | None = None,
-    max_claims: int = 10,
-) -> dict[str, object]:
-    """Query Polymarket and stage prediction data as claims."""
+# ---------------------------------------------------------------------------
+# Unified entry points
+# ---------------------------------------------------------------------------
+
+_COLLECTORS: dict[str, Callable[..., FeederResult]] = {
+    "gdelt": _collect_gdelt,
+    "edgar": _collect_edgar,
+    "polymarket": _collect_polymarket,
+}
+
+
+def collect_from_feeder(vault: Path | str, request: FeederRequest) -> FeederResult:
+    """Query an external API and preserve exact bytes as a source candidate.
+
+    Does NOT stage claims — that is a separate, explicit step.
+    """
     vault = Path(vault).absolute()
-    pm_result = query_polymarket(query, limit=10)
+    if not is_initialized(vault):
+        raise FeederError("vault is not initialized")
 
-    markets = pm_result.get("markets", [])
-    if not markets:
-        return {"status": "no_results", "markets_found": 0, "claims_staged": 0}
+    subject = _require_canonical_subject(vault, request.subject_id)
+    collector = _COLLECTORS.get(request.source)
+    if collector is None:
+        raise FeederError(f"unsupported source: {request.source}")
+    return collector(vault, request, subject=subject)
 
-    entity_id = subject_id or _gen_ulid()
-    staged = 0
-    now = datetime.now(UTC)
 
-    for market in markets[:max_claims]:
-        title = market.get("title", "")[:200]
-        prices = market.get("outcome_prices", [])
-        volume = market.get("volume", 0)
-        if not title:
-            continue
+def extract_from_feeder_source(
+    vault: Path | str,
+    source_id: str,
+    *,
+    subject_id: str,
+    provider: str,
+    model: str,
+    model_caller: Callable[..., object] | None = None,
+    api_key: str | None = None,
+) -> dict[str, object]:
+    """Extract claims from a promoted feeder source-item.
 
-        price_str = ", ".join(str(p) for p in prices[:3]) if prices else "no prices"
-        try:
-            stage_claim(
-                vault,
-                subject_id=entity_id,
-                predicate="prediction_market",
-                object_literal=f"{title} (prices: {price_str}, volume: {volume})",
-                source_ids=[],
-                evidence_excerpt="Polymarket market data",
-                claim_status="source-claimed",
-                confidence=0.70,
-                observed_at=now,
-            )
-            staged += 1
-        except Exception:
-            continue
+    Only call after the source candidate has been reviewed and promoted.
+    This delegates to claim_extractor for the actual extraction.
+    """
+    from .claim_extractor import extract_claims_from_source
 
-    return {
-        "status": "complete" if staged else "no_claims",
-        "markets_found": len(markets),
-        "claims_staged": staged,
-        "query": query,
-    }
+    vault = Path(vault).absolute()
+    # Verify the source item exists and is canonical
+    source_path = safe_relative_path(vault, Path("source-items") / f"{source_id}.md")
+    if not source_path.is_file() or source_path.is_symlink():
+        raise FeederError(f"canonical source item not found: {source_id}")
+
+    metadata, _ = parse_frontmatter(source_path.read_text(encoding="utf-8"))
+    source_item = SourceItem.model_validate(metadata, strict=False)
+    if source_item.id != source_id:
+        raise FeederError(f"source item ID mismatch: {source_id}")
+
+    # Find the preserved file for this source
+    manifest_path = vault / ".constellation/manifests" / f"{source_item.source_hash}.json"
+    if not manifest_path.is_file():
+        raise FeederError(f"source manifest not found for: {source_id}")
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    preserved_rel = manifest.get("text_path") or manifest.get("preserved_path")
+    if not preserved_rel:
+        raise FeederError(f"preserved file path not found in manifest: {source_id}")
+
+    source_file = safe_relative_path(vault, Path(preserved_rel))
+    if not source_file.is_file():
+        raise FeederError(f"preserved source file not found: {preserved_rel}")
+
+    return extract_claims_from_source(
+        vault,
+        source_file,
+        subject_id=subject_id,
+        source_ids=[source_id],
+        provider=provider,
+        model=model,
+        model_caller=model_caller,
+        api_key=api_key,
+    )

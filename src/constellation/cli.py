@@ -293,11 +293,23 @@ def build_parser() -> argparse.ArgumentParser:
     extract_claims.add_argument("--provider", required=True, help="Egress-policy provider name")
     extract_claims.add_argument("--model", required=True, help="Egress-policy model name")
 
-    enrich = sub.add_parser("enrich", help="Query external intelligence APIs (gdelt, edgar, polymarket)")
-    enrich.add_argument("vault", type=Path)
-    enrich.add_argument("source", choices=["gdelt", "edgar", "polymarket"])
-    enrich.add_argument("query", help="Entity name, ticker, or search query")
-    enrich.add_argument("--subject-id", help="Entity ULID to attach claims to")
+    enrich = sub.add_parser("enrich", help="Query external intelligence APIs")
+    enrich_subs = enrich.add_subparsers(dest="enrich_action", required=True)
+
+    enrich_collect = enrich_subs.add_parser("collect", help="Query an API and preserve results as a source candidate")
+    enrich_collect.add_argument("vault", type=Path)
+    enrich_collect.add_argument("source", choices=["gdelt", "edgar", "polymarket"])
+    enrich_collect.add_argument("query", help="Entity name, ticker, or search query")
+    enrich_collect.add_argument("--subject-id", required=True, help="Entity ULID")
+    enrich_collect.add_argument("--provider", required=True, help="Egress-policy provider name")
+    enrich_collect.add_argument("--model", required=True, help="Egress-policy model name")
+
+    enrich_extract = enrich_subs.add_parser("extract", help="Extract claims from a promoted feeder source-item")
+    enrich_extract.add_argument("vault", type=Path)
+    enrich_extract.add_argument("source_id", help="Promoted source-item ULID")
+    enrich_extract.add_argument("--subject-id", required=True, help="Entity ULID")
+    enrich_extract.add_argument("--provider", required=True, help="Egress-policy provider name")
+    enrich_extract.add_argument("--model", required=True, help="Egress-policy model name")
 
     trail = sub.add_parser("trail", help="Trace full provenance chain for a decision")
     trail.add_argument("vault", type=Path)
@@ -822,17 +834,38 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
             model=str(values["model"]),
         )
     if action == "enrich":
-        from constellation.feeders import enrich_entity_gdelt, enrich_entity_edgar, enrich_entity_polymarket
+        enrich_action = str(values.get("enrich_action", ""))
+        if enrich_action == "collect":
+            from constellation.feeders import FeederRequest, collect_from_feeder
 
-        source = str(values["source"])
-        query_str = str(values["query"])
-        sid = str(values.get("subject_id") or "")
-        if source == "gdelt":
-            return enrich_entity_gdelt(vault, query_str, subject_id=sid or None)
-        elif source == "edgar":
-            return enrich_entity_edgar(vault, query_str, subject_id=sid or None)
+            req = FeederRequest(
+                source=str(values["source"]),
+                query=str(values["query"]),
+                subject_id=str(values["subject_id"]),
+                provider=str(values["provider"]),
+                model=str(values["model"]),
+            )
+            result = collect_from_feeder(vault, req)
+            return {
+                "status": result.status,
+                "source_ids": list(result.source_ids),
+                "candidate_ids": list(result.candidate_ids),
+                "receipt_path": result.receipt_path,
+                "items_found": result.items_found,
+                "error": result.error,
+            }
+        elif enrich_action == "extract":
+            from constellation.feeders import extract_from_feeder_source
+
+            return extract_from_feeder_source(
+                vault,
+                str(values["source_id"]),
+                subject_id=str(values["subject_id"]),
+                provider=str(values["provider"]),
+                model=str(values["model"]),
+            )
         else:
-            return enrich_entity_polymarket(vault, query_str, subject_id=sid or None)
+            raise ValueError(f"Unknown enrich action: {enrich_action}")
     raise ValueError(f"Unknown action: {action}")
 
 
