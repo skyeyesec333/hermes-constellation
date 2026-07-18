@@ -17,6 +17,7 @@ def _set_provider_policy(
     transport: str,
     external_enabled: bool,
     max_sensitivity: str = "restricted",
+    purposes: list[str] | None = None,
 ) -> None:
     config_path = vault / ".constellation/config.yaml"
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
@@ -28,7 +29,7 @@ def _set_provider_policy(
                 "transport": transport,
                 "max_sensitivity": max_sensitivity,
                 "models": ["fictional-model-v1"],
-                "purposes": ["stage1"],
+                "purposes": purposes or ["stage1"],
             }
         },
     }
@@ -156,3 +157,81 @@ def test_require_egress_raises_after_recording_a_denial(tmp_path: Path):
 
     ledger = vault / ".constellation/egress-ledger.jsonl"
     assert len(ledger.read_text(encoding="utf-8").splitlines()) == 1
+
+
+def test_discovery_request_can_use_request_input_hash_without_claiming_a_source(tmp_path: Path):
+    vault = tmp_path / "vault"
+    initialize_vault(vault)
+    _set_provider_policy(vault, transport="local", external_enabled=False, purposes=["research"])
+
+    decision = authorize_egress(
+        vault,
+        EgressRequest(
+            provider="test-provider",
+            model="fictional-model-v1",
+            purpose="research",
+            sensitivity="internal",
+            source_hashes=(),
+            request_input_sha256="b" * 64,
+        ),
+    )
+
+    assert decision.allowed is True
+    event = json.loads((vault / ".constellation/egress-ledger.jsonl").read_text().splitlines()[0])
+    assert event["source_hashes"] == []
+    assert event["schema_version"] == "0.2"
+    assert event["request_input_sha256"] == "b" * 64
+    assert "inquiry_input_sha256" not in event
+
+
+def test_legacy_egress_event_normalizes_inquiry_hash_for_backward_reads():
+    from constellation.egress import normalize_egress_event
+
+    legacy = {
+        "schema_version": "0.1",
+        "inquiry_input_sha256": "b" * 64,
+        "source_hashes": [],
+    }
+
+    normalized = normalize_egress_event(legacy)
+
+    assert normalized["request_input_sha256"] == "b" * 64
+    assert normalized["schema_version"] == "0.1"
+
+
+def test_localhost_proxy_with_external_data_egress_requires_global_opt_in(tmp_path: Path):
+    """A SearXNG-like proxy: runs locally but sends queries to external engines
+    → requires external_enabled=true regardless of service_location."""
+    vault = tmp_path / "vault"
+    initialize_vault(vault)
+
+    config_path = vault / ".constellation/config.yaml"
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    config["egress"] = {
+        "external_enabled": False,
+        "providers": {
+            "searxng": {
+                "enabled": True,
+                "service_location": "local",
+                "data_egress": "external",
+                "max_sensitivity": "internal",
+                "models": ["searxng-local"],
+                "purposes": ["research"],
+            }
+        },
+    }
+    config_path.write_text(yaml.safe_dump(config, sort_keys=True), encoding="utf-8")
+
+    denied = authorize_egress(
+        vault,
+        EgressRequest(
+            provider="searxng",
+            model="searxng-local",
+            purpose="research",
+            sensitivity="internal",
+            request_input_sha256="b" * 64,
+        ),
+    )
+
+    assert denied.allowed is False
+    assert denied.reason == "external_egress_disabled"

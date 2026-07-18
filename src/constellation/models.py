@@ -384,4 +384,26 @@ class ResearchRun(BaseRecord):
         return self
 
 
-RECORD_MODELS = (BaseRecord, SourceItem, EntityRecord, RelationshipRecord, Claim, Interaction, Decision, Inquiry, SearchResult, Opportunity, CandidatePatch, ResearchRun)
+class Analysis(BaseRecord):
+    """Strategic analysis artifact — output from a framework run."""
+    type: Literal["analysis"] = "analysis"  # pyright: ignore[reportIncompatibleVariableOverride]
+    framework: Annotated[str, Field(min_length=1, max_length=100)]
+    entity_id: Ulid
+    agent_profile: str = ""
+    supporting_claims: list[Ulid] = Field(default_factory=list)
+    research_inquiries_spawned: list[Ulid] = Field(default_factory=list)
+    chain_position: int | None = None
+    chain_id: Ulid | None = None
+    confidence: str = "medium"  # low, medium, high
+    operator_reviewed: bool = False
+    version: int = 1
+
+    @field_validator("confidence")
+    @classmethod
+    def require_valid_confidence(cls, value: str) -> str:
+        if value not in {"low", "medium", "high"}:
+            raise ValueError("confidence must be low, medium, or high")
+        return value
+
+
+RECORD_MODELS = (BaseRecord, SourceItem, EntityRecord, RelationshipRecord, Claim, Interaction, Decision, Inquiry, SearchResult, Opportunity, CandidatePatch, ResearchRun, Analysis)

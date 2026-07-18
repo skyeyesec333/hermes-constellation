@@ -5,8 +5,21 @@ from __future__ import annotations
 import argparse
 import json
 from dataclasses import asdict
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Sequence
+
+
+def _parse_aware_timestamp(value: object | None, option: str) -> datetime | None:
+    if value is None:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(f"{option} must be an ISO-8601 timestamp") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError(f"{option} must include a timezone")
+    return parsed
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -174,6 +187,7 @@ def build_parser() -> argparse.ArgumentParser:
     interaction.add_argument("--summary", help="What happened")
     interaction.add_argument("--follow-ups", nargs="+", help="Follow-up items")
     interaction.add_argument("--source-ids", nargs="+", help="ULIDs of evidence sources")
+    interaction.add_argument("--occurred-at", help="ISO-8601 timestamp from source evidence")
     interaction.add_argument("--location", help="Where it occurred")
     interaction.add_argument("--limit", type=int, default=50, help="Max to list")
 
@@ -187,6 +201,7 @@ def build_parser() -> argparse.ArgumentParser:
     decision.add_argument("--assumptions", nargs="+", help="What was assumed")
     decision.add_argument("--owner", help="Who owns this decision")
     decision.add_argument("--source-ids", nargs="+", help="ULIDs of evidence sources")
+    decision.add_argument("--decided-at", help="ISO-8601 timestamp from source evidence")
     decision.add_argument("--limit", type=int, default=50, help="Max to list")
 
     inquiry = sub.add_parser("inquiry", help="Stage or list research inquiries")
@@ -202,7 +217,7 @@ def build_parser() -> argparse.ArgumentParser:
     inquiry.add_argument("--max-searches", type=int, default=5, help="Max search queries")
     inquiry.add_argument("--max-sources", type=int, default=10, help="Max unique sources")
     inquiry.add_argument("--max-model-calls", type=int, default=3, help="Max LLM calls")
-    inquiry.add_argument("--synthesis-reserve", type=int, default=25, help="Reserve % for synthesis (0-50)")
+    inquiry.add_argument("--synthesis-reserve", type=int, default=25, help="Reserve percent for synthesis (0-50)")
     inquiry.add_argument("--stop-conditions", nargs="+", help="When to stop")
     inquiry.add_argument("--sensitivity", default="internal",
                          choices=["public", "internal", "confidential", "restricted"])
@@ -253,6 +268,38 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Confirmed per-card todos to attach to the Project Manager task (only after Bryan finalizes the list)",
     )
+
+    prep = sub.add_parser("prep", help="Compile a one-page operator brief for an entity")
+    prep.add_argument("vault", type=Path)
+    prep.add_argument("entity_id", help="Canonical entity ULID")
+
+    decay = sub.add_parser("decay", help="Detect aging contacts needing follow-up")
+    decay.add_argument("vault", type=Path)
+    decay.add_argument("--threshold", type=int, default=14, help="Stale threshold in days")
+
+    patterns = sub.add_parser("patterns", help="Detect cross-entity claim graph clusters")
+    patterns.add_argument("vault", type=Path)
+    patterns.add_argument("--min-cluster", type=int, default=2, help="Minimum entities per cluster")
+
+    search_books = sub.add_parser("search-books", help="Semantic search across ingested books")
+    search_books.add_argument("vault", type=Path)
+    search_books.add_argument("query", help="Natural language query")
+    search_books.add_argument("--limit", type=int, default=5, help="Max results")
+
+    extract_claims = sub.add_parser("extract-claims", help="Auto-extract claims from preserved sources via LLM")
+    extract_claims.add_argument("vault", type=Path)
+    extract_claims.add_argument("run_id", help="Research run ID to extract from")
+    extract_claims.add_argument("--subject-id", required=True, help="Entity ULID the claims are about")
+
+    enrich = sub.add_parser("enrich", help="Query external intelligence APIs (gdelt, edgar, polymarket)")
+    enrich.add_argument("vault", type=Path)
+    enrich.add_argument("source", choices=["gdelt", "edgar", "polymarket"])
+    enrich.add_argument("query", help="Entity name, ticker, or search query")
+    enrich.add_argument("--subject-id", help="Entity ULID to attach claims to")
+
+    trail = sub.add_parser("trail", help="Trace full provenance chain for a decision")
+    trail.add_argument("vault", type=Path)
+    trail.add_argument("decision_id", help="Canonical decision ULID")
 
     migrate = sub.add_parser("migrate-plan", help="Inventory a legacy vault without writing")
     migrate.add_argument("vault", type=Path)
@@ -467,7 +514,7 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
     if action == "interaction":
         from datetime import datetime as dt
 
-        from constellation.models import Interaction
+        from constellation.models import Interaction, InteractionType
         from constellation.models import Sensitivity as _Sensitivity
         from constellation.storage import atomic_write_text as _atomic_write, safe_relative_path as _safe_rel
 
@@ -479,12 +526,13 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
             raise ValueError("--subject-ids is required for interaction stage")
         source_ids = values.get("source_ids") or []
         participants = values.get("participants") or []
+        now = dt.now().astimezone()
         interaction_obj = Interaction(
             type="interaction",
             title=f"interaction-{subject_ids[0][:8]}",
             status="review-required",
             sensitivity=_Sensitivity.INTERNAL,
-            interaction_type=values.get("interaction_type", "meeting"),
+            interaction_type=InteractionType(str(values.get("interaction_type", "meeting"))),
             subject_ids=[str(s) for s in subject_ids],
             participants=[str(p) for p in participants],
             channel=values.get("channel", "in-person"),
@@ -492,9 +540,9 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
             follow_ups=list(values.get("follow_ups") or []),
             source_ids=[str(s) for s in source_ids],
             location=values.get("location"),
-            occurred_at=dt.now().astimezone(),
-            created_at=dt.now().astimezone(),
-            updated_at=dt.now().astimezone(),
+            occurred_at=_parse_aware_timestamp(values.get("occurred_at"), "--occurred-at"),
+            created_at=now,
+            updated_at=now,
         )
         candidate_path = _safe_rel(vault, Path(".constellation/candidates") / f"interaction-{interaction_obj.id}.json")
         _atomic_write(vault, candidate_path.relative_to(vault), interaction_obj.model_dump_json(indent=2) + "\n")
@@ -514,6 +562,7 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
         if not subject_id or not decision_text_val:
             raise ValueError("--subject-id and --decision are required for decision stage")
         source_ids = values.get("source_ids") or []
+        now = dt.now().astimezone()
         decision_obj = Decision(
             type="decision",
             title=f"decision-{subject_id[:8]}",
@@ -526,9 +575,9 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
             assumptions=list(values.get("assumptions") or []),
             owner=values.get("owner"),
             source_ids=[str(s) for s in source_ids],
-            decided_at=dt.now().astimezone(),
-            created_at=dt.now().astimezone(),
-            updated_at=dt.now().astimezone(),
+            decided_at=_parse_aware_timestamp(values.get("decided_at"), "--decided-at"),
+            created_at=now,
+            updated_at=now,
         )
         candidate_path = _sr2(vault, Path(".constellation/candidates") / f"decision-{decision_obj.id}.json")
         _awt2(vault, candidate_path.relative_to(vault), decision_obj.model_dump_json(indent=2) + "\n")
@@ -609,11 +658,12 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
     if action == "opportunity":
         from datetime import datetime as dt
 
-        from constellation.models import Opportunity, Sensitivity as _Sens4
+        from constellation.models import Opportunity, OpportunityStage as _OppStage, Sensitivity as _Sens4
 
         if values.get("action") == "list":
-            from constellation.review import list_candidates as list_opportunities
-            return list_opportunities(vault)
+            from constellation.review import list_candidates as _list_all
+            all_candidates = _list_all(vault)
+            return [c for c in all_candidates if isinstance(c, dict) and c.get("kind") == "opportunity_candidate"]
         subject_ids = values.get("subject_ids") or []
         if not subject_ids:
             raise ValueError("--subject-ids is required for opportunity stage")
@@ -627,7 +677,7 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
             status="review-required",
             sensitivity=_Sens4.INTERNAL,
             subject_ids=[str(s) for s in subject_ids],
-            stage=values.get("stage", "test"),
+            stage=_OppStage(values.get("stage", "test")),
             probability=values.get("probability"),
             expected_value=values.get("expected_value"),
             next_action=values.get("next_action") or "",
@@ -642,7 +692,23 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
         from constellation.storage import atomic_write_text as _awt4, safe_relative_path as _sr4
         candidate_path = _sr4(vault, Path(".constellation/candidates") / f"opportunity-{opp.id}.json")
         _awt4(vault, candidate_path.relative_to(vault), opp.model_dump_json(indent=2) + "\n")
-        return {"status": "staged", "opportunity_id": opp.id, "candidate_path": candidate_path.relative_to(vault).as_posix()}
+        # Create PM kanban card
+        kanban_result = None
+        try:
+            from constellation.project_manager import opportunity_to_kanban
+            kanban_result = opportunity_to_kanban(
+                vault,
+                opportunity_id=opp.id,
+                opportunity_title=f"opportunity-{subject_ids[0][:8]}",
+                entity_name=f"Entity {subject_ids[0][:8]}",
+                stage=str(values.get("stage", "test")),
+                probability=values.get("probability"),
+                expected_value=values.get("expected_value"),
+                next_action=values.get("next_action") or "",
+            )
+        except Exception:
+            pass
+        return {"status": "staged", "opportunity_id": opp.id, "candidate_path": candidate_path.relative_to(vault).as_posix(), "kanban_task_path": kanban_result["task_path"] if kanban_result else None}
     if action == "research":
         from constellation.research import research_command
 
@@ -723,6 +789,42 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
 
         dry_run = bool(values.get("dry_run", True))
         return execute_entity_migration(vault, dry_run=dry_run)
+    if action == "prep":
+        from constellation.prep import compile_prep
+
+        return compile_prep(vault, str(values["entity_id"]))
+    if action == "decay":
+        from constellation.decay import detect_decay
+
+        return detect_decay(vault, threshold_days=int(values.get("threshold", 14)))
+    if action == "patterns":
+        from constellation.patterns import detect_patterns
+
+        return detect_patterns(vault, min_cluster_size=int(values.get("min_cluster", 2)))
+    if action == "trail":
+        from constellation.trail import trace_decision
+
+        return trace_decision(vault, str(values["decision_id"]))
+    if action == "search-books":
+        from constellation.book_intelligence import search_books
+
+        return search_books(vault, str(values["query"]), n_results=int(values.get("limit", 5)))
+    if action == "extract-claims":
+        from constellation.claim_extractor import extract_claims_from_run
+
+        return extract_claims_from_run(vault, str(values["run_id"]), subject_id=str(values["subject_id"]))
+    if action == "enrich":
+        from constellation.feeders import enrich_entity_gdelt, enrich_entity_edgar, enrich_entity_polymarket
+
+        source = str(values["source"])
+        query_str = str(values["query"])
+        sid = str(values.get("subject_id") or "")
+        if source == "gdelt":
+            return enrich_entity_gdelt(vault, query_str, subject_id=sid or None)
+        elif source == "edgar":
+            return enrich_entity_edgar(vault, query_str, subject_id=sid or None)
+        else:
+            return enrich_entity_polymarket(vault, query_str, subject_id=sid or None)
     raise ValueError(f"Unknown action: {action}")
 
 

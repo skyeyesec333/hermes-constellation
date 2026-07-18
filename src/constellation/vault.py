@@ -22,6 +22,7 @@ STARTER_FOLDERS = (
     Path("decisions"),
     Path("inquiries"),
     Path("opportunities"),
+    Path("analyses"),
     Path(".constellation/manifests"),
     Path(".constellation/candidates"),
     Path(".constellation/state"),

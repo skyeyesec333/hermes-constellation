@@ -410,6 +410,28 @@ def test_rehearsal_writes_only_to_disposable_destination_and_preserves_every_inp
     assert (destination / "migration-journal.private.json").is_file()
 
 
+def test_rehearsal_journal_records_exact_preserved_backup_hashes_and_byte_lengths(tmp_path):
+    root = tmp_path / "vault"
+    (root / "people").mkdir(parents=True)
+    original = _legacy_record("Alex", "person", "internal", "legacy-person")
+    (root / "people/alex.md").write_text(original, encoding="utf-8")
+    destination = tmp_path / "rehearsal"
+
+    rehearse_migration(root, destination, confirm_disposable=True)
+
+    journal = json.loads((destination / "migration-journal.private.json").read_text(encoding="utf-8"))
+    entry = journal["entries"][0]
+    source_bytes = original.encode("utf-8")
+    source_hash = hashlib.sha256(source_bytes).hexdigest()
+    assert entry["source_path"] == "people/alex.md"
+    assert entry["source_hash"] == source_hash
+    assert entry["source_bytes"] == len(source_bytes)
+    assert entry["preserved_path"] == "preserved/people/alex.md"
+    assert entry["preserved_hash"] == source_hash
+    assert entry["preserved_bytes"] == len(source_bytes)
+    assert (destination / entry["preserved_path"]).read_bytes() == source_bytes
+
+
 def test_rehearsal_materializes_repairable_entity_without_body_changes(tmp_path):
     root = tmp_path / "vault"
     (root / "companies").mkdir(parents=True)

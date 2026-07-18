@@ -587,6 +587,172 @@ def _image_extraction(data: bytes, suffix: str) -> ExtractedSource:
         raise IngestError("image OCR extraction failed") from exc
 
 
+def _epub_extraction(data: bytes) -> ExtractedSource:
+    """Extract text from an EPUB book, preserving chapter structure."""
+    if importlib.util.find_spec("zipfile") is None:
+        raise CapabilityError("EPUB extraction requires zipfile (stdlib)")
+    import xml.etree.ElementTree as ET
+    import re as _re
+    import zipfile as _zipfile
+    from io import BytesIO
+
+    try:
+        archive = _zipfile.ZipFile(BytesIO(data))
+    except _zipfile.BadZipFile as exc:
+        raise IngestError("EPUB source is not a valid ZIP archive") from exc
+
+    # Find the container manifest
+    try:
+        container_xml = archive.read("META-INF/container.xml")
+    except KeyError as exc:
+        raise IngestError("EPUB is missing META-INF/container.xml") from exc
+
+    try:
+        root = ET.fromstring(container_xml)
+    except ET.ParseError as exc:
+        raise IngestError("EPUB container.xml is not valid XML") from exc
+
+    # Find OPF rootfile
+    ns = {"c": "urn:oasis:names:tc:opendocument:xmlns:container"}
+    rootfile_elem = root.find(".//c:rootfile", ns)
+    if rootfile_elem is None:
+        raise IngestError("EPUB container.xml has no rootfile element")
+    opf_path = str(rootfile_elem.get("full-path", ""))
+
+    # Parse OPF to get spine (reading order)
+    try:
+        opf_xml = archive.read(opf_path)
+    except KeyError as exc:
+        raise IngestError(f"EPUB OPF file not found: {opf_path}") from exc
+
+    try:
+        opf = ET.fromstring(opf_xml)
+    except ET.ParseError as exc:
+        raise IngestError("EPUB OPF is not valid XML") from exc
+
+    opf_ns = {"opf": "http://www.idpf.org/2007/opf", "dc": "http://purl.org/dc/elements/1.1/"}
+
+    # Get title
+    title_elem = opf.find(".//dc:title", opf_ns)
+    title = str(title_elem.text) if title_elem is not None and title_elem.text else "Untitled"
+
+    # Get reading order from spine
+    chapters: list[str] = []
+    units: list[dict[str, object]] = []
+    chapter_index = 0
+
+    for itemref in opf.findall(".//opf:spine/opf:itemref", opf_ns):
+        idref = str(itemref.get("idref", ""))
+        # Find the manifest item
+        manifest_item = opf.find(f'.//opf:manifest/opf:item[@id="{idref}"]', opf_ns)
+        if manifest_item is None:
+            continue
+        href = str(manifest_item.get("href", ""))
+        # Resolve relative to OPF path
+        opf_dir = "/".join(opf_path.split("/")[:-1])
+        full_href = f"{opf_dir}/{href}" if opf_dir else href
+
+        try:
+            chapter_xml = archive.read(full_href)
+        except KeyError:
+            continue
+
+        # Strip HTML tags
+        text = _re.sub(r"<head[^>]*>.*?</head>", "", str(chapter_xml.decode("utf-8", errors="replace")), flags=_re.DOTALL | _re.IGNORECASE)
+        text = _re.sub(r"<script[^>]*>.*?</script>", "", text, flags=_re.DOTALL | _re.IGNORECASE)
+        text = _re.sub(r"<style[^>]*>.*?</style>", "", text, flags=_re.DOTALL | _re.IGNORECASE)
+        text = _re.sub(r"<[^>]+>", " ", text)
+        text = _re.sub(r"\s+", " ", text).strip()
+
+        if text:
+            chapter_index += 1
+            anchor = f"CH{chapter_index:04d}"
+            chapters.append(f"[{anchor}] {text}")
+            units.append({
+                "kind": "chapter",
+                "index": chapter_index,
+                "status": "extracted",
+                "anchor": anchor,
+                "href": href,
+                "characters": len(text),
+                "text_sha256": sha256_bytes(text.encode("utf-8")),
+            })
+
+    if not chapters:
+        raise IngestError("EPUB contains no extractable text")
+
+    text = "\n\n".join(chapters) + "\n"
+    if len(text) > MAX_EXTRACTED_CHARS:
+        raise IngestError("extracted text exceeds the configured size limit")
+
+    return ExtractedSource(
+        data=data,
+        text=text,
+        media_type="application/epub+zip",
+        extraction={
+            "schema_version": "0.1",
+            "status": "complete",
+            "engine": {
+                "name": "python-epub",
+                "version": platform.python_version(),
+                "options": {"method": "zipfile+xml+xpath"},
+            },
+            "source_sha256": sha256_bytes(data),
+            "extracted_text_sha256": sha256_bytes(text.encode("utf-8")),
+            "characters": len(text),
+            "expected_units": len(units),
+            "extracted_units": len(units),
+            "blank_units": 0,
+            "failed_units": 0,
+            "truncated_units": 0,
+            "warnings": [],
+            "title": title,
+            "units": units,
+        },
+    )
+
+
+def _mobi_extraction(data: bytes) -> ExtractedSource:
+    """Extract text from a MOBI book via Calibre conversion to EPUB."""
+    import subprocess
+    import tempfile
+
+    # Check Calibre availability
+    if importlib.util.find_spec("shutil") is None:
+        raise CapabilityError("MOBI extraction requires stdlib")
+
+    calibre_check = subprocess.run(
+        ["which", "ebook-convert"], capture_output=True, text=True
+    )
+    if calibre_check.returncode != 0:
+        raise CapabilityError(
+            "MOBI extraction requires Calibre (ebook-convert not found on PATH). "
+            "Install with: sudo apt install calibre"
+        )
+
+    with tempfile.NamedTemporaryFile(suffix=".mobi", delete=False) as mobi_tmp:
+        mobi_tmp.write(data)
+        mobi_path = mobi_tmp.name
+
+    epub_path = mobi_path + ".epub"
+
+    try:
+        result = subprocess.run(
+            ["ebook-convert", mobi_path, epub_path],
+            capture_output=True, text=True, timeout=120,
+        )
+        if result.returncode != 0:
+            raise IngestError(f"MOBI conversion failed: {result.stderr[:200]}")
+
+        epub_data = Path(epub_path).read_bytes()
+        return _epub_extraction(epub_data)
+    except subprocess.TimeoutExpired as exc:
+        raise IngestError("MOBI conversion timed out") from exc
+    finally:
+        Path(mobi_path).unlink(missing_ok=True)
+        Path(epub_path).unlink(missing_ok=True)
+
+
 def _pdf_extraction(data: bytes) -> ExtractedSource:
     if importlib.util.find_spec("fitz") is None:
         raise CapabilityError("PDF extraction requires the optional PyMuPDF capability")
@@ -803,6 +969,10 @@ def _read_source(path: Path) -> ExtractedSource:
         if not detected_media_type.startswith("image/"):
             raise IngestError("file extension and detected image media type do not match")
         extracted = _image_extraction(data, suffix)
+    elif suffix == ".epub":
+        extracted = _epub_extraction(data)
+    elif suffix == ".mobi":
+        extracted = _mobi_extraction(data)
     else:
         guessed, _ = mimetypes.guess_type(path.name)
         raise IngestError(f"unsupported source type: {guessed or suffix or 'unknown'}")

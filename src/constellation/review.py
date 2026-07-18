@@ -9,8 +9,8 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from .frontmatter import parse_frontmatter
-from .models import CandidatePatch
+from .frontmatter import parse_frontmatter, render_frontmatter
+from .models import CandidatePatch, Claim, Decision, Inquiry, Interaction, Opportunity
 from .storage import ConflictError, atomic_write_text, safe_relative_path, sha256_file
 from .validation import CanonicalValidationError, validate_canonical_text
 from .vault import is_initialized
@@ -74,6 +74,230 @@ def _ingest_candidate_summary(
     }
 
 
+def _claim_candidate_summary(path: Path, payload: dict[str, object]) -> dict[str, object]:
+    try:
+        claim = Claim.model_validate_json(json.dumps(payload))
+    except ValidationError as exc:
+        raise PromotionError("claim candidate packet is invalid") from exc
+    if path.stem != f"claim-{claim.id}":
+        raise PromotionError("claim candidate filename does not match claim id")
+    return {
+        "id": path.stem,
+        "kind": "claim_candidate",
+        "title": f"Review claim: {claim.title}",
+        "target_path": f"claims/{claim.id}.md",
+        "expected_base_hash": None,
+        "promotable": True,
+    }
+
+
+def _claim_candidate_content(claim: Claim) -> str:
+    body = f"# {claim.title}\n"
+    if claim.evidence_excerpt:
+        body += f"\n{claim.evidence_excerpt}\n"
+    return render_frontmatter(claim.model_dump(mode="json", exclude_none=True), body)
+
+
+def _interaction_candidate_summary(path: Path, payload: dict[str, object]) -> dict[str, object]:
+    try:
+        interaction = Interaction.model_validate_json(json.dumps(payload))
+    except ValidationError as exc:
+        raise PromotionError("interaction candidate packet is invalid") from exc
+    if path.stem != f"interaction-{interaction.id}":
+        raise PromotionError("interaction candidate filename does not match interaction id")
+    return {
+        "id": path.stem,
+        "kind": "interaction_candidate",
+        "title": f"Review interaction: {interaction.title}",
+        "target_path": f"interactions/{interaction.id}.md",
+        "expected_base_hash": None,
+        "promotable": True,
+    }
+
+
+def _interaction_candidate_content(interaction: Interaction) -> str:
+    return render_frontmatter(
+        interaction.model_dump(mode="json", exclude_none=True),
+        f"# {interaction.title}\n\n{interaction.summary}\n",
+    )
+
+
+def _decision_candidate_summary(path: Path, payload: dict[str, object]) -> dict[str, object]:
+    try:
+        decision = Decision.model_validate_json(json.dumps(payload))
+    except ValidationError as exc:
+        raise PromotionError("decision candidate packet is invalid") from exc
+    if path.stem != f"decision-{decision.id}":
+        raise PromotionError("decision candidate filename does not match decision id")
+    return {
+        "id": path.stem,
+        "kind": "decision_candidate",
+        "title": f"Review decision: {decision.title}",
+        "target_path": f"decisions/{decision.id}.md",
+        "expected_base_hash": None,
+        "promotable": True,
+    }
+
+
+def _decision_candidate_content(decision: Decision) -> str:
+    body = f"# {decision.title}\n\n{decision.decision}\n"
+    if decision.rationale:
+        body += f"\nRationale: {decision.rationale}\n"
+    return render_frontmatter(decision.model_dump(mode="json", exclude_none=True), body)
+
+
+def _inquiry_candidate_summary(path: Path, payload: dict[str, object]) -> dict[str, object]:
+    try:
+        inquiry = Inquiry.model_validate_json(json.dumps(payload))
+    except ValidationError as exc:
+        raise PromotionError("inquiry candidate packet is invalid") from exc
+    if path.stem != f"inquiry-{inquiry.id}":
+        raise PromotionError("inquiry candidate filename does not match inquiry id")
+    return {
+        "id": path.stem,
+        "kind": "inquiry_candidate",
+        "title": f"Review inquiry: {inquiry.title}",
+        "target_path": f"inquiries/{inquiry.id}.md",
+        "expected_base_hash": None,
+        "promotable": True,
+    }
+
+
+def _inquiry_candidate_content(inquiry: Inquiry) -> str:
+    lines = [
+        f"# {inquiry.title}",
+        "",
+        f"**Question:** {inquiry.question}",
+        "",
+    ]
+    if inquiry.why_it_matters:
+        lines.append(f"**Why it matters:** {inquiry.why_it_matters}")
+        lines.append("")
+    if inquiry.target_scope:
+        lines.append(f"**Scope:** {inquiry.target_scope}")
+        lines.append("")
+    if inquiry.evidence_needed:
+        lines.append(f"**Evidence needed:** {inquiry.evidence_needed}")
+        lines.append("")
+    body = "\n".join(lines) + "\n"
+    return render_frontmatter(inquiry.model_dump(mode="json", exclude_none=True), body)
+
+
+def _promote_inquiry_candidate(
+    root: Path,
+    candidate_path: Path,
+    payload: dict[str, object],
+    expected_base_hash: str | None,
+) -> dict[str, str]:
+    summary = _inquiry_candidate_summary(candidate_path, payload)
+    if expected_base_hash is not None:
+        raise PromotionError("inquiry candidate must be promoted as a create-only record")
+    try:
+        inquiry = Inquiry.model_validate_json(json.dumps(payload))
+    except ValidationError as exc:
+        raise PromotionError("inquiry candidate packet is invalid") from exc
+    target_path = str(summary["target_path"])
+    target = safe_relative_path(root, target_path)
+    if target.exists():
+        raise PromotionError("inquiry target already exists")
+    content = _inquiry_candidate_content(inquiry)
+    try:
+        validate_canonical_text(content, target_path)
+        atomic_write_text(root, target_path, content)
+    except (CanonicalValidationError, ConflictError) as exc:
+        raise PromotionError("inquiry candidate promotion failed") from exc
+    _append_action(
+        root,
+        {
+            "schema_version": "0.1",
+            "action": "candidate_promoted",
+            "candidate_id": candidate_path.stem,
+            "target_path": target_path,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "result_hash": sha256_file(target),
+        },
+    )
+    candidate_path.unlink()
+    return _rebuild_index_after_write(
+        root,
+        {"schema_version": "0.1", "status": "promoted", "target_path": target_path},
+    )
+
+
+def _opportunity_candidate_summary(path: Path, payload: dict[str, object]) -> dict[str, object]:
+    try:
+        opportunity = Opportunity.model_validate_json(json.dumps(payload))
+    except ValidationError as exc:
+        raise PromotionError("opportunity candidate packet is invalid") from exc
+    if path.stem != f"opportunity-{opportunity.id}":
+        raise PromotionError("opportunity candidate filename does not match opportunity id")
+    return {
+        "id": path.stem,
+        "kind": "opportunity_candidate",
+        "title": f"Review opportunity: {opportunity.title}",
+        "target_path": f"opportunities/{opportunity.id}.md",
+        "expected_base_hash": None,
+        "promotable": True,
+    }
+
+
+def _opportunity_candidate_content(opportunity: Opportunity) -> str:
+    lines = [f"# {opportunity.title}", ""]
+    if opportunity.next_action:
+        lines.append(f"**Next action:** {opportunity.next_action}")
+        lines.append("")
+    if opportunity.expected_value:
+        lines.append(f"**Expected value:** {opportunity.expected_value}")
+        lines.append("")
+    if opportunity.probability is not None:
+        lines.append(f"**Probability:** {opportunity.probability:.0%}")
+        lines.append("")
+    lines.append(f"**Stage:** {opportunity.stage.value}")
+    body = "\n".join(lines) + "\n"
+    return render_frontmatter(opportunity.model_dump(mode="json", exclude_none=True), body)
+
+
+def _promote_opportunity_candidate(
+    root: Path,
+    candidate_path: Path,
+    payload: dict[str, object],
+    expected_base_hash: str | None,
+) -> dict[str, str]:
+    summary = _opportunity_candidate_summary(candidate_path, payload)
+    if expected_base_hash is not None:
+        raise PromotionError("opportunity candidate must be promoted as a create-only record")
+    try:
+        opportunity = Opportunity.model_validate_json(json.dumps(payload))
+    except ValidationError as exc:
+        raise PromotionError("opportunity candidate packet is invalid") from exc
+    target_path = str(summary["target_path"])
+    target = safe_relative_path(root, target_path)
+    if target.exists():
+        raise PromotionError("opportunity target already exists")
+    content = _opportunity_candidate_content(opportunity)
+    try:
+        validate_canonical_text(content, target_path)
+        atomic_write_text(root, target_path, content)
+    except (CanonicalValidationError, ConflictError) as exc:
+        raise PromotionError("opportunity candidate promotion failed") from exc
+    _append_action(
+        root,
+        {
+            "schema_version": "0.1",
+            "action": "candidate_promoted",
+            "candidate_id": candidate_path.stem,
+            "target_path": target_path,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "result_hash": sha256_file(target),
+        },
+    )
+    candidate_path.unlink()
+    return _rebuild_index_after_write(
+        root,
+        {"schema_version": "0.1", "status": "promoted", "target_path": target_path},
+    )
+
+
 def list_candidates(root: Path | str) -> list[dict[str, object]]:
     vault = Path(root).absolute()
     results: list[dict[str, object]] = []
@@ -84,6 +308,21 @@ def list_candidates(root: Path | str) -> list[dict[str, object]]:
                 continue
             if payload.get("kind") == "ingest_candidate":
                 results.append(_ingest_candidate_summary(vault, path, payload))
+                continue
+            if payload.get("type") == "claim":
+                results.append(_claim_candidate_summary(path, payload))
+                continue
+            if payload.get("type") == "interaction":
+                results.append(_interaction_candidate_summary(path, payload))
+                continue
+            if payload.get("type") == "decision":
+                results.append(_decision_candidate_summary(path, payload))
+                continue
+            if payload.get("type") == "inquiry":
+                results.append(_inquiry_candidate_summary(path, payload))
+                continue
+            if payload.get("type") == "opportunity":
+                results.append(_opportunity_candidate_summary(path, payload))
                 continue
             candidate = CandidatePatch.model_validate_json(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError, ValidationError, ValueError, PromotionError):
@@ -163,6 +402,129 @@ def _review_ingest_candidate(
     )
 
 
+def _promote_claim_candidate(
+    root: Path,
+    candidate_path: Path,
+    payload: dict[str, object],
+    expected_base_hash: str | None,
+) -> dict[str, str]:
+    summary = _claim_candidate_summary(candidate_path, payload)
+    if expected_base_hash is not None:
+        raise PromotionError("claim candidate must be promoted as a create-only record")
+    try:
+        claim = Claim.model_validate_json(json.dumps(payload))
+    except ValidationError as exc:
+        raise PromotionError("claim candidate packet is invalid") from exc
+    target_path = str(summary["target_path"])
+    target = safe_relative_path(root, target_path)
+    if target.exists():
+        raise PromotionError("claim target already exists")
+    content = _claim_candidate_content(claim)
+    try:
+        validate_canonical_text(content, target_path)
+        atomic_write_text(root, target_path, content)
+    except (CanonicalValidationError, ConflictError) as exc:
+        raise PromotionError("claim candidate promotion failed") from exc
+    _append_action(
+        root,
+        {
+            "schema_version": "0.1",
+            "action": "candidate_promoted",
+            "candidate_id": candidate_path.stem,
+            "target_path": target_path,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "result_hash": sha256_file(target),
+        },
+    )
+    candidate_path.unlink()
+    return _rebuild_index_after_write(
+        root,
+        {"schema_version": "0.1", "status": "promoted", "target_path": target_path},
+    )
+
+
+def _promote_interaction_candidate(
+    root: Path,
+    candidate_path: Path,
+    payload: dict[str, object],
+    expected_base_hash: str | None,
+) -> dict[str, str]:
+    summary = _interaction_candidate_summary(candidate_path, payload)
+    if expected_base_hash is not None:
+        raise PromotionError("interaction candidate must be promoted as a create-only record")
+    try:
+        interaction = Interaction.model_validate_json(json.dumps(payload))
+    except ValidationError as exc:
+        raise PromotionError("interaction candidate packet is invalid") from exc
+    target_path = str(summary["target_path"])
+    target = safe_relative_path(root, target_path)
+    if target.exists():
+        raise PromotionError("interaction target already exists")
+    content = _interaction_candidate_content(interaction)
+    try:
+        validate_canonical_text(content, target_path)
+        atomic_write_text(root, target_path, content)
+    except (CanonicalValidationError, ConflictError) as exc:
+        raise PromotionError("interaction candidate promotion failed") from exc
+    _append_action(
+        root,
+        {
+            "schema_version": "0.1",
+            "action": "candidate_promoted",
+            "candidate_id": candidate_path.stem,
+            "target_path": target_path,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "result_hash": sha256_file(target),
+        },
+    )
+    candidate_path.unlink()
+    return _rebuild_index_after_write(
+        root,
+        {"schema_version": "0.1", "status": "promoted", "target_path": target_path},
+    )
+
+
+def _promote_decision_candidate(
+    root: Path,
+    candidate_path: Path,
+    payload: dict[str, object],
+    expected_base_hash: str | None,
+) -> dict[str, str]:
+    summary = _decision_candidate_summary(candidate_path, payload)
+    if expected_base_hash is not None:
+        raise PromotionError("decision candidate must be promoted as a create-only record")
+    try:
+        decision = Decision.model_validate_json(json.dumps(payload))
+    except ValidationError as exc:
+        raise PromotionError("decision candidate packet is invalid") from exc
+    target_path = str(summary["target_path"])
+    target = safe_relative_path(root, target_path)
+    if target.exists():
+        raise PromotionError("decision target already exists")
+    content = _decision_candidate_content(decision)
+    try:
+        validate_canonical_text(content, target_path)
+        atomic_write_text(root, target_path, content)
+    except (CanonicalValidationError, ConflictError) as exc:
+        raise PromotionError("decision candidate promotion failed") from exc
+    _append_action(
+        root,
+        {
+            "schema_version": "0.1",
+            "action": "candidate_promoted",
+            "candidate_id": candidate_path.stem,
+            "target_path": target_path,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "result_hash": sha256_file(target),
+        },
+    )
+    candidate_path.unlink()
+    return _rebuild_index_after_write(
+        root,
+        {"schema_version": "0.1", "status": "promoted", "target_path": target_path},
+    )
+
+
 def promote_candidate(
     root: Path | str,
     candidate_id: str,
@@ -184,6 +546,16 @@ def promote_candidate(
         raise PromotionError("candidate packet is invalid") from exc
     if isinstance(payload, dict) and payload.get("kind") == "ingest_candidate":
         return _review_ingest_candidate(vault, candidate_path, payload, expected_base_hash)
+    if isinstance(payload, dict) and payload.get("type") == "claim":
+        return _promote_claim_candidate(vault, candidate_path, payload, expected_base_hash)
+    if isinstance(payload, dict) and payload.get("type") == "interaction":
+        return _promote_interaction_candidate(vault, candidate_path, payload, expected_base_hash)
+    if isinstance(payload, dict) and payload.get("type") == "decision":
+        return _promote_decision_candidate(vault, candidate_path, payload, expected_base_hash)
+    if isinstance(payload, dict) and payload.get("type") == "inquiry":
+        return _promote_inquiry_candidate(vault, candidate_path, payload, expected_base_hash)
+    if isinstance(payload, dict) and payload.get("type") == "opportunity":
+        return _promote_opportunity_candidate(vault, candidate_path, payload, expected_base_hash)
     if isinstance(payload, dict) and payload.get("kind") == "conference-encounter":
         raise PromotionError(
             "conference encounter candidates cannot be auto-promoted — "

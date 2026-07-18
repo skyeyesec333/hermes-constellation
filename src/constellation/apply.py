@@ -107,7 +107,7 @@ def _copy_operational_tree(source: Path, stage: Path, relative_root: str) -> lis
 
 def _candidate_identity_check(root: Path) -> tuple[int, bool]:
     ids: list[str] = []
-    for folder in ("entities", "source-items", "claims", "research", "interactions", "decisions", "inquiries", "opportunities"):
+    for folder in ("entities", "source-items", "claims", "research", "interactions", "decisions", "inquiries", "opportunities", "analyses"):
         base = root / folder
         if not base.exists():
             continue

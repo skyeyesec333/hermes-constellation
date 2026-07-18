@@ -575,7 +575,7 @@ def rehearse_migration(
             if source_hash != mapping["source_hash"]:
                 raise MigrationError(f"source changed during rehearsal: {relative}")
             preserved_relative = f"preserved/{relative}"
-            _write_rehearsal_file(stage, preserved_relative, data)
+            preserved_hash = _write_rehearsal_file(stage, preserved_relative, data)
 
             candidate_relative: str
             candidate_data: bytes
@@ -614,7 +614,10 @@ def rehearse_migration(
             journal_entry = {
                 "source_path": relative,
                 "source_hash": source_hash,
+                "source_bytes": len(data),
                 "preserved_path": preserved_relative,
+                "preserved_hash": preserved_hash,
+                "preserved_bytes": len(data),
                 "candidate_path": candidate_relative,
                 "candidate_hash": output_hash,
                 "disposition": disposition,

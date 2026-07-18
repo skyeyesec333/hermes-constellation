@@ -37,7 +37,8 @@ class EgressRequest:
     model: str
     purpose: Purpose
     sensitivity: Sensitivity | str
-    source_hashes: tuple[str, ...]
+    source_hashes: tuple[str, ...] = ()
+    request_input_sha256: str | None = None
 
     def __post_init__(self) -> None:
         if not self.provider.strip() or not self.model.strip():
@@ -49,11 +50,16 @@ class EgressRequest:
         except ValueError as exc:
             raise ValueError("invalid sensitivity") from exc
         object.__setattr__(self, "sensitivity", sensitivity)
-        if not self.source_hashes:
-            raise ValueError("at least one source hash is required")
+        if not self.source_hashes and self.request_input_sha256 is None:
+            raise ValueError("at least one source hash or request input hash is required")
         for digest in self.source_hashes:
             if len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
                 raise ValueError("source hashes must be lowercase SHA-256 digests")
+        if self.request_input_sha256 is not None and (
+            len(self.request_input_sha256) != 64
+            or any(char not in "0123456789abcdef" for char in self.request_input_sha256)
+        ):
+            raise ValueError("request input hash must be a lowercase SHA-256 digest")
 
     def payload(self) -> dict[str, object]:
         return {
@@ -62,6 +68,7 @@ class EgressRequest:
             "purpose": self.purpose,
             "sensitivity": Sensitivity(self.sensitivity).value,
             "source_hashes": list(self.source_hashes),
+            "request_input_sha256": self.request_input_sha256,
         }
 
 
@@ -76,6 +83,7 @@ class EgressDecision:
     transport: Transport | None
     sensitivity: str
     source_hashes: tuple[str, ...]
+    request_input_sha256: str | None
     request_sha256: str
     policy_sha256: str
     issued_at: str
@@ -83,8 +91,16 @@ class EgressDecision:
     def payload(self) -> dict[str, object]:
         value = asdict(self)
         value["source_hashes"] = list(self.source_hashes)
-        value["schema_version"] = "0.1"
+        value["schema_version"] = "0.2"
         return value
+
+
+def normalize_egress_event(payload: dict[str, object]) -> dict[str, object]:
+    """Normalize legacy ledger events without rewriting append-only history."""
+    normalized = dict(payload)
+    if "request_input_sha256" not in normalized and "inquiry_input_sha256" in normalized:
+        normalized["request_input_sha256"] = normalized["inquiry_input_sha256"]
+    return normalized
 
 
 class EgressDenied(EgressError):
@@ -141,21 +157,31 @@ def _evaluate_policy(
     ):
         return False, "policy_invalid", None
     providers = egress["providers"]
+    _EXPECTED_KEYS = {
+        "enabled",
+        "max_sensitivity",
+        "models",
+        "purposes",
+    }
     for name, settings in providers.items():
         if not isinstance(name, str) or not name or not isinstance(settings, dict):
             return False, "policy_invalid", None
-        if set(settings) != {
-            "enabled",
-            "transport",
-            "max_sensitivity",
-            "models",
-            "purposes",
-        }:
+        provider_keys = set(settings)
+        # Accept either legacy "transport" or new "service_location"+"data_egress"
+        has_legacy = provider_keys == (_EXPECTED_KEYS | {"transport"})
+        has_new = provider_keys == (_EXPECTED_KEYS | {"service_location", "data_egress"})
+        if not (has_legacy or has_new):
             return False, "policy_invalid", None
         if not isinstance(settings["enabled"], bool):
             return False, "policy_invalid", None
-        if settings["transport"] not in {"local", "external"}:
-            return False, "policy_invalid", None
+        if has_new:
+            if settings["service_location"] not in {"local", "external"}:
+                return False, "policy_invalid", None
+            if settings["data_egress"] not in {"local", "external"}:
+                return False, "policy_invalid", None
+        else:
+            if settings["transport"] not in {"local", "external"}:
+                return False, "policy_invalid", None
         if settings["max_sensitivity"] not in _SENSITIVITY_RANK:
             return False, "policy_invalid", None
         models = _string_list(settings["models"])
@@ -169,10 +195,20 @@ def _evaluate_policy(
     settings = providers.get(request.provider)
     if settings is None:
         return False, "provider_not_declared", None
-    transport = settings["transport"]
     if not settings["enabled"]:
+        transport = settings.get("transport") or settings.get("service_location")
         return False, "provider_disabled", transport
-    if transport == "external" and not egress["external_enabled"]:
+
+    # Determine whether data leaves the host
+    if "data_egress" in settings:
+        data_leaves_host = settings["data_egress"] == "external"
+        transport = settings["service_location"]
+    else:
+        # Legacy: "transport" conflated both meanings
+        data_leaves_host = settings["transport"] == "external"
+        transport = settings["transport"]
+
+    if data_leaves_host and not egress["external_enabled"]:
         return False, "external_egress_disabled", transport
     if request.model not in settings["models"]:
         return False, "model_not_allowed", transport
@@ -208,6 +244,7 @@ def authorize_egress(root: Path | str, request: EgressRequest) -> EgressDecision
         transport=transport,
         sensitivity=Sensitivity(request.sensitivity).value,
         source_hashes=request.source_hashes,
+        request_input_sha256=request.request_input_sha256,
         request_sha256=_sha256_json(request.payload()),
         policy_sha256=policy_sha256,
         issued_at=datetime.now(UTC).isoformat(),

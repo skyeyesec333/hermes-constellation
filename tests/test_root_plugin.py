@@ -33,6 +33,14 @@ def test_repository_root_is_a_loadable_filesystem_plugin():
     module.register(context)
 
     assert len(context.tools) == 5
-    assert context.commands == ["constellation"]
+    assert context.commands == [
+        "constellation",
+        "research",
+        "prep",
+        "decay",
+        "patterns",
+        "trail",
+        "searchbooks",
+    ]
     assert context.cli_commands == ["constellation"]
     assert context.skills == ["constellation"]
