@@ -208,6 +208,54 @@ def test_request_input_hash_binds_discovery_and_adapter_url():
     assert len(hashes) == 4
 
 
+def test_discovery_lanes_are_gated_and_merge_unique_urls(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    vault = tmp_path / "vault"
+    initialize_vault(vault)
+    _declare_provider(vault, "searxng", "searxng-local")
+    _declare_provider(vault, "exa", "exa-api", transport="external", external_enabled=True)
+    _declare_provider(vault, "brave", "brave-api", transport="external", external_enabled=True)
+    inquiry = _make_inquiry()
+
+    monkeypatch.setattr(
+        "constellation.research_runner.search_web",
+        lambda *_args, **_kwargs: _fake_search_results(
+            "https://research.example.test/shared/"
+        ),
+    )
+    monkeypatch.setattr(
+        "constellation.research_runner.exa_search",
+        lambda *_args, **_kwargs: _fake_search_results(
+            "https://research.example.test/shared",
+            "https://research.example.test/semantic",
+        ),
+    )
+    monkeypatch.setattr(
+        "constellation.research_runner.brave_search",
+        lambda *_args, **_kwargs: _fake_search_results(
+            "https://RESEARCH.example.test/shared/",
+            "https://research.example.test/fresh",
+        ),
+    )
+
+    result = run_inquiry(vault, inquiry, sensitivity=Sensitivity.PUBLIC)
+
+    assert result["search_results_returned"] == 3
+    events = [
+        json.loads(line)
+        for line in (vault / ".constellation/egress-ledger.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    allowed_discovery = {
+        event["provider"]
+        for event in events
+        if event["allowed"] and event["provider"] in {"searxng", "exa", "brave"}
+    }
+    assert allowed_discovery == {"searxng", "exa", "brave"}
+
+
 def test_relevance_matching_uses_whole_tokens_not_name_substrings():
     question = "What is Hajime Eda's current role at Toshiba and battery mandate?"
 

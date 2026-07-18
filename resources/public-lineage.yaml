@@ -397,6 +397,8 @@ files:
     lineage: handwritten-generic
   tests/test_research_runner.py:
     lineage: handwritten-generic
+  tests/test_search_adapter.py:
+    lineage: handwritten-generic
   tests/test_retrieval.py:
     lineage: handwritten-generic
   tests/test_review.py:

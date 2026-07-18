@@ -4,11 +4,14 @@ Reports configured engine/provider state, last-known-good time, transitions
 (degraded→healthy, healthy→degraded), and recovery hints.  Stores disposable
 state under .constellation/state/.  A failed probe means degradation, not
 that external evidence is absent.
+
+Probes: ChromaDB, SearXNG, EXA, Brave API, egress config.
 """
 
 from __future__ import annotations
 
 import json
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -55,8 +58,8 @@ def _transition(current: str, previous: str) -> str | None:
 def probe_research_health(vault: Path | str) -> dict[str, object]:
     """Run local health probes and report state.
 
-    Probes check: ChromaDB availability, SearXNG connectivity (localhost),
-    search engine configuration state.  Never sends inquiry content externally.
+    Probes check ChromaDB, local SearXNG, optional EXA/Brave key presence,
+    and egress configuration. Never sends inquiry content externally.
     """
     vault = Path(vault).absolute()
     if not is_initialized(vault):
@@ -102,7 +105,25 @@ def probe_research_health(vault: Path | str) -> dict[str, object]:
         probes["searxng"] = {"available": False, "error": str(exc)}
         degraded = True
 
-    # Probe 3: Egress config presence
+    # Probe 3: EXA API key presence
+    exa_key = os.environ.get("EXA_API_KEY", "")
+    probes["exa"] = {
+        "configured": bool(exa_key),
+        "note": "semantic search — CAPTCHA-immune, meaning-matching"
+        if exa_key
+        else "set EXA_API_KEY to enable semantic search",
+    }
+
+    # Probe 4: Brave API key presence
+    brave_key = os.environ.get("BRAVE_API_KEY", "")
+    probes["brave_api"] = {
+        "configured": bool(brave_key),
+        "note": "independent search lane with freshness filter"
+        if brave_key
+        else "set BRAVE_API_KEY to enable time-sensitive search",
+    }
+
+    # Probe 5: Egress config presence
     try:
         import yaml
         from .vault import CONFIG_RELATIVE
@@ -157,6 +178,12 @@ def _recovery_hints(probes: dict[str, object]) -> list[str]:
     searxng = probes.get("searxng", {})
     if isinstance(searxng, dict) and not searxng.get("available"):
         hints.append("Start SearXNG: docker start searxng or check port 8088")
+    exa = probes.get("exa", {})
+    if isinstance(exa, dict) and not exa.get("configured"):
+        hints.append("Set EXA_API_KEY for semantic search (CAPTCHA-immune)")
+    brave = probes.get("brave_api", {})
+    if isinstance(brave, dict) and not brave.get("configured"):
+        hints.append("Set BRAVE_API_KEY for time-sensitive search fallback")
     engines = probes.get("egress_config", {})
     if isinstance(engines, dict) and not engines.get("configured"):
         hints.append("No egress config — research network calls will be denied")

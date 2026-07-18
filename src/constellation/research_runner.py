@@ -16,7 +16,7 @@ from .egress import EgressDenied, EgressRequest, require_egress
 from .firecrawl_adapter import FirecrawlAdapterError
 from .models import Inquiry, ResearchTerminalState, Sensitivity
 from .research import BudgetExhausted, ResearchBudget, ResearchLedger
-from .search_adapter import SearchAdapterError, search_web
+from .search_adapter import SearchAdapterError, brave_search, exa_search, search_web
 from .storage import atomic_write_text, safe_relative_path
 from .url_safety import UnsafeUrlError, validate_http_url
 
@@ -26,6 +26,8 @@ _ADAPTER_PROVIDERS: dict[str, tuple[str, str]] = {
     "scrapling": ("scrapling", "scrapling-local"),
     "browser-use": ("browser-use", "browser-use-local"),
     "raw-http": ("raw-http", "raw-http-local"),
+    "exa": ("exa", "exa-api"),
+    "brave": ("brave", "brave-api"),
 }
 
 _RELEVANCE_STOPWORDS = frozenset(
@@ -131,6 +133,22 @@ def _request_input_sha256(
     }
     encoded = json.dumps(packet, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _merge_unique_results(
+    target: list[dict[str, object]], additions: list[dict[str, object]]
+) -> None:
+    """Merge discovery results by normalized URL, preserving lane order."""
+    seen = {
+        str(result.get("url", "")).strip().casefold().rstrip("/")
+        for result in target
+        if str(result.get("url", "")).strip()
+    }
+    for result in additions:
+        normalized = str(result.get("url", "")).strip().casefold().rstrip("/")
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            target.append(result)
 
 
 def _try_authorize_adapter(
@@ -340,6 +358,38 @@ def run_inquiry(
                 context_bytes=len(inquiry.question.encode("utf-8")),
             )
         queries_used += 1
+
+        def _optional_discovery(adapter: str, search) -> list[dict[str, object]]:
+            request_hash = _request_input_sha256(
+                inquiry,
+                adapter=adapter,
+                query=inquiry.question,
+            )
+            if not _try_authorize_adapter(vault, adapter, request_hash, sensitivity):
+                return []
+            provider, model = _ADAPTER_PROVIDERS[adapter]
+            success = False
+            try:
+                lane_results = search(
+                    inquiry.question,
+                    sensitivity=sensitivity,
+                    limit=min(inquiry.max_search_queries, 5),
+                )
+                success = True
+                return lane_results
+            except SearchAdapterError:
+                return []
+            finally:
+                _record_adapter_call(
+                    ledger,
+                    provider=provider,
+                    model=model,
+                    success=success,
+                    context_bytes=len(inquiry.question.encode("utf-8")),
+                )
+
+        _merge_unique_results(search_results, _optional_discovery("exa", exa_search))
+        _merge_unique_results(search_results, _optional_discovery("brave", brave_search))
         search_results_returned = len(search_results)
 
         urls_to_extract: list[str] = []

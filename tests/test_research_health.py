@@ -18,14 +18,26 @@ def _block_live_network(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("urllib.request.urlopen", blocked_urlopen)
 
 
-def test_health_probe_runs(tmp_path: Path) -> None:
+def test_health_probe_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("EXA_API_KEY", raising=False)
+    monkeypatch.delenv("BRAVE_API_KEY", raising=False)
     vault = tmp_path / "vault"
     initialize_vault(vault)
 
     result = probe_research_health(vault)
     assert result["status"] in ("healthy", "degraded")
-    assert "probes" in result
-    assert "recovery_hints" in result
+    probes = result["probes"]
+    hints = result["recovery_hints"]
+    assert isinstance(probes, dict)
+    assert isinstance(probes["exa"], dict)
+    assert isinstance(probes["brave_api"], dict)
+    assert probes["exa"]["configured"] is False
+    assert probes["brave_api"]["configured"] is False
+    assert isinstance(hints, list)
+    assert "Set EXA_API_KEY for semantic search (CAPTCHA-immune)" in hints
+    assert "Set BRAVE_API_KEY for time-sensitive search fallback" in hints
 
 
 def test_health_state_persisted(tmp_path: Path) -> None:
