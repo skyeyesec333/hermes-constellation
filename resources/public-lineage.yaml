@@ -195,6 +195,8 @@ files:
     lineage: handwritten-generic
   src/constellation/crm.py:
     lineage: handwritten-generic
+  src/constellation/research_health.py:
+    lineage: handwritten-generic
   src/constellation/pm_sync.py:
     lineage: handwritten-generic
   src/constellation/frameworks.py:
@@ -302,6 +304,8 @@ files:
   tests/test_classification.py:
     lineage: handwritten-generic
   tests/test_feeders.py:
+    lineage: handwritten-generic
+  tests/test_research_health.py:
     lineage: handwritten-generic
   tests/test_pm_sync.py:
     lineage: handwritten-generic

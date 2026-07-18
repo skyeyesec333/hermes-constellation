@@ -69,6 +69,7 @@ _CONFIGURED_VAULT_ACTIONS = frozenset(
         "analyze",
         "crm",
         "pm-sync",
+        "health",
         "trail",
         "migrate-plan",
         "migrate-rehearse",

@@ -385,6 +385,9 @@ def build_parser() -> argparse.ArgumentParser:
     pm_apply.add_argument("--expected-sha256", required=True, help="Expected file hash from plan")
     pm_apply.add_argument("--dry-run", action="store_true")
 
+    health = sub.add_parser("health", help="Probe research infrastructure health")
+    health.add_argument("vault", type=Path)
+
     trail = sub.add_parser("trail", help="Trace full provenance chain for a decision")
     trail.add_argument("vault", type=Path)
     trail.add_argument("decision_id", help="Canonical decision ULID")
@@ -1047,6 +1050,10 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
                 expected_sha256=str(values["expected_sha256"]),
                 dry_run=bool(values.get("dry_run")),
             )
+    if action == "health":
+        from constellation.research_health import probe_research_health
+
+        return probe_research_health(vault)
     raise ValueError(f"Unknown action: {action}")
 
 
