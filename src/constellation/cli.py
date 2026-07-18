@@ -388,6 +388,12 @@ def build_parser() -> argparse.ArgumentParser:
     health = sub.add_parser("health", help="Probe research infrastructure health")
     health.add_argument("vault", type=Path)
 
+    hybrid = sub.add_parser("hybrid", help="Fused lexical + semantic search")
+    hybrid.add_argument("vault", type=Path)
+    hybrid.add_argument("query", help="Search query")
+    hybrid.add_argument("--limit", type=int, default=10)
+    hybrid.add_argument("--sensitivity", default="internal")
+
     trail = sub.add_parser("trail", help="Trace full provenance chain for a decision")
     trail.add_argument("vault", type=Path)
     trail.add_argument("decision_id", help="Canonical decision ULID")
@@ -1054,6 +1060,15 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
         from constellation.research_health import probe_research_health
 
         return probe_research_health(vault)
+    if action == "hybrid":
+        from constellation.hybrid_retrieval import hybrid_search
+
+        return hybrid_search(
+            vault,
+            str(values["query"]),
+            n_results=int(values.get("limit", 10)),
+            sensitivity_ceiling=str(values.get("sensitivity", "internal")),
+        )
     raise ValueError(f"Unknown action: {action}")
 
 

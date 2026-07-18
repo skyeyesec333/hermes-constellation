@@ -195,6 +195,10 @@ files:
     lineage: handwritten-generic
   src/constellation/crm.py:
     lineage: handwritten-generic
+  src/constellation/semantic_index.py:
+    lineage: handwritten-generic
+  src/constellation/hybrid_retrieval.py:
+    lineage: handwritten-generic
   src/constellation/research_health.py:
     lineage: handwritten-generic
   src/constellation/pm_sync.py:
@@ -304,6 +308,8 @@ files:
   tests/test_classification.py:
     lineage: handwritten-generic
   tests/test_feeders.py:
+    lineage: handwritten-generic
+  tests/test_hybrid_retrieval.py:
     lineage: handwritten-generic
   tests/test_research_health.py:
     lineage: handwritten-generic
