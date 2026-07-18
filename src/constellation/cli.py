@@ -372,6 +372,19 @@ def build_parser() -> argparse.ArgumentParser:
     crm_status_p = crm_subs.add_parser("status", help="CRM coverage report")
     crm_status_p.add_argument("vault", type=Path)
 
+    pm_sync = sub.add_parser("pm-sync", help="Synchronize opportunities with Project Manager kanban")
+    pm_subs = pm_sync.add_subparsers(dest="pm_sync_action", required=True)
+
+    pm_plan = pm_subs.add_parser("plan", help="Plan PM sync for an opportunity")
+    pm_plan.add_argument("vault", type=Path)
+    pm_plan.add_argument("--opportunity-id", required=True, help="Promoted opportunity ULID")
+
+    pm_apply = pm_subs.add_parser("apply", help="Execute PM sync for an opportunity")
+    pm_apply.add_argument("vault", type=Path)
+    pm_apply.add_argument("--opportunity-id", required=True, help="Promoted opportunity ULID")
+    pm_apply.add_argument("--expected-sha256", required=True, help="Expected file hash from plan")
+    pm_apply.add_argument("--dry-run", action="store_true")
+
     trail = sub.add_parser("trail", help="Trace full provenance chain for a decision")
     trail.add_argument("vault", type=Path)
     trail.add_argument("decision_id", help="Canonical decision ULID")
@@ -767,23 +780,7 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
         from constellation.storage import atomic_write_text as _awt4, safe_relative_path as _sr4
         candidate_path = _sr4(vault, Path(".constellation/candidates") / f"opportunity-{opp.id}.json")
         _awt4(vault, candidate_path.relative_to(vault), opp.model_dump_json(indent=2) + "\n")
-        # Create PM kanban card
-        kanban_result = None
-        try:
-            from constellation.project_manager import opportunity_to_kanban
-            kanban_result = opportunity_to_kanban(
-                vault,
-                opportunity_id=opp.id,
-                opportunity_title=f"opportunity-{subject_ids[0][:8]}",
-                entity_name=f"Entity {subject_ids[0][:8]}",
-                stage=str(values.get("stage", "test")),
-                probability=values.get("probability"),
-                expected_value=values.get("expected_value"),
-                next_action=values.get("next_action") or "",
-            )
-        except Exception:
-            pass
-        return {"status": "staged", "opportunity_id": opp.id, "candidate_path": candidate_path.relative_to(vault).as_posix(), "kanban_task_path": kanban_result["task_path"] if kanban_result else None}
+        return {"status": "staged", "opportunity_id": opp.id, "candidate_path": candidate_path.relative_to(vault).as_posix()}
     if action == "research":
         from constellation.research import research_command
 
@@ -1035,6 +1032,21 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
             from constellation.crm import crm_status
 
             return crm_status(vault)
+    if action == "pm-sync":
+        pm_action = str(values.get("pm_sync_action", ""))
+        if pm_action == "plan":
+            from constellation.pm_sync import pm_sync_plan
+
+            return pm_sync_plan(vault, str(values["opportunity_id"]))
+        elif pm_action == "apply":
+            from constellation.pm_sync import pm_sync_apply
+
+            return pm_sync_apply(
+                vault,
+                str(values["opportunity_id"]),
+                expected_sha256=str(values["expected_sha256"]),
+                dry_run=bool(values.get("dry_run")),
+            )
     raise ValueError(f"Unknown action: {action}")
 
 
