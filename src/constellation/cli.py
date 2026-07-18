@@ -355,6 +355,23 @@ def build_parser() -> argparse.ArgumentParser:
     analyze.add_argument("framework", choices=["porter", "swot"], help="Framework to run")
     analyze.add_argument("--entity-id", required=True, help="Entity ULID to analyze")
 
+    crm = sub.add_parser("crm", help="Deterministic CRM derivation from canonical records")
+    crm_subs = crm.add_subparsers(dest="crm_action", required=True)
+
+    crm_plan_p = crm_subs.add_parser("plan", help="Generate CRM plan for entities")
+    crm_plan_p.add_argument("vault", type=Path)
+    crm_plan_p.add_argument("--entity-id", help="Single entity ULID (omit for all)")
+
+    crm_apply_p = crm_subs.add_parser("apply", help="Apply a CRM plan to one entity")
+    crm_apply_p.add_argument("vault", type=Path)
+    crm_apply_p.add_argument("--entity-id", required=True, help="Entity ULID")
+    crm_apply_p.add_argument("--expected-sha256", required=True, help="Expected file hash from plan")
+    crm_apply_p.add_argument("--changes", required=True, help="JSON-encoded changes dict")
+    crm_apply_p.add_argument("--dry-run", action="store_true")
+
+    crm_status_p = crm_subs.add_parser("status", help="CRM coverage report")
+    crm_status_p.add_argument("vault", type=Path)
+
     trail = sub.add_parser("trail", help="Trace full provenance chain for a decision")
     trail.add_argument("vault", type=Path)
     trail.add_argument("decision_id", help="Canonical decision ULID")
@@ -997,6 +1014,27 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
         fw = str(values["framework"])
         framework = "porter_five_forces" if fw == "porter" else "swot"
         return run_framework(vault, str(values["entity_id"]), framework)
+    if action == "crm":
+        crm_action = str(values.get("crm_action", ""))
+        if crm_action == "plan":
+            from constellation.crm import crm_plan
+
+            eid = str(values.get("entity_id") or "")
+            return crm_plan(vault, entity_id=eid or None)
+        elif crm_action == "apply":
+            from constellation.crm import crm_apply
+
+            return crm_apply(
+                vault,
+                str(values["entity_id"]),
+                expected_sha256=str(values["expected_sha256"]),
+                changes=json.loads(str(values["changes"])),
+                dry_run=bool(values.get("dry_run")),
+            )
+        elif crm_action == "status":
+            from constellation.crm import crm_status
+
+            return crm_status(vault)
     raise ValueError(f"Unknown action: {action}")
 
 
