@@ -40,7 +40,12 @@ def test_repository_root_is_a_loadable_filesystem_plugin():
         "decay",
         "patterns",
         "trail",
-        "searchbooks",
+        "classify",
+        "analyze",
+        "books",
+        "hybrid",
+        "watchlist",
+        "health",
     ]
     assert context.cli_commands == ["constellation"]
     assert context.skills == ["constellation"]

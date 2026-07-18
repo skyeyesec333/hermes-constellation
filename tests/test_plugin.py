@@ -45,7 +45,12 @@ def test_plugin_registers_bounded_tool_and_command_surface():
         "decay",
         "patterns",
         "trail",
-        "searchbooks",
+        "classify",
+        "analyze",
+        "books",
+        "hybrid",
+        "watchlist",
+        "health",
     ]
     assert [item["name"] for item in context.cli_commands] == ["constellation"]
     assert [item["name"] for item in context.skills] == ["constellation"]

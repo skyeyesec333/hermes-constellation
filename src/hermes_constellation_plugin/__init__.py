@@ -214,12 +214,61 @@ def _handle_trail(raw_args: str) -> str:
     return _missing_vault() if vault is None else _run_cli_args(["trail", vault, decision_id])
 
 
-def _handle_searchbooks(raw_args: str) -> str:
+def _handle_classify(raw_args: str) -> str:
+    vault = _configured_vault()
+    if vault is None:
+        return _missing_vault()
+    args = shlex.split(raw_args.strip())
+    if not args or args[0] not in ("stage", "list"):
+        return "Usage: /classify stage|list --entity-id <id> --category buyer|partner|channel|competitor|false_lead ..."
+    return _run_cli_args(["classify", vault] + args)
+
+
+def _handle_analyze(raw_args: str) -> str:
+    vault = _configured_vault()
+    if vault is None:
+        return _missing_vault()
+    args = shlex.split(raw_args.strip())
+    if not args:
+        return "Usage: /analyze porter|swot --entity-id <id>"
+    return _run_cli_args(["analyze", vault] + args)
+
+
+def _handle_books_cmd(raw_args: str) -> str:
+    vault = _configured_vault()
+    if vault is None:
+        return _missing_vault()
+    args = shlex.split(raw_args.strip())
+    if not args:
+        return "Usage: /books search <query> | status"
+    return _run_cli_args(["book", vault] + args)
+
+
+def _handle_hybrid_cmd(raw_args: str) -> str:
+    vault = _configured_vault()
+    if vault is None:
+        return _missing_vault()
     query = raw_args.strip()
     if not query:
-        return "Usage: /searchbooks <natural-language question>"
+        return "Usage: /hybrid <natural language query>"
+    return _run_cli_args(["hybrid", vault, query])
+
+
+def _handle_watchlist_cmd(raw_args: str) -> str:
     vault = _configured_vault()
-    return _missing_vault() if vault is None else _run_cli_args(["search-books", vault, query])
+    if vault is None:
+        return _missing_vault()
+    args = shlex.split(raw_args.strip())
+    if not args:
+        return "Usage: /watchlist --title <name> --query-terms <term> ..."
+    return _run_cli_args(["watchlist", vault] + args)
+
+
+def _handle_health_cmd(raw_args: str) -> str:
+    vault = _configured_vault()
+    if vault is None:
+        return _missing_vault()
+    return _run_cli_args(["health", vault])
 
 
 def _setup_cli(parser: Any) -> None:
@@ -287,9 +336,34 @@ def register(ctx) -> None:
         description="Trace a configured-vault decision provenance chain.",
     )
     ctx.register_command(
-        "searchbooks",
-        handler=_handle_searchbooks,
-        description="Search books indexed in the configured vault.",
+        "classify",
+        handler=_handle_classify,
+        description="Stage or list OSINT entity classifications.",
+    )
+    ctx.register_command(
+        "analyze",
+        handler=_handle_analyze,
+        description="Run strategic framework analysis (Porter, SWOT).",
+    )
+    ctx.register_command(
+        "books",
+        handler=_handle_books_cmd,
+        description="Search or manage indexed book intelligence.",
+    )
+    ctx.register_command(
+        "hybrid",
+        handler=_handle_hybrid_cmd,
+        description="Fused lexical + semantic hybrid search.",
+    )
+    ctx.register_command(
+        "watchlist",
+        handler=_handle_watchlist_cmd,
+        description="Stage entity/term watchlists for monitoring.",
+    )
+    ctx.register_command(
+        "health",
+        handler=_handle_health_cmd,
+        description="Probe research infrastructure health.",
     )
     ctx.register_cli_command(
         name="constellation",
