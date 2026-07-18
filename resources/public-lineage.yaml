@@ -211,6 +211,8 @@ files:
     lineage: handwritten-generic
   src/constellation/crm.py:
     lineage: handwritten-generic
+  src/constellation/cockpit.py:
+    lineage: handwritten-generic
   src/constellation/watchlists.py:
     lineage: handwritten-generic
   src/constellation/semantic_index.py:

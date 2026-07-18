@@ -428,6 +428,19 @@ def build_parser() -> argparse.ArgumentParser:
     event.add_argument("--observation-ids", nargs="*", default=[])
     event.add_argument("--source-ids", nargs="*", default=[])
 
+    cockpit = sub.add_parser("cockpit", help="Obsidian-native review dashboard")
+    cockpit_subs = cockpit.add_subparsers(dest="cockpit_action", required=True)
+
+    cp_plan = cockpit_subs.add_parser("plan", help="Plan cockpit generation")
+    cp_plan.add_argument("vault", type=Path)
+
+    cp_apply = cockpit_subs.add_parser("apply", help="Generate cockpit HOME.md")
+    cp_apply.add_argument("vault", type=Path)
+    cp_apply.add_argument("--dry-run", action="store_true")
+
+    cp_status = cockpit_subs.add_parser("status", help="Check cockpit state")
+    cp_status.add_argument("vault", type=Path)
+
     trail = sub.add_parser("trail", help="Trace full provenance chain for a decision")
     trail.add_argument("vault", type=Path)
     trail.add_argument("decision_id", help="Canonical decision ULID")
@@ -1149,6 +1162,20 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
             observation_ids=[str(o) for o in (values.get("observation_ids") or [])],
             source_ids=[str(s) for s in (values.get("source_ids") or [])],
         )
+    if action == "cockpit":
+        cockpit_action = str(values.get("cockpit_action", ""))
+        if cockpit_action == "plan":
+            from constellation.cockpit import cockpit_plan
+
+            return cockpit_plan(vault)
+        elif cockpit_action == "apply":
+            from constellation.cockpit import cockpit_apply
+
+            return cockpit_apply(vault, dry_run=bool(values.get("dry_run")))
+        elif cockpit_action == "status":
+            from constellation.cockpit import cockpit_status
+
+            return cockpit_status(vault)
     raise ValueError(f"Unknown action: {action}")
 
 

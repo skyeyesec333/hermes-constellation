@@ -75,6 +75,7 @@ _CONFIGURED_VAULT_ACTIONS = frozenset(
         "snapshot",
         "observation",
         "event",
+        "cockpit",
         "trail",
         "migrate-plan",
         "migrate-rehearse",
