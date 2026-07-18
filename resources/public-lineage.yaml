@@ -193,6 +193,8 @@ files:
     lineage: handwritten-generic
   src/constellation/claim.py:
     lineage: handwritten-generic
+  src/constellation/frameworks.py:
+    lineage: handwritten-generic
   src/constellation/claim_extractor.py:
     lineage: handwritten-generic
   src/constellation/cli.py:
@@ -296,6 +298,8 @@ files:
   tests/test_classification.py:
     lineage: handwritten-generic
   tests/test_feeders.py:
+    lineage: handwritten-generic
+  tests/test_frameworks.py:
     lineage: handwritten-generic
   tests/test_cli.py:
     lineage: handwritten-generic

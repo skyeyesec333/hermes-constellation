@@ -10,7 +10,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from .frontmatter import parse_frontmatter, render_frontmatter
-from .models import CandidatePatch, Claim, Classification, Decision, Inquiry, Interaction, Opportunity
+from .models import Analysis, CandidatePatch, Claim, Classification, Decision, Inquiry, Interaction, Opportunity
 from .storage import ConflictError, atomic_write_text, safe_relative_path, sha256_file
 from .validation import CanonicalValidationError, validate_canonical_text
 from .vault import is_initialized
@@ -402,6 +402,9 @@ def list_candidates(root: Path | str) -> list[dict[str, object]]:
             if payload.get("type") == "classification":
                 results.append(_classification_candidate_summary(path, payload))
                 continue
+            if payload.get("type") == "analysis":
+                results.append(_analysis_candidate_summary(path, payload))
+                continue
             candidate = CandidatePatch.model_validate_json(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError, ValidationError, ValueError, PromotionError):
             continue
@@ -636,6 +639,8 @@ def promote_candidate(
         return _promote_opportunity_candidate(vault, candidate_path, payload, expected_base_hash)
     if isinstance(payload, dict) and payload.get("type") == "classification":
         return _promote_classification_candidate(vault, candidate_path, payload, expected_base_hash)
+    if isinstance(payload, dict) and payload.get("type") == "analysis":
+        return _promote_analysis_candidate(vault, candidate_path, payload, expected_base_hash)
     if isinstance(payload, dict) and payload.get("kind") == "conference-encounter":
         raise PromotionError(
             "conference encounter candidates cannot be auto-promoted — "
@@ -678,4 +683,77 @@ def promote_candidate(
     return _rebuild_index_after_write(
         vault,
         {"schema_version": "0.1", "status": "promoted", "target_path": candidate.target_path},
+    )
+
+
+def _analysis_candidate_summary(path: Path, payload: dict[str, object]) -> dict[str, object]:
+    try:
+        analysis = Analysis.model_validate_json(json.dumps(payload))
+    except ValidationError as exc:
+        raise PromotionError("analysis candidate packet is invalid") from exc
+    return {
+        "id": path.stem,
+        "kind": "analysis_candidate",
+        "title": f"Review analysis: {analysis.title}",
+        "target_path": f"analyses/{analysis.id}.md",
+        "expected_base_hash": None,
+        "promotable": True,
+    }
+
+
+def _analysis_candidate_content(analysis: Analysis) -> str:
+    lines = [f"# {analysis.title}", ""]
+    lines.append(f"**Framework:** {analysis.framework}")
+    lines.append(f"**Entity:** {analysis.entity_id}")
+    lines.append(f"**Confidence:** {analysis.confidence}")
+    if analysis.supporting_claims:
+        lines.append(f"**Supporting claims:** {', '.join(analysis.supporting_claims[:10])}")
+    if analysis.research_inquiries_spawned:
+        lines.append(f"**Research inquiries:** {', '.join(analysis.research_inquiries_spawned[:10])}")
+    if analysis.operator_reviewed:
+        lines.append("**Operator reviewed:** Yes")
+    else:
+        lines.append("**Operator reviewed:** No — review required")
+    body = "\n".join(lines) + "\n"
+    return render_frontmatter(analysis.model_dump(mode="json", exclude_none=True), body)
+
+
+def _promote_analysis_candidate(
+    root: Path,
+    candidate_path: Path,
+    payload: dict[str, object],
+    expected_base_hash: str | None,
+) -> dict[str, str]:
+    summary = _analysis_candidate_summary(candidate_path, payload)
+    if expected_base_hash is not None:
+        raise PromotionError("analysis candidate must be promoted as a create-only record")
+    try:
+        analysis_obj = Analysis.model_validate_json(json.dumps(payload))
+    except ValidationError as exc:
+        raise PromotionError("analysis candidate packet is invalid") from exc
+    target_path = str(summary["target_path"])
+    target = safe_relative_path(root, target_path)
+    if target.exists():
+        raise PromotionError("analysis target already exists")
+    content = _analysis_candidate_content(analysis_obj)
+    try:
+        validate_canonical_text(content, target_path)
+        atomic_write_text(root, target_path, content)
+    except (CanonicalValidationError, ConflictError) as exc:
+        raise PromotionError("analysis candidate promotion failed") from exc
+    _append_action(
+        root,
+        {
+            "schema_version": "0.1",
+            "action": "candidate_promoted",
+            "candidate_id": candidate_path.stem,
+            "target_path": target_path,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "result_hash": sha256_file(target),
+        },
+    )
+    candidate_path.unlink()
+    return _rebuild_index_after_write(
+        root,
+        {"schema_version": "0.1", "status": "promoted", "target_path": target_path},
     )

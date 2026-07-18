@@ -350,6 +350,11 @@ def build_parser() -> argparse.ArgumentParser:
     book_rebuild.add_argument("--source-id", required=True, help="Canonical source-item ULID")
     book_rebuild.add_argument("--title", help="Book title")
 
+    analyze = sub.add_parser("analyze", help="Run a strategic framework analysis")
+    analyze.add_argument("vault", type=Path)
+    analyze.add_argument("framework", choices=["porter", "swot"], help="Framework to run")
+    analyze.add_argument("--entity-id", required=True, help="Entity ULID to analyze")
+
     trail = sub.add_parser("trail", help="Trace full provenance chain for a decision")
     trail.add_argument("vault", type=Path)
     trail.add_argument("decision_id", help="Canonical decision ULID")
@@ -986,6 +991,12 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
                 source_id=str(values["source_id"]),
                 title=title or None,
             )
+    if action == "analyze":
+        from constellation.frameworks import run_framework
+
+        fw = str(values["framework"])
+        framework = "porter_five_forces" if fw == "porter" else "swot"
+        return run_framework(vault, str(values["entity_id"]), framework)
     raise ValueError(f"Unknown action: {action}")
 
 
