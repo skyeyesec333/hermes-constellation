@@ -311,6 +311,18 @@ def build_parser() -> argparse.ArgumentParser:
     enrich_extract.add_argument("--provider", required=True, help="Egress-policy provider name")
     enrich_extract.add_argument("--model", required=True, help="Egress-policy model name")
 
+    classify = sub.add_parser("classify", help="Stage or list OSINT entity classifications")
+    classify.add_argument("vault", type=Path)
+    classify.add_argument("classify_action", choices=["stage", "list"])
+    classify.add_argument("--entity-id", help="Entity ULID to classify (required for stage)")
+    classify.add_argument("--category", choices=["buyer", "partner", "channel", "competitor", "false_lead"], help="Classification category")
+    classify.add_argument("--methodology", help="Classification methodology (max 500 chars)")
+    classify.add_argument("--confidence", choices=["low", "medium", "high"], default="medium")
+    classify.add_argument("--rationale", help="Evidence-based rationale (max 5000 chars)")
+    classify.add_argument("--supporting-claim-ids", nargs="*", default=[], help="Supporting claim ULIDs")
+    classify.add_argument("--supporting-source-ids", nargs="*", default=[], help="Supporting source-item ULIDs")
+    classify.add_argument("--limit", type=int, default=50)
+
     trail = sub.add_parser("trail", help="Trace full provenance chain for a decision")
     trail.add_argument("vault", type=Path)
     trail.add_argument("decision_id", help="Canonical decision ULID")
@@ -866,6 +878,55 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
             )
         else:
             raise ValueError(f"Unknown enrich action: {enrich_action}")
+    if action == "classify":
+        classify_action = str(values.get("classify_action", ""))
+        if classify_action == "list":
+            from constellation.review import list_candidates as list_classifications
+
+            return list_classifications(vault)
+        elif classify_action == "stage":
+            from datetime import datetime as dt
+
+            from constellation.models import Classification, Sensitivity as _Sens5, generate_ulid as _g_ulid
+            from constellation.storage import atomic_write_text as _awt5
+
+            entity_id = str(values.get("entity_id") or "")
+            if not entity_id:
+                raise ValueError("--entity-id is required for stage")
+            category = str(values.get("category") or "")
+            if not category:
+                raise ValueError("--category is required for stage")
+            methodology = str(values.get("methodology") or "")
+            if not methodology:
+                raise ValueError("--methodology is required for stage")
+            rationale = str(values.get("rationale") or "")
+            if not rationale:
+                raise ValueError("--rationale is required for stage")
+
+            now = dt.now().astimezone()
+            classification = Classification(
+                id=_g_ulid(),
+                title=f"{category.title()} classification for {entity_id}",
+                status="active",
+                sensitivity=_Sens5.INTERNAL,
+                created_at=now,
+                updated_at=now,
+                category=category,
+                entity_id=entity_id,
+                supporting_claim_ids=[str(c) for c in values.get("supporting_claim_ids") or []],
+                supporting_source_ids=[str(s) for s in values.get("supporting_source_ids") or []],
+                methodology=methodology,
+                confidence=str(values.get("confidence", "medium")),
+                rationale=rationale,
+                operator_reviewed=False,
+            )
+            candidate_rel = Path(".constellation/candidates") / f"classification-{classification.id}.json"
+            _awt5(vault, candidate_rel.relative_to(vault) if candidate_rel.is_absolute() else candidate_rel, classification.model_dump_json(indent=2) + "\n")
+            return {
+                "status": "staged",
+                "classification_id": classification.id,
+                "candidate_path": candidate_rel.as_posix(),
+            }
     raise ValueError(f"Unknown action: {action}")
 
 

@@ -10,7 +10,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from .frontmatter import parse_frontmatter, render_frontmatter
-from .models import CandidatePatch, Claim, Decision, Inquiry, Interaction, Opportunity
+from .models import CandidatePatch, Claim, Classification, Decision, Inquiry, Interaction, Opportunity
 from .storage import ConflictError, atomic_write_text, safe_relative_path, sha256_file
 from .validation import CanonicalValidationError, validate_canonical_text
 from .vault import is_initialized
@@ -298,6 +298,81 @@ def _promote_opportunity_candidate(
     )
 
 
+def _classification_candidate_summary(path: Path, payload: dict[str, object]) -> dict[str, object]:
+    try:
+        classification = Classification.model_validate_json(json.dumps(payload))
+    except ValidationError as exc:
+        raise PromotionError("classification candidate packet is invalid") from exc
+    if path.stem != f"classification-{classification.id}":
+        raise PromotionError("classification candidate filename does not match classification id")
+    return {
+        "id": path.stem,
+        "kind": "classification_candidate",
+        "title": f"Review classification: {classification.title}",
+        "target_path": f"classifications/{classification.id}.md",
+        "expected_base_hash": None,
+        "promotable": True,
+    }
+
+
+def _classification_candidate_content(classification: Classification) -> str:
+    lines = [f"# {classification.title}", ""]
+    lines.append(f"**Category:** {classification.category}")
+    lines.append(f"**Entity:** {classification.entity_id}")
+    lines.append(f"**Confidence:** {classification.confidence}")
+    lines.append(f"**Methodology:** {classification.methodology}")
+    lines.append("")
+    lines.append(f"**Rationale:** {classification.rationale}")
+    lines.append("")
+    if classification.operator_reviewed:
+        lines.append("**Operator reviewed:** Yes")
+    else:
+        lines.append("**Operator reviewed:** No")
+    body = "\n".join(lines) + "\n"
+    return render_frontmatter(classification.model_dump(mode="json", exclude_none=True), body)
+
+
+def _promote_classification_candidate(
+    root: Path,
+    candidate_path: Path,
+    payload: dict[str, object],
+    expected_base_hash: str | None,
+) -> dict[str, str]:
+    summary = _classification_candidate_summary(candidate_path, payload)
+    if expected_base_hash is not None:
+        raise PromotionError("classification candidate must be promoted as a create-only record")
+    try:
+        classification_obj = Classification.model_validate_json(json.dumps(payload))
+    except ValidationError as exc:
+        raise PromotionError("classification candidate packet is invalid") from exc
+    target_path = str(summary["target_path"])
+    target = safe_relative_path(root, target_path)
+    if target.exists():
+        raise PromotionError("classification target already exists")
+    content = _classification_candidate_content(classification_obj)
+    try:
+        validate_canonical_text(content, target_path)
+        atomic_write_text(root, target_path, content)
+    except (CanonicalValidationError, ConflictError) as exc:
+        raise PromotionError("classification candidate promotion failed") from exc
+    _append_action(
+        root,
+        {
+            "schema_version": "0.1",
+            "action": "candidate_promoted",
+            "candidate_id": candidate_path.stem,
+            "target_path": target_path,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "result_hash": sha256_file(target),
+        },
+    )
+    candidate_path.unlink()
+    return _rebuild_index_after_write(
+        root,
+        {"schema_version": "0.1", "status": "promoted", "target_path": target_path},
+    )
+
+
 def list_candidates(root: Path | str) -> list[dict[str, object]]:
     vault = Path(root).absolute()
     results: list[dict[str, object]] = []
@@ -323,6 +398,9 @@ def list_candidates(root: Path | str) -> list[dict[str, object]]:
                 continue
             if payload.get("type") == "opportunity":
                 results.append(_opportunity_candidate_summary(path, payload))
+                continue
+            if payload.get("type") == "classification":
+                results.append(_classification_candidate_summary(path, payload))
                 continue
             candidate = CandidatePatch.model_validate_json(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError, ValidationError, ValueError, PromotionError):
@@ -556,6 +634,8 @@ def promote_candidate(
         return _promote_inquiry_candidate(vault, candidate_path, payload, expected_base_hash)
     if isinstance(payload, dict) and payload.get("type") == "opportunity":
         return _promote_opportunity_candidate(vault, candidate_path, payload, expected_base_hash)
+    if isinstance(payload, dict) and payload.get("type") == "classification":
+        return _promote_classification_candidate(vault, candidate_path, payload, expected_base_hash)
     if isinstance(payload, dict) and payload.get("kind") == "conference-encounter":
         raise PromotionError(
             "conference encounter candidates cannot be auto-promoted — "

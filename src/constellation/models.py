@@ -406,4 +406,45 @@ class Analysis(BaseRecord):
         return value
 
 
-RECORD_MODELS = (BaseRecord, SourceItem, EntityRecord, RelationshipRecord, Claim, Interaction, Decision, Inquiry, SearchResult, Opportunity, CandidatePatch, ResearchRun, Analysis)
+class EntityCategory(StrEnum):
+    BUYER = "buyer"
+    PARTNER = "partner"
+    CHANNEL = "channel"
+    COMPETITOR = "competitor"
+    FALSE_LEAD = "false_lead"
+
+
+class Classification(BaseRecord):
+    """OSINT classification judgment linking an entity to a category with evidence."""
+
+    type: Literal["classification"] = "classification"  # pyright: ignore[reportIncompatibleVariableOverride]
+    category: Annotated[str, Field(min_length=1, max_length=50)]
+    entity_id: Ulid
+    supporting_claim_ids: list[Ulid] = Field(default_factory=list)
+    supporting_source_ids: list[Ulid] = Field(default_factory=list)
+    methodology: Annotated[str, Field(min_length=1, max_length=500)]
+    confidence: str = "medium"  # low, medium, high
+    rationale: Annotated[str, Field(min_length=1, max_length=5000)]
+    operator_reviewed: bool = False
+    version: int = 1
+
+    @field_validator("category")
+    @classmethod
+    def require_valid_category(cls, value: str) -> str:
+        try:
+            EntityCategory(value)
+        except ValueError as exc:
+            raise ValueError(
+                "category must be one of: buyer, partner, channel, competitor, false_lead"
+            ) from exc
+        return value
+
+    @field_validator("confidence")
+    @classmethod
+    def require_valid_confidence(cls, value: str) -> str:
+        if value not in {"low", "medium", "high"}:
+            raise ValueError("confidence must be low, medium, or high")
+        return value
+
+
+RECORD_MODELS = (BaseRecord, SourceItem, EntityRecord, RelationshipRecord, Claim, Interaction, Decision, Inquiry, SearchResult, Opportunity, CandidatePatch, ResearchRun, Analysis, Classification)

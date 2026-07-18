@@ -111,6 +111,8 @@ files:
     lineage: generated-from-python-schema
   resources/generated-json-schemas/claim.json:
     lineage: generated-from-python-schema
+  resources/generated-json-schemas/classification.json:
+    lineage: generated-from-python-schema
   resources/generated-json-schemas/decision.json:
     lineage: generated-from-python-schema
   resources/generated-json-schemas/entityrecord.json:
@@ -136,6 +138,8 @@ files:
   resources/generated-note-templates/candidatepatch.md:
     lineage: generated-from-python-schema
   resources/generated-note-templates/claim.md:
+    lineage: generated-from-python-schema
+  resources/generated-note-templates/classification.md:
     lineage: generated-from-python-schema
   resources/generated-note-templates/decision.md:
     lineage: generated-from-python-schema
@@ -286,6 +290,8 @@ files:
   tests/test_card_ingest.py:
     lineage: handwritten-generic
   tests/test_claim_extractor.py:
+    lineage: handwritten-generic
+  tests/test_classification.py:
     lineage: handwritten-generic
   tests/test_feeders.py:
     lineage: handwritten-generic

@@ -1,0 +1,127 @@
+{
+  "$defs": {
+    "Sensitivity": {
+      "enum": [
+        "public",
+        "internal",
+        "confidential",
+        "restricted"
+      ],
+      "title": "Sensitivity",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "OSINT classification judgment linking an entity to a category with evidence.",
+  "properties": {
+    "category": {
+      "maxLength": 50,
+      "minLength": 1,
+      "title": "Category",
+      "type": "string"
+    },
+    "confidence": {
+      "default": "medium",
+      "title": "Confidence",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "entity_id": {
+      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+      "title": "Entity Id",
+      "type": "string"
+    },
+    "id": {
+      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+      "title": "Id",
+      "type": "string"
+    },
+    "methodology": {
+      "maxLength": 500,
+      "minLength": 1,
+      "title": "Methodology",
+      "type": "string"
+    },
+    "operator_reviewed": {
+      "default": false,
+      "title": "Operator Reviewed",
+      "type": "boolean"
+    },
+    "rationale": {
+      "maxLength": 5000,
+      "minLength": 1,
+      "title": "Rationale",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "sensitivity": {
+      "$ref": "#/$defs/Sensitivity"
+    },
+    "status": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Status",
+      "type": "string"
+    },
+    "supporting_claim_ids": {
+      "items": {
+        "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+        "type": "string"
+      },
+      "title": "Supporting Claim Ids",
+      "type": "array"
+    },
+    "supporting_source_ids": {
+      "items": {
+        "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+        "type": "string"
+      },
+      "title": "Supporting Source Ids",
+      "type": "array"
+    },
+    "title": {
+      "maxLength": 300,
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    },
+    "type": {
+      "const": "classification",
+      "default": "classification",
+      "title": "Type",
+      "type": "string"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    },
+    "version": {
+      "default": 1,
+      "title": "Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "title",
+    "status",
+    "sensitivity",
+    "created_at",
+    "updated_at",
+    "category",
+    "entity_id",
+    "methodology",
+    "rationale"
+  ],
+  "title": "Classification",
+  "type": "object"
+}
