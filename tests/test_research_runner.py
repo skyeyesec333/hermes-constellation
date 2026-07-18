@@ -105,7 +105,7 @@ def test_inquiry_discovery_is_denied_before_search_without_declared_egress_polic
         run_inquiry(vault, inquiry, sensitivity=Sensitivity.PUBLIC)
 
 
-def test_confidential_sensitivity_is_blocked_before_any_network_call(
+def test_canonical_confidential_sensitivity_is_blocked_before_any_network_call(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     vault = tmp_path / "vault"
@@ -120,7 +120,7 @@ def test_confidential_sensitivity_is_blocked_before_any_network_call(
     )
 
     with pytest.raises(ResearchRunnerError, match="confidential"):
-        run_inquiry(vault, inquiry, sensitivity=Sensitivity.CONFIDENTIAL)
+        run_inquiry(vault, inquiry, sensitivity=Sensitivity.INTERNAL)
 
 
 def test_undeclared_adapter_is_skipped_fail_closed(tmp_path: Path) -> None:

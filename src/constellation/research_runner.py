@@ -237,6 +237,7 @@ def run_inquiry(
     and extracted pages. Claims are staged separately.
     """
     vault = Path(vault).absolute()
+    sensitivity = inquiry.sensitivity
 
     # Guard: confidential/restricted never leaves the machine
     if sensitivity in {Sensitivity.CONFIDENTIAL, Sensitivity.RESTRICTED}:

@@ -1,10 +1,21 @@
 """Tests for research infrastructure health probes."""
 
 import json
+import urllib.error
 from pathlib import Path
+
+import pytest
 
 from constellation.research_health import probe_research_health
 from constellation.vault import initialize_vault
+
+
+@pytest.fixture(autouse=True)
+def _block_live_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    def blocked_urlopen(*_args, **_kwargs):
+        raise urllib.error.URLError("live network disabled in tests")
+
+    monkeypatch.setattr("urllib.request.urlopen", blocked_urlopen)
 
 
 def test_health_probe_runs(tmp_path: Path) -> None:

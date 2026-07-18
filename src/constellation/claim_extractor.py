@@ -344,8 +344,9 @@ def extract_claims_from_source(
         source_path: Path to the preserved source markdown file
         subject_id: ULID of the entity the claims are about
         source_ids: ULIDs of source items these claims reference
-        api_key: DeepSeek API key (defaults to DEEPSEEK_API_KEY env var)
-        model: DeepSeek model to use
+        provider: Egress-policy provider identifier
+        model: Provider model identifier
+        api_key: Model endpoint credential (defaults to CONSTELLATION_MODEL_API_KEY)
 
     Returns:
         Dict with status, staged_count, skipped_count (duplicates), claim_ids
