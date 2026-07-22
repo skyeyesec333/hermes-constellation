@@ -11,9 +11,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from .frontmatter import parse_frontmatter
-from .models import Analysis, EntityRecord, generate_ulid
-from .retrieval import search
+from .models import Analysis, Claim, EntityRecord, generate_ulid
 from .storage import atomic_write_text
+from .validation import validate_canonical_text
 from .vault import is_initialized
 
 _VALID_FRAMEWORKS = frozenset({"porter_five_forces", "swot"})
@@ -41,20 +41,33 @@ def _require_entity(vault: Path, entity_id: str) -> EntityRecord:
 # ── Evidence gathering ─────────────────────────────────────────────────
 
 
-def _gather_evidence(vault: Path, entity_title: str) -> list[dict[str, object]]:
-    """Search the vault for claims related to the entity."""
-    results = search(vault, entity_title, limit=20, sensitivity_ceiling="restricted")
+def _gather_evidence(vault: Path, entity_id: str) -> list[dict[str, object]]:
+    """Load only validated canonical Claims whose subject matches the entity."""
     evidence: list[dict[str, object]] = []
-    for r in results:
-        if not isinstance(r, dict):
+    claims_directory = vault / "claims"
+    if not claims_directory.is_dir() or claims_directory.is_symlink():
+        return evidence
+    for path in sorted(claims_directory.glob("*.md")):
+        if path.is_symlink() or not path.is_file():
             continue
-        evidence.append({
-            "id": r.get("id", ""),
-            "title": r.get("title", ""),
-            "type": r.get("type", ""),
-            "path": r.get("path", ""),
-            "snippet": str(r.get("snippet", "")),
-        })
+        try:
+            text = path.read_text(encoding="utf-8")
+            validate_canonical_text(text, path.relative_to(vault).as_posix())
+            metadata, body = parse_frontmatter(text)
+            claim = Claim.model_validate(metadata, strict=False)
+        except Exception:
+            continue
+        if claim.subject_id != entity_id:
+            continue
+        evidence.append(
+            {
+                "id": claim.id,
+                "title": claim.title,
+                "type": claim.type,
+                "path": path.relative_to(vault).as_posix(),
+                "snippet": body.strip()[:120],
+            }
+        )
     return evidence
 
 
@@ -222,11 +235,16 @@ def _stage_analysis(
             ref.split(":")[0] for ref in claim_refs if ":" in ref
         ],
         research_inquiries_spawned=[],
-        confidence="medium",
+        confidence="medium" if claim_refs else "low",
         operator_reviewed=False,
     )
     candidate_rel = Path(".constellation/candidates") / f"analysis-{analysis.id}.json"
-    candidate = analysis.model_dump(mode="json", exclude_none=True)
+    candidate = {
+        "kind": "analysis_candidate",
+        "analysis": analysis.model_dump(mode="json", exclude_none=True),
+        "body_markdown": body,
+        "evidence_status": "evidence_available" if claim_refs else "insufficient_evidence",
+    }
     from json import dumps as _json_dumps
 
     atomic_write_text(vault, candidate_rel, _json_dumps(candidate, indent=2, sort_keys=True) + "\n")
@@ -265,7 +283,7 @@ def run_framework(
         raise FrameworkError(f"unsupported framework: {framework}")
 
     entity = _require_entity(vault, entity_id)
-    evidence = _gather_evidence(vault, entity.title)
+    evidence = _gather_evidence(vault, entity.id)
 
     if framework == "porter_five_forces":
         body = _porter_body(entity, evidence)

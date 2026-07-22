@@ -402,6 +402,9 @@ def list_candidates(root: Path | str) -> list[dict[str, object]]:
             if payload.get("type") == "classification":
                 results.append(_classification_candidate_summary(path, payload))
                 continue
+            if payload.get("kind") == "analysis_candidate":
+                results.append(_analysis_candidate_summary(path, payload))
+                continue
             if payload.get("type") == "analysis":
                 results.append(_analysis_candidate_summary(path, payload))
                 continue
@@ -651,6 +654,8 @@ def promote_candidate(
         return _promote_opportunity_candidate(vault, candidate_path, payload, expected_base_hash)
     if isinstance(payload, dict) and payload.get("type") == "classification":
         return _promote_classification_candidate(vault, candidate_path, payload, expected_base_hash)
+    if isinstance(payload, dict) and payload.get("kind") == "analysis_candidate":
+        return _promote_analysis_candidate(vault, candidate_path, payload, expected_base_hash)
     if isinstance(payload, dict) and payload.get("type") == "analysis":
         return _promote_analysis_candidate(vault, candidate_path, payload, expected_base_hash)
     if isinstance(payload, dict) and payload.get("type") in ("watchlist", "snapshot", "observation", "event"):
@@ -700,23 +705,59 @@ def promote_candidate(
     )
 
 
-def _analysis_candidate_summary(path: Path, payload: dict[str, object]) -> dict[str, object]:
+_ANALYSIS_EVIDENCE_STATUSES = frozenset({"evidence_available", "insufficient_evidence"})
+
+
+def _load_analysis_candidate(
+    payload: dict[str, object],
+) -> tuple[Analysis, str | None, bool]:
+    """Return analysis, narrative body, and whether this is a legacy raw packet."""
+    legacy = payload.get("kind") is None and payload.get("type") == "analysis"
+    if legacy:
+        raw_analysis: object = payload
+        body_markdown: str | None = None
+    else:
+        if payload.get("kind") != "analysis_candidate":
+            raise PromotionError("analysis candidate envelope kind is invalid")
+        raw_analysis = payload.get("analysis")
+        body_value = payload.get("body_markdown")
+        evidence_status = payload.get("evidence_status")
+        if not isinstance(body_value, str) or not body_value.strip():
+            raise PromotionError("analysis candidate narrative body is invalid")
+        if not isinstance(evidence_status, str) or evidence_status not in _ANALYSIS_EVIDENCE_STATUSES:
+            raise PromotionError("analysis candidate evidence status is invalid")
+        body_markdown = body_value
+    if not isinstance(raw_analysis, dict):
+        raise PromotionError("analysis candidate packet is invalid")
     try:
-        analysis = Analysis.model_validate_json(json.dumps(payload))
+        analysis = Analysis.model_validate_json(json.dumps(raw_analysis))
     except ValidationError as exc:
         raise PromotionError("analysis candidate packet is invalid") from exc
+    return analysis, body_markdown, legacy
+
+
+def _analysis_candidate_summary(path: Path, payload: dict[str, object]) -> dict[str, object]:
+    analysis, _, legacy = _load_analysis_candidate(payload)
+    title_prefix = "Review legacy analysis (narrative missing)" if legacy else "Review analysis"
     return {
         "id": path.stem,
         "kind": "analysis_candidate",
-        "title": f"Review analysis: {analysis.title}",
+        "title": f"{title_prefix}: {analysis.title}",
         "target_path": f"analyses/{analysis.id}.md",
         "expected_base_hash": None,
         "promotable": True,
     }
 
 
-def _analysis_candidate_content(analysis: Analysis) -> str:
-    lines = [f"# {analysis.title}", ""]
+def _analysis_candidate_content(analysis: Analysis, body_markdown: str | None) -> str:
+    if body_markdown is not None:
+        return render_frontmatter(analysis.model_dump(mode="json", exclude_none=True), body_markdown)
+    lines = [
+        f"# {analysis.title}",
+        "",
+        "_Legacy Analysis candidate: no narrative body was staged._",
+        "",
+    ]
     lines.append(f"**Framework:** {analysis.framework}")
     lines.append(f"**Entity:** {analysis.entity_id}")
     lines.append(f"**Confidence:** {analysis.confidence}")
@@ -741,15 +782,12 @@ def _promote_analysis_candidate(
     summary = _analysis_candidate_summary(candidate_path, payload)
     if expected_base_hash is not None:
         raise PromotionError("analysis candidate must be promoted as a create-only record")
-    try:
-        analysis_obj = Analysis.model_validate_json(json.dumps(payload))
-    except ValidationError as exc:
-        raise PromotionError("analysis candidate packet is invalid") from exc
+    analysis_obj, body_markdown, _ = _load_analysis_candidate(payload)
     target_path = str(summary["target_path"])
     target = safe_relative_path(root, target_path)
     if target.exists():
         raise PromotionError("analysis target already exists")
-    content = _analysis_candidate_content(analysis_obj)
+    content = _analysis_candidate_content(analysis_obj, body_markdown)
     try:
         validate_canonical_text(content, target_path)
         atomic_write_text(root, target_path, content)
