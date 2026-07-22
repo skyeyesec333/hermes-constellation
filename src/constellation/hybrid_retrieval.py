@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .retrieval import search as lexical_search
-from .semantic_index import semantic_search
+from .semantic_index import EmbeddingProvider, semantic_search
 from .vault import is_initialized
 
 
@@ -29,6 +29,7 @@ def hybrid_search(
     *,
     n_results: int = 10,
     sensitivity_ceiling: str = "internal",
+    embed_fn: EmbeddingProvider | None = None,
 ) -> dict[str, object]:
     """Run fused lexical + semantic search.
 
@@ -54,7 +55,11 @@ def hybrid_search(
             degraded = True
         else:
             semantic_results = semantic_search(
-                vault, query, n_results=n_results * 2, sensitivity_ceiling=sensitivity_ceiling
+                vault,
+                query,
+                n_results=n_results * 2,
+                sensitivity_ceiling=sensitivity_ceiling,
+                embed_fn=embed_fn,
             )
     except Exception:
         degraded = True

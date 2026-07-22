@@ -83,7 +83,11 @@ def build_semantic_index(
     if not is_initialized(vault):
         raise SemanticIndexError("vault is not initialized")
 
-    provider = embed_fn or _identity_embedding
+    if embed_fn is None:
+        raise SemanticIndexError(
+            "production semantic build requires an explicitly configured embedding provider"
+        )
+    provider = embed_fn
     generation_id = hashlib.sha256(str(hash(tuple(r.get("id", "") for r in records))).encode()).hexdigest()[:16]
 
     # Separate by sensitivity
@@ -131,6 +135,10 @@ def semantic_search(
 ) -> list[dict[str, object]]:
     """Search the semantic index and return scored results."""
     vault = Path(vault).absolute()
+    if embed_fn is None:
+        raise SemanticIndexError(
+            "production semantic search requires an explicitly configured embedding provider"
+        )
     state = _read_state(vault)
     gen_id = state.get("generation_id")
     if not gen_id:
@@ -145,7 +153,7 @@ def semantic_search(
     except (OSError, json.JSONDecodeError):
         return []
 
-    provider = embed_fn or _identity_embedding
+    provider = embed_fn
     query_vec = provider([query])[0]
 
     sensitivity_order = {"public": 0, "internal": 1, "confidential": 2, "restricted": 3}
