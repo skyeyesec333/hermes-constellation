@@ -221,6 +221,8 @@ def test_discovery_lanes_are_gated_and_merge_unique_urls(
     _declare_provider(vault, "searxng", "searxng-local")
     _declare_provider(vault, "exa", "exa-api", transport="external", external_enabled=True)
     _declare_provider(vault, "brave", "brave-api", transport="external", external_enabled=True)
+    monkeypatch.setenv("EXA_API_KEY", "fictional-exa-key")
+    monkeypatch.setenv("BRAVE_API_KEY", "fictional-brave-key")
     inquiry = _make_inquiry()
 
     monkeypatch.setattr(
@@ -259,6 +261,45 @@ def test_discovery_lanes_are_gated_and_merge_unique_urls(
         if event["allowed"] and event["provider"] in {"searxng", "exa", "brave"}
     }
     assert allowed_discovery == {"searxng", "exa", "brave"}
+
+
+def test_unconfigured_optional_discovery_is_not_authorized_or_receipted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    vault = tmp_path / "vault"
+    initialize_vault(vault)
+    _declare_provider(vault, "searxng", "searxng-local")
+    _declare_provider(vault, "exa", "exa-api", transport="external", external_enabled=True)
+    _declare_provider(vault, "brave", "brave-api", transport="external", external_enabled=True)
+    monkeypatch.delenv("EXA_API_KEY", raising=False)
+    monkeypatch.delenv("BRAVE_API_KEY", raising=False)
+    inquiry = _make_inquiry()
+
+    monkeypatch.setattr(
+        "constellation.research_runner.search_web", lambda *_args, **_kwargs: []
+    )
+    monkeypatch.setattr(
+        "constellation.research_runner.exa_search",
+        lambda *_args, **_kwargs: pytest.fail("unconfigured Exa must not be invoked"),
+    )
+    monkeypatch.setattr(
+        "constellation.research_runner.brave_search",
+        lambda *_args, **_kwargs: pytest.fail("unconfigured Brave must not be invoked"),
+    )
+
+    result = run_inquiry(vault, inquiry, sensitivity=Sensitivity.PUBLIC)
+
+    receipt_path = result["receipt_path"]
+    assert isinstance(receipt_path, str)
+    receipt = json.loads((vault / receipt_path).read_text(encoding="utf-8"))
+    assert [call["provider"] for call in receipt["calls"]] == ["searxng"]
+    events = [
+        json.loads(line)
+        for line in (vault / ".constellation/egress-ledger.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    assert {event["provider"] for event in events} == {"searxng"}
 
 
 def test_relevance_matching_uses_whole_tokens_not_name_substrings():

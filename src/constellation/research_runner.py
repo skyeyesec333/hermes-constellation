@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from datetime import datetime, UTC
 from pathlib import Path
@@ -479,7 +480,11 @@ def run_inquiry(
                 )
             queries_used += 1
 
-            def _optional_discovery(adapter: str, search) -> list[dict[str, object]]:
+            def _optional_discovery(
+                adapter: str, search, credential_env: str
+            ) -> list[dict[str, object]]:
+                if not os.environ.get(credential_env):
+                    return []
                 request_hash = _request_input_sha256(
                     inquiry,
                     adapter=adapter,
@@ -518,8 +523,13 @@ def run_inquiry(
                         context_bytes=question_context_bytes,
                     )
 
-            _merge_unique_results(search_results, _optional_discovery("exa", exa_search))
-            _merge_unique_results(search_results, _optional_discovery("brave", brave_search))
+            _merge_unique_results(
+                search_results, _optional_discovery("exa", exa_search, "EXA_API_KEY")
+            )
+            _merge_unique_results(
+                search_results,
+                _optional_discovery("brave", brave_search, "BRAVE_API_KEY"),
+            )
             search_results_returned = len(search_results)
 
             urls_to_extract = []
