@@ -111,6 +111,76 @@ def test_atomic_create_only_detects_target_created_while_staged(tmp_path, monkey
     assert list(target.parent.glob(".one.md.*")) == []
 
 
+def test_doctor_accepts_people_subjects_for_claims_and_opportunities(tmp_path):
+    root = tmp_path / "vault"
+    initialize_vault(root)
+    person_id = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    claim_id = "01ARZ3NDEKTSV4RRFFQ69G5FAW"
+    opportunity_id = "01ARZ3NDEKTSV4RRFFQ69G5FAX"
+    (root / "people").mkdir()
+    (root / "people" / "person.md").write_text(
+        render_frontmatter({"id": person_id, "type": "person"}, "# Person\n"),
+        encoding="utf-8",
+    )
+    (root / "claims" / "claim.md").write_text(
+        render_frontmatter(
+            {"id": claim_id, "type": "claim", "subject_id": person_id, "source_ids": []},
+            "# Claim\n",
+        ),
+        encoding="utf-8",
+    )
+    (root / "opportunities" / "opportunity.md").write_text(
+        render_frontmatter(
+            {"id": opportunity_id, "type": "opportunity", "subject_ids": [person_id]},
+            "# Opportunity\n",
+        ),
+        encoding="utf-8",
+    )
+
+    integrity = doctor_report(root)["referential_integrity"]
+    assert integrity == {"clean": True, "orphan_count": 0, "orphans": {}}
+
+
+def test_doctor_still_flags_unknown_claim_and_opportunity_subjects(tmp_path):
+    root = tmp_path / "vault"
+    initialize_vault(root)
+    missing_claim_subject = "01ARZ3NDEKTSV4RRFFQ69G5FAY"
+    missing_opportunity_subject = "01ARZ3NDEKTSV4RRFFQ69G5FAZ"
+    (root / "claims" / "claim.md").write_text(
+        render_frontmatter(
+            {
+                "id": "01ARZ3NDEKTSV4RRFFQ69G5FB0",
+                "type": "claim",
+                "subject_id": missing_claim_subject,
+                "source_ids": [],
+            },
+            "# Claim\n",
+        ),
+        encoding="utf-8",
+    )
+    (root / "opportunities" / "opportunity.md").write_text(
+        render_frontmatter(
+            {
+                "id": "01ARZ3NDEKTSV4RRFFQ69G5FB1",
+                "type": "opportunity",
+                "subject_ids": [missing_opportunity_subject],
+            },
+            "# Opportunity\n",
+        ),
+        encoding="utf-8",
+    )
+
+    integrity = doctor_report(root)["referential_integrity"]
+    assert integrity == {
+        "clean": False,
+        "orphan_count": 2,
+        "orphans": {
+            "claim_subjects_without_entity": [missing_claim_subject],
+            "opportunity_subjects_without_entity": [missing_opportunity_subject],
+        },
+    }
+
+
 def test_doctor_returns_json_capability_report(tmp_path):
     root = tmp_path / "vault"
     initialize_vault(root)

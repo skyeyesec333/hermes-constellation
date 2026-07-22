@@ -53,7 +53,7 @@ def _referential_integrity(root: Path) -> dict[str, object]:
     from .frontmatter import parse_frontmatter
 
     CANONICAL_DIRS = (
-        "entities", "source-items", "claims", "interactions",
+        "entities", "people", "source-items", "claims", "interactions",
         "decisions", "inquiries", "opportunities",
     )
 
@@ -70,7 +70,7 @@ def _referential_integrity(root: Path) -> dict[str, object]:
             if isinstance(fm, dict) and fm.get("id"):
                 ids[folder].add(str(fm["id"]))
 
-    entity_ids = ids["entities"]
+    entity_ids = ids["entities"] | ids["people"]
     source_ids = ids["source-items"]
     orphans: dict[str, list[str]] = {}
 
