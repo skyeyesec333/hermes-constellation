@@ -2,6 +2,9 @@
 ledger accounting, failure paths, and receipt generation."""
 
 import json
+import sys
+import types
+import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -12,11 +15,13 @@ from constellation.egress import EgressDenied
 from constellation.models import Inquiry, Sensitivity
 from constellation.research_runner import (
     ResearchRunnerError,
+    _explicit_http_urls,
     _has_query_relevance,
     _request_input_sha256,
     _try_authorize_adapter,
     run_inquiry,
 )
+from constellation.url_safety import UnsafeUrlError
 from constellation.vault import initialize_vault
 
 
@@ -267,6 +272,577 @@ def test_relevance_matching_uses_whole_tokens_not_name_substrings():
         question,
         "Hajime Eda leads Toshiba battery business development",
     )
+
+
+def test_explicit_url_skips_discovery_and_uses_gated_extraction(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    vault = tmp_path / "vault"
+    initialize_vault(vault)
+    _declare_provider(vault, "firecrawl", "firecrawl-local")
+    explicit_url = "https://research.example.test/article"
+    inquiry = _make_inquiry(
+        question=f"{explicit_url}\nExtract this article and summarize its key facts.",
+        max_unique_sources=1,
+    )
+
+    monkeypatch.setattr(
+        "constellation.research_runner.search_web",
+        lambda *_args, **_kwargs: pytest.fail(
+            "explicit URL inquiry must not use search discovery"
+        ),
+    )
+    monkeypatch.setattr(
+        "constellation.research_runner.exa_search",
+        lambda *_args, **_kwargs: pytest.fail(
+            "explicit URL inquiry must not use Exa discovery"
+        ),
+    )
+    monkeypatch.setattr(
+        "constellation.research_runner.brave_search",
+        lambda *_args, **_kwargs: pytest.fail(
+            "explicit URL inquiry must not use Brave discovery"
+        ),
+    )
+    monkeypatch.setattr("constellation.firecrawl_adapter.extract_page", _fake_firecrawl)
+
+    result = run_inquiry(vault, inquiry, sensitivity=Sensitivity.PUBLIC)
+
+    assert result["status"] == "completed"
+    assert result["queries_used"] == 0
+    assert result["sources_discovered"] == 1
+    assert result["sources_extracted"] == 1
+    receipt_path = result["receipt_path"]
+    assert isinstance(receipt_path, str)
+    receipt = json.loads((vault / receipt_path).read_text(encoding="utf-8"))
+    assert receipt["sources"][0]["url"] == explicit_url
+    events = [
+        json.loads(line)
+        for line in (vault / ".constellation/egress-ledger.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    assert [event["provider"] for event in events] == ["firecrawl"]
+    assert events[0]["request_input_sha256"] == _request_input_sha256(
+        inquiry, adapter="firecrawl", url=explicit_url
+    )
+
+
+def test_explicit_url_parser_preserves_balanced_path_parentheses() -> None:
+    url = "https://research.example.test/wiki/Function_(mathematics)"
+
+    assert _explicit_http_urls(f"Read {url}") == [url]
+    assert _explicit_http_urls(f"Read [source]({url})") == [url]
+
+
+def test_explicit_url_parser_preserves_legal_trailing_path_characters() -> None:
+    semicolon_url = "https://research.example.test/path;"
+    exclamation_url = "https://research.example.test/path!"
+
+    assert _explicit_http_urls(f"Read {semicolon_url} {exclamation_url}") == [
+        semicolon_url,
+        exclamation_url,
+    ]
+
+
+def test_explicit_url_parser_removes_only_presentation_delimiters() -> None:
+    url = "https://research.example.test/article"
+
+    assert _explicit_http_urls(f"Read ({url})") == [url]
+    assert _explicit_http_urls(f"Read {url}.") == [url]
+    assert _explicit_http_urls(f"Read `{url}`") == [url]
+
+
+@pytest.mark.parametrize(
+    ("question", "max_pages"),
+    [
+        ("Read https://research.example.test/article", -1),
+        ("Read https://research.example.test/article", 0),
+        ("Research ExampleCo acquisition plans", 0),
+    ],
+)
+def test_nonpositive_page_bound_rejected_before_network(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    question: str,
+    max_pages: int,
+) -> None:
+    vault = tmp_path / "vault"
+    initialize_vault(vault)
+    inquiry = _make_inquiry(question=question)
+    monkeypatch.setattr(
+        "constellation.research_runner.search_web",
+        lambda *_args, **_kwargs: pytest.fail("invalid bound must fail before discovery"),
+    )
+
+    with pytest.raises(ResearchRunnerError, match="max_pages"):
+        run_inquiry(
+            vault,
+            inquiry,
+            sensitivity=Sensitivity.PUBLIC,
+            max_pages=max_pages,
+        )
+
+    assert not (vault / ".constellation/egress-ledger.jsonl").exists()
+
+
+@pytest.mark.parametrize("max_unique_sources", [-1, 0])
+def test_nonpositive_unique_source_bound_rejected_before_side_effects(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    max_unique_sources: int,
+) -> None:
+    vault = tmp_path / "vault"
+    initialize_vault(vault)
+    inquiry = _make_inquiry(
+        question="Read https://research.example.test/article",
+        max_unique_sources=max_unique_sources,
+    )
+    monkeypatch.setattr(
+        "constellation.firecrawl_adapter.extract_page",
+        lambda *_args, **_kwargs: pytest.fail(
+            "invalid unique-source bound must fail before extraction"
+        ),
+    )
+
+    with pytest.raises(ResearchRunnerError, match="max_unique_sources"):
+        run_inquiry(vault, inquiry, sensitivity=Sensitivity.PUBLIC)
+
+    assert not (vault / ".constellation/egress-ledger.jsonl").exists()
+    assert list((vault / ".constellation/research-runs").glob("*/receipt.json")) == []
+
+
+def test_explicit_url_never_uses_raw_http_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    vault = tmp_path / "vault"
+    initialize_vault(vault)
+    _declare_provider(vault, "raw-http", "raw-http-local")
+    inquiry = _make_inquiry(question="Read https://research.example.test/article")
+    calls = 0
+
+    def _raw_network_call(*_args: object, **_kwargs: object) -> object:
+        nonlocal calls
+        calls += 1
+        raise AssertionError("raw HTTP fallback must remain disabled")
+
+    monkeypatch.setattr(urllib.request, "urlopen", _raw_network_call)
+
+    result = run_inquiry(vault, inquiry, sensitivity=Sensitivity.PUBLIC)
+
+    assert calls == 0
+    assert result["status"] == "partial"
+    assert result["sources_extracted"] == 0
+
+
+def test_fallback_attempts_are_all_receipted_and_failure_blocks_promotion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    vault = tmp_path / "vault"
+    initialize_vault(vault)
+    _declare_provider(vault, "searxng", "searxng-local")
+    _declare_provider(vault, "firecrawl", "firecrawl-local")
+    _declare_provider(vault, "crawl4ai", "crawl4ai-local")
+    inquiry = _make_inquiry()
+    monkeypatch.setattr(
+        "constellation.research_runner.search_web",
+        lambda *_args, **_kwargs: _fake_search_results(
+            "https://research.example.test/article"
+        ),
+    )
+
+    from constellation.firecrawl_adapter import FirecrawlAdapterError
+
+    monkeypatch.setattr(
+        "constellation.firecrawl_adapter.extract_page",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            FirecrawlAdapterError("Firecrawl unavailable")
+        ),
+    )
+
+    class _Crawler:
+        async def __aenter__(self) -> "_Crawler":
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+        async def arun(self, *, url: str) -> object:
+            return types.SimpleNamespace(
+                markdown=f"This public source contains evidence from {url}", title=""
+            )
+
+    monkeypatch.setitem(
+        sys.modules,
+        "crawl4ai",
+        types.SimpleNamespace(AsyncWebCrawler=_Crawler),
+    )
+
+    result = run_inquiry(vault, inquiry, sensitivity=Sensitivity.PUBLIC)
+
+    assert result["status"] == "partial"
+    assert result["sources_extracted"] == 1
+    receipt_path = result["receipt_path"]
+    assert isinstance(receipt_path, str)
+    receipt = json.loads((vault / receipt_path).read_text(encoding="utf-8"))
+    assert [(call["provider"], call["success"]) for call in receipt["calls"]] == [
+        ("searxng", True),
+        ("firecrawl", False),
+        ("crawl4ai", True),
+    ]
+    assert receipt["usage"]["calls"] == 3
+    assert receipt["usage"]["failed_calls"] == 1
+    assert receipt["promotion_allowed"] is False
+
+
+def test_call_budget_is_reserved_before_adapter_invocation_and_receipted_exactly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    vault = tmp_path / "vault"
+    initialize_vault(vault)
+    for provider, model in (
+        ("searxng", "searxng-local"),
+        ("firecrawl", "firecrawl-local"),
+        ("crawl4ai", "crawl4ai-local"),
+        ("scrapling", "scrapling-local"),
+        ("browser-use", "browser-use-local"),
+    ):
+        _declare_provider(vault, provider, model)
+    inquiry = _make_inquiry(max_unique_sources=2)
+    actual_calls: list[str] = []
+
+    def _search(*_args: object, **_kwargs: object) -> list[dict[str, object]]:
+        actual_calls.append("searxng")
+        return _fake_search_results(
+            "https://research.example.test/page1",
+            "https://research.example.test/page2",
+        )
+
+    monkeypatch.setattr("constellation.research_runner.search_web", _search)
+
+    from constellation.firecrawl_adapter import FirecrawlAdapterError
+
+    def _firecrawl(*_args: object, **_kwargs: object) -> object:
+        actual_calls.append("firecrawl")
+        raise FirecrawlAdapterError("blocked by deterministic fake")
+
+    monkeypatch.setattr("constellation.firecrawl_adapter.extract_page", _firecrawl)
+
+    class _Crawler:
+        async def __aenter__(self) -> "_Crawler":
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+        async def arun(self, *, url: str) -> object:
+            actual_calls.append("crawl4ai")
+            raise RuntimeError(f"blocked deterministic Crawl4AI call for {url}")
+
+    def _scrapling(*_args: object, **_kwargs: object) -> object:
+        actual_calls.append("scrapling")
+        raise RuntimeError("blocked deterministic Scrapling call")
+
+    class _BrowserAgent:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        async def run(self) -> object:
+            actual_calls.append("browser-use")
+            raise RuntimeError("blocked deterministic Browser Use call")
+
+    monkeypatch.setitem(
+        sys.modules,
+        "crawl4ai",
+        types.SimpleNamespace(AsyncWebCrawler=_Crawler),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "scrapling",
+        types.SimpleNamespace(fetch=_scrapling),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "browser_use",
+        types.SimpleNamespace(Agent=_BrowserAgent),
+    )
+
+    result = run_inquiry(
+        vault,
+        inquiry,
+        sensitivity=Sensitivity.PUBLIC,
+        max_pages=2,
+    )
+
+    assert result["status"] == "budget_exhausted"
+    receipt_path = result["receipt_path"]
+    assert isinstance(receipt_path, str)
+    receipt = json.loads((vault / receipt_path).read_text(encoding="utf-8"))
+    receipted_calls = [call["provider"] for call in receipt["calls"]]
+    assert actual_calls == receipted_calls
+    assert len(actual_calls) == 6
+    assert receipt["usage"]["calls"] == 6
+    assert receipt["promotion_allowed"] is False
+    egress_events = [
+        json.loads(line)
+        for line in (vault / ".constellation/egress-ledger.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    authorized_calls = [
+        event["provider"] for event in egress_events if event["allowed"]
+    ]
+    assert actual_calls == authorized_calls
+
+
+def test_unexpected_firecrawl_error_reconciles_reserved_context_before_reraise(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    vault = tmp_path / "vault"
+    initialize_vault(vault)
+    _declare_provider(vault, "firecrawl", "firecrawl-local")
+    inquiry = _make_inquiry(question="Read https://research.example.test/article")
+
+    monkeypatch.setattr(
+        "constellation.firecrawl_adapter.extract_page",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("unexpected deterministic Firecrawl failure")
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="unexpected deterministic"):
+        run_inquiry(vault, inquiry, sensitivity=Sensitivity.PUBLIC)
+
+    receipts = list((vault / ".constellation/research-runs").glob("*/receipt.json"))
+    assert len(receipts) == 1
+    receipt = json.loads(receipts[0].read_text(encoding="utf-8"))
+    assert receipt["status"] == "failed"
+    assert [(call["provider"], call["success"], call["context_bytes"]) for call in receipt["calls"]] == [
+        ("firecrawl", False, 0)
+    ]
+    assert receipt["promotion_allowed"] is False
+
+
+def test_scrapling_preferred_markdown_is_bounded_before_reconciliation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    vault = tmp_path / "vault"
+    initialize_vault(vault)
+    for provider, model in (
+        ("searxng", "searxng-local"),
+        ("firecrawl", "firecrawl-local"),
+        ("crawl4ai", "crawl4ai-local"),
+        ("scrapling", "scrapling-local"),
+    ):
+        _declare_provider(vault, provider, model)
+    inquiry = _make_inquiry()
+    monkeypatch.setattr(
+        "constellation.research_runner.search_web",
+        lambda *_args, **_kwargs: _fake_search_results(
+            "https://research.example.test/article"
+        ),
+    )
+
+    from constellation.firecrawl_adapter import FirecrawlAdapterError
+
+    monkeypatch.setattr(
+        "constellation.firecrawl_adapter.extract_page",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            FirecrawlAdapterError("deterministic Firecrawl failure")
+        ),
+    )
+
+    class _Crawler:
+        async def __aenter__(self) -> "_Crawler":
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+        async def arun(self, *, url: str) -> object:
+            raise RuntimeError(f"deterministic Crawl4AI failure for {url}")
+
+    monkeypatch.setitem(
+        sys.modules,
+        "crawl4ai",
+        types.SimpleNamespace(AsyncWebCrawler=_Crawler),
+    )
+    oversized_markdown = "This public source says " + ("🔥" * 50_000)
+    monkeypatch.setitem(
+        sys.modules,
+        "scrapling",
+        types.SimpleNamespace(
+            fetch=lambda *_args, **_kwargs: types.SimpleNamespace(
+                text="fallback text",
+                markdown=oversized_markdown,
+                title="Test Page",
+            )
+        ),
+    )
+
+    result = run_inquiry(vault, inquiry, sensitivity=Sensitivity.PUBLIC)
+
+    assert result["status"] == "partial"
+    assert result["sources_extracted"] == 1
+    receipt_path = result["receipt_path"]
+    assert isinstance(receipt_path, str)
+    receipt = json.loads((vault / receipt_path).read_text(encoding="utf-8"))
+    scrapling_call = next(
+        call for call in receipt["calls"] if call["provider"] == "scrapling"
+    )
+    assert scrapling_call["success"] is True
+    assert 0 < scrapling_call["context_bytes"] <= 200_000
+    preserved_sources = result["preserved_sources"]
+    assert isinstance(preserved_sources, list)
+    assert isinstance(preserved_sources[0], dict)
+    source_path = preserved_sources[0]["source_path"]
+    assert isinstance(source_path, str)
+    assert len((vault / source_path).read_text(encoding="utf-8")) == 50_000
+
+
+def test_browser_use_empty_result_is_receipted_as_failed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    vault = tmp_path / "vault"
+    initialize_vault(vault)
+    _declare_provider(vault, "searxng", "searxng-local")
+    _declare_provider(vault, "browser-use", "browser-use-local")
+    inquiry = _make_inquiry()
+    monkeypatch.setattr(
+        "constellation.research_runner.search_web",
+        lambda *_args, **_kwargs: _fake_search_results(
+            "https://research.example.test/article"
+        ),
+    )
+
+    class _BrowserResult:
+        def final_result(self) -> str:
+            return ""
+
+    class _BrowserAgent:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        async def run(self) -> _BrowserResult:
+            return _BrowserResult()
+
+    monkeypatch.setitem(
+        sys.modules,
+        "browser_use",
+        types.SimpleNamespace(Agent=_BrowserAgent),
+    )
+
+    result = run_inquiry(vault, inquiry, sensitivity=Sensitivity.PUBLIC)
+
+    assert result["status"] == "partial"
+    assert result["sources_extracted"] == 0
+    receipt_path = result["receipt_path"]
+    assert isinstance(receipt_path, str)
+    receipt = json.loads((vault / receipt_path).read_text(encoding="utf-8"))
+    browser_call = next(
+        call for call in receipt["calls"] if call["provider"] == "browser-use"
+    )
+    assert browser_call["success"] is False
+    assert browser_call["context_bytes"] == 0
+    assert receipt["usage"]["failed_calls"] == 1
+    assert receipt["promotion_allowed"] is False
+
+
+def test_explicit_url_blocked_redirect_does_not_use_unverified_fallbacks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    vault = tmp_path / "vault"
+    initialize_vault(vault)
+    for provider, model in (
+        ("firecrawl", "firecrawl-local"),
+        ("crawl4ai", "crawl4ai-local"),
+        ("scrapling", "scrapling-local"),
+        ("browser-use", "browser-use-local"),
+    ):
+        _declare_provider(vault, provider, model)
+    inquiry = _make_inquiry(question="Read https://research.example.test/redirect")
+
+    from constellation.firecrawl_adapter import FirecrawlAdapterError
+
+    monkeypatch.setattr(
+        "constellation.firecrawl_adapter.extract_page",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            FirecrawlAdapterError("redirect target resolves to a private address")
+        ),
+    )
+
+    class _ForbiddenCrawler:
+        async def __aenter__(self) -> "_ForbiddenCrawler":
+            raise AssertionError("explicit URL must not fall back to Crawl4AI")
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+    monkeypatch.setitem(
+        sys.modules,
+        "crawl4ai",
+        types.SimpleNamespace(AsyncWebCrawler=_ForbiddenCrawler),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "scrapling",
+        types.SimpleNamespace(
+            fetch=lambda *_args, **_kwargs: pytest.fail(
+                "explicit URL must not fall back to Scrapling"
+            )
+        ),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "browser_use",
+        types.SimpleNamespace(
+            Agent=lambda *_args, **_kwargs: pytest.fail(
+                "explicit URL must not fall back to Browser Use"
+            )
+        ),
+    )
+
+    result = run_inquiry(vault, inquiry, sensitivity=Sensitivity.PUBLIC)
+
+    assert result["status"] == "partial"
+    assert result["sources_extracted"] == 0
+    receipt_path = result["receipt_path"]
+    assert isinstance(receipt_path, str)
+    receipt = json.loads((vault / receipt_path).read_text(encoding="utf-8"))
+    assert [(call["provider"], call["success"]) for call in receipt["calls"]] == [
+        ("firecrawl", False)
+    ]
+    assert receipt["promotion_allowed"] is False
+    events = [
+        json.loads(line)
+        for line in (vault / ".constellation/egress-ledger.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    assert [event["provider"] for event in events] == ["firecrawl"]
+
+
+def test_unsafe_explicit_url_fails_before_network_and_writes_failed_receipt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    vault = tmp_path / "vault"
+    initialize_vault(vault)
+    unsafe_host = "".join(chr(value) for value in (49, 50, 55, 46, 48, 46, 48, 46, 49))
+    inquiry = _make_inquiry(question=f"Extract http://{unsafe_host}/private")
+    monkeypatch.setattr(
+        "constellation.research_runner.search_web",
+        lambda *_args, **_kwargs: pytest.fail("unsafe URL must fail before discovery"),
+    )
+
+    with pytest.raises(UnsafeUrlError):
+        run_inquiry(vault, inquiry, sensitivity=Sensitivity.PUBLIC)
+
+    assert not (vault / ".constellation/egress-ledger.jsonl").exists()
+    receipts = list((vault / ".constellation/research-runs").glob("*/receipt.json"))
+    assert len(receipts) == 1
+    receipt = json.loads(receipts[0].read_text(encoding="utf-8"))
+    assert receipt["status"] == "failed"
+    assert receipt["promotion_allowed"] is False
 
 
 def test_run_inquiry_records_distinct_url_bound_adapter_authorizations(
