@@ -3,9 +3,11 @@
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import pytest
 
+import constellation.review as review_module
 from constellation.frameworks import FrameworkError, run_framework
 from constellation.frontmatter import parse_frontmatter, render_frontmatter
 from constellation.models import Analysis, Claim, ClaimStatus, EntityKind, EntityRecord, Sensitivity, generate_ulid
@@ -131,6 +133,30 @@ def test_analysis_envelope_promotion_preserves_generated_body(tmp_path: Path) ->
     assert "## Strengths (Internal)" in text
     assert "Operator review required" in text
     validate_canonical_text(text, target_path)
+
+
+def test_analysis_promotion_does_not_overwrite_concurrent_create(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    vault, entity_id = _setup_vault(tmp_path)
+    staged = run_framework(vault, entity_id, "swot")
+    candidate_id = f"analysis-{staged['analysis_id']}"
+    candidate_path = vault / str(staged["candidate_path"])
+    target = vault / "analyses" / f"{staged['analysis_id']}.md"
+    concurrent_content = "concurrent canonical writer\n"
+    original_atomic_write = review_module.atomic_write_text
+
+    def race_create(root: Path, relative: str, text: str, **kwargs: Any) -> Path:
+        target.write_text(concurrent_content, encoding="utf-8")
+        return original_atomic_write(root, relative, text, **kwargs)
+
+    monkeypatch.setattr(review_module, "atomic_write_text", race_create)
+
+    with pytest.raises(PromotionError, match="promotion failed"):
+        promote_candidate(vault, candidate_id, confirm=True, expected_base_hash=None)
+
+    assert target.read_text(encoding="utf-8") == concurrent_content
+    assert candidate_path.is_file()
 
 
 def test_analysis_envelope_requires_evidence_status(tmp_path: Path) -> None:

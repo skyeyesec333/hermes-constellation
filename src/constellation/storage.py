@@ -65,12 +65,17 @@ def atomic_write_bytes(
     data: bytes,
     *,
     expected_hash: str | None = None,
+    must_not_exist: bool = False,
 ) -> Path:
+    if expected_hash is not None and must_not_exist:
+        raise ValueError("expected_hash and must_not_exist are mutually exclusive")
     destination = safe_relative_path(root, relative)
     destination.parent.mkdir(parents=True, exist_ok=True)
     _reject_symlink_components(destination.parent, Path(root).absolute())
     if destination.exists() and not destination.is_file():
         raise UnsafePathError("destination is not a regular file")
+    if must_not_exist and destination.exists():
+        raise ConflictError("destination already exists")
     if expected_hash is not None:
         current = sha256_file(destination) if destination.exists() else None
         if current != expected_hash:
@@ -86,7 +91,14 @@ def atomic_write_bytes(
             current = sha256_file(destination) if destination.exists() else None
             if current != expected_hash:
                 raise ConflictError("destination changed while the replacement was staged")
-        os.replace(temporary, destination)
+        if must_not_exist:
+            try:
+                os.link(temporary, destination)
+            except FileExistsError as exc:
+                raise ConflictError("destination was created while the write was staged") from exc
+            temporary.unlink()
+        else:
+            os.replace(temporary, destination)
     finally:
         temporary.unlink(missing_ok=True)
     return destination
@@ -98,5 +110,12 @@ def atomic_write_text(
     text: str,
     *,
     expected_hash: str | None = None,
+    must_not_exist: bool = False,
 ) -> Path:
-    return atomic_write_bytes(root, relative, text.encode("utf-8"), expected_hash=expected_hash)
+    return atomic_write_bytes(
+        root,
+        relative,
+        text.encode("utf-8"),
+        expected_hash=expected_hash,
+        must_not_exist=must_not_exist,
+    )

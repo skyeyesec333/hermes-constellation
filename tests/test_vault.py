@@ -89,6 +89,28 @@ def test_atomic_write_detects_change_during_staging(tmp_path, monkeypatch):
     assert target.read_text(encoding="utf-8") == "concurrent"
 
 
+def test_atomic_create_only_detects_target_created_while_staged(tmp_path, monkeypatch):
+    root = tmp_path / "vault"
+    initialize_vault(root)
+    target = root / "claims/one.md"
+    real_fsync = os.fsync
+    created = False
+
+    def concurrent_create(descriptor):
+        nonlocal created
+        if not created:
+            created = True
+            target.write_text("concurrent", encoding="utf-8")
+        return real_fsync(descriptor)
+
+    monkeypatch.setattr("constellation.storage.os.fsync", concurrent_create)
+    with pytest.raises(ConflictError):
+        atomic_write_text(root, "claims/one.md", "proposed", must_not_exist=True)
+
+    assert target.read_text(encoding="utf-8") == "concurrent"
+    assert list(target.parent.glob(".one.md.*")) == []
+
+
 def test_doctor_returns_json_capability_report(tmp_path):
     root = tmp_path / "vault"
     initialize_vault(root)

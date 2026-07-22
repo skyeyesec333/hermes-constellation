@@ -790,7 +790,7 @@ def _promote_analysis_candidate(
     content = _analysis_candidate_content(analysis_obj, body_markdown)
     try:
         validate_canonical_text(content, target_path)
-        atomic_write_text(root, target_path, content)
+        atomic_write_text(root, target_path, content, must_not_exist=True)
     except (CanonicalValidationError, ConflictError) as exc:
         raise PromotionError("analysis candidate promotion failed") from exc
     _append_action(
