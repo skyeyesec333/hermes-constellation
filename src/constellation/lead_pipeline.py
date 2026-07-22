@@ -197,6 +197,8 @@ def capture_conference_lead(
         body_lines.append(f"- person hint: {person['raw_name']}")
     if person.get("company_hint"):
         body_lines.append(f"- company hint: {person['company_hint']}")
+    if person.get("name_review_required"):
+        body_lines.append("- Name review: required")
     if todos:
         body_lines.append("")
         body_lines.append("## Todos (confirmed with Bryan)")
@@ -233,5 +235,6 @@ def capture_conference_lead(
         "pm_project": task["project_path"],
         "pm_task": task["task_path"],
         "task_id": task["task_id"],
+        "name_review_required": bool(person.get("name_review_required")),
         "send_allowed": False,
     }

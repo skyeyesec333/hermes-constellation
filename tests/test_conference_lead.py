@@ -1,3 +1,4 @@
+import json
 from datetime import date
 
 from constellation.conference import (
@@ -27,6 +28,8 @@ def test_likely_person_name_rejects_address_and_region():
     assert _is_likely_person_name("Bang Rak, Bangkok 10500") is False
     assert _is_likely_person_name("Maine; Maryland, Massachusetts, New York") is False
     assert _is_likely_person_name("1234 Sathorn Road") is False
+    assert _is_likely_person_name("T") is False
+    assert _is_likely_person_name("Solar Energy") is False
 
 
 def test_hint_prefers_name_over_address():
@@ -44,16 +47,19 @@ def test_hint_prefers_name_over_address():
     assert hint["email"] == "jira@" + "example.test"
 
 
-def test_hint_falls_back_when_no_clear_name():
-    """When nothing looks like a name, fall back to first unclassified."""
+def test_hint_marks_uncertain_ocr_text_for_review_without_inventing_identity():
+    """No credible name means no person or company hint is inferred."""
     hint = _hint_from_card_fields(
         [
-            {"field": "unclassified_text", "value": "MATRADE", "anchor": "OCR:R0001"},
-            {"field": "email", "value": "office@" + "trade.example.test", "anchor": "OCR:R0002"},
+            {"field": "unclassified_text", "value": "T", "anchor": "OCR:R0001"},
+            {"field": "unclassified_text", "value": "Solar Energy", "anchor": "OCR:R0002"},
+            {"field": "email", "value": "office@" + "trade.example.test", "anchor": "OCR:R0003"},
         ]
     )
-    assert hint["raw_name"] == "MATRADE"
+    assert hint["raw_name"] is None
     assert hint["company_hint"] is None
+    assert hint["name_review_required"] is True
+    assert hint["email"] == "office@" + "trade.example.test"
 
 
 def test_name_scoring_prefers_person_over_company():
@@ -170,3 +176,55 @@ def test_capture_conference_lead_writes_pm_task(tmp_path, monkeypatch):
     assert (vault / result["drafts_path"]).is_file()
     drafts = (vault / result["drafts_path"]).read_text(encoding="utf-8")
     assert '"send_allowed": false' in drafts
+
+
+def test_low_confidence_ocr_card_creates_unknown_contact_review_task(tmp_path, monkeypatch):
+    from datetime import UTC, datetime
+
+    from constellation.ingest import ExtractedSource
+    from constellation.storage import sha256_bytes
+
+    vault = tmp_path / "vault"
+    initialize_vault(vault)
+    card = vault / "Inbox/uncertain-card.png"
+    data = b"fictional-uncertain-card"
+    card.write_bytes(data)
+    extracted = ExtractedSource(
+        data=data,
+        text="[OCR:R0001] T\n[OCR:R0002] Solar Energy\n",
+        media_type="image/png",
+        extraction={
+            "source_sha256": sha256_bytes(data),
+            "status": "complete",
+            "units": [
+                {"anchor": "OCR:R0001", "confidence": 0.2, "bounding_box": [[0, 0], [1, 1]]},
+                {"anchor": "OCR:R0002", "confidence": 0.2, "bounding_box": [[0, 1], [1, 2]]},
+            ],
+        },
+    )
+    monkeypatch.setattr("constellation.ingest._read_source", lambda _: extracted)
+
+    result = capture_conference_lead(
+        vault,
+        card_source=card,
+        event_name="Fictional Expo",
+        event_date=date(2026, 7, 21),
+        project_title="Fictional Expo Leads",
+        now=datetime(2026, 7, 21, tzinfo=UTC),
+    )
+
+    assert result["name_review_required"] is True
+    encounter = json.loads((vault / result["encounter_path"]).read_text(encoding="utf-8"))
+    assert encounter["person_hint"]["raw_name"] is None
+    assert encounter["person_hint"]["company_hint"] is None
+    assert encounter["person_hint"]["name_review_required"] is True
+    manifest_files = list((vault / ".constellation/manifests").glob("*.json"))
+    assert len(manifest_files) == 1
+    manifest = json.loads(manifest_files[0].read_text(encoding="utf-8"))
+    assert [field["anchor"] for field in manifest["business_card"]["fields"]] == [
+        "OCR:R0001",
+        "OCR:R0002",
+    ]
+    task = (vault / result["pm_task"]).read_text(encoding="utf-8")
+    assert "Unknown contact" in task
+    assert "Name review: required" in task

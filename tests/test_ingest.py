@@ -1,16 +1,17 @@
 import io
 import json
 import zipfile
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 import yaml
 
 from constellation.frontmatter import FrontmatterError, parse_frontmatter, render_frontmatter
-from constellation.ingest import CapabilityError, IngestError, ingest_file
+from constellation.ingest import CapabilityError, ExtractedSource, IngestError, ingest_file
 from constellation.models import CandidatePatch
 from constellation.retrieval import build_index, exact_lookup
 from constellation.review import promote_candidate
+from constellation.storage import sha256_bytes
 from constellation.vault import initialize_vault
 
 NOW = datetime(2026, 2, 3, 4, 5, tzinfo=UTC)
@@ -118,6 +119,91 @@ def test_ingest_is_hash_idempotent(tmp_path):
     assert first["candidate_id"] == second["candidate_id"]
     assert not list((root / "source-items").glob("*.md"))
     assert len(list((root / ".constellation/candidates").glob("*.json"))) == 1
+
+
+def test_reingest_promoted_unchanged_source_is_a_side_effect_free_noop(tmp_path):
+    root = make_vault(tmp_path)
+    source = root / "Inbox/promoted.txt"
+    source.write_text("Fictional stable evidence.\n", encoding="utf-8")
+    first = ingest_file(root, source, now=NOW)
+    promote_candidate(root, first["candidate_id"], confirm=True, expected_base_hash=None)
+
+    source_note_path = root / first["source_item_path"]
+    manifest_path = root / first["manifest_path"]
+    source_before = source_note_path.read_text(encoding="utf-8")
+    manifest_before = manifest_path.read_text(encoding="utf-8")
+
+    again = ingest_file(root, source, now=NOW + timedelta(minutes=1))
+
+    assert again["status"] == "already_ingested"
+    assert again["source_patch_staged"] == "false"
+    assert source_note_path.read_text(encoding="utf-8") == source_before
+    assert manifest_path.read_text(encoding="utf-8") == manifest_before
+    assert not list((root / ".constellation/candidates").glob("*.json"))
+
+
+def test_reingest_materially_changed_extraction_stages_one_hash_checked_update(tmp_path, monkeypatch):
+    root = make_vault(tmp_path)
+    source = root / "Inbox/reprocessed.txt"
+    source.write_text("Original fictional bytes.\n", encoding="utf-8")
+    first = ingest_file(root, source, now=NOW)
+    promote_candidate(root, first["candidate_id"], confirm=True, expected_base_hash=None)
+
+    data = source.read_bytes()
+    revised_text = "Reprocessed fictional extraction with a corrected anchor.\n"
+    monkeypatch.setattr(
+        "constellation.ingest._read_source",
+        lambda _: ExtractedSource(
+            data=data,
+            text=revised_text,
+            media_type="text/plain",
+            extraction={"source_sha256": sha256_bytes(data), "status": "complete", "units": []},
+        ),
+    )
+
+    result = ingest_file(root, source, now=NOW + timedelta(minutes=1))
+
+    assert result["status"] == "already_ingested"
+    assert result["source_patch_staged"] == "true"
+    candidate = CandidatePatch.model_validate_json(
+        (root / result["candidate_path"]).read_text(encoding="utf-8")
+    )
+    assert candidate.expected_base_hash
+    assert revised_text in candidate.content
+
+
+def test_reingest_preserves_a_conflicting_existing_upgrade_candidate(tmp_path, monkeypatch):
+    root = make_vault(tmp_path)
+    source = root / "Inbox/conflicting.txt"
+    source.write_text("Original fictional bytes.\n", encoding="utf-8")
+    first = ingest_file(root, source, now=NOW)
+    promote_candidate(root, first["candidate_id"], confirm=True, expected_base_hash=None)
+
+    data = source.read_bytes()
+    revised_text = "Reprocessed fictional extraction.\n"
+    monkeypatch.setattr(
+        "constellation.ingest._read_source",
+        lambda _: ExtractedSource(
+            data=data,
+            text=revised_text,
+            media_type="text/plain",
+            extraction={"source_sha256": sha256_bytes(data), "status": "complete", "units": []},
+        ),
+    )
+    staged = ingest_file(root, source, now=NOW + timedelta(minutes=1))
+    candidate_path = root / staged["candidate_path"]
+    candidate_before = candidate_path.read_text(encoding="utf-8")
+
+    source_note_path = root / first["source_item_path"]
+    source_note_path.write_text(
+        source_note_path.read_text(encoding="utf-8") + "\nManual canonical note.\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(IngestError, match="different source upgrade candidate"):
+        ingest_file(root, source, now=NOW + timedelta(minutes=2))
+
+    assert candidate_path.read_text(encoding="utf-8") == candidate_before
 
 
 def test_changed_local_capture_stages_a_new_candidate_without_canonical_rewrite(tmp_path):

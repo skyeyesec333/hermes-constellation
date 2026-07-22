@@ -997,14 +997,18 @@ def _stage_source_extraction_upgrade(
     metadata, _ = parse_frontmatter(current_text)
     metadata["extraction_manifest_path"] = manifest_relative.as_posix()
     metadata["extraction_status"] = str(extraction["status"])
-    metadata["updated_at"] = instant.isoformat()
     source_item = SourceItem.model_validate(metadata, strict=False)
+    unchanged_note = render_frontmatter(
+        source_item.model_dump(mode="json", exclude_none=True),
+        f"# {source_item.title}\n\n{text}",
+    )
+    if unchanged_note == current_text:
+        return False
+    source_item = source_item.model_copy(update={"updated_at": instant})
     updated_note = render_frontmatter(
         source_item.model_dump(mode="json", exclude_none=True),
         f"# {source_item.title}\n\n{text}",
     )
-    if updated_note == current_text:
-        return False
     candidate = CandidatePatch(
         id=source_item.id,
         type="candidate-patch",
