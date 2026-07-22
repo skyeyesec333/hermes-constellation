@@ -15,6 +15,9 @@ _NAME_ADDRESS_GARBAGE = _re.compile(
     r",\s*[A-Z][a-z]+\s*,|"         # comma-separated state/region: "Maine,Maryland"
     r"\d{5}|"                        # ZIP/postal code
     r"\b(?:Street|Road|Ave|Avenue|Blvd|Boulevard|Lane|Dr|Drive|Ct|Court|Way|Pl|Place)\b|"
+    r"\bUnit\s*\d*\b|"
+    r"\bMezzanine\s+Floor\b|"
+    r"\b(?:Corporate|Business)\s*(?:Center|Centre|Park)\b|"
     r"\bBangkok\b|"
     r"\bThailand\b|"
     r"\bSathorn\b",

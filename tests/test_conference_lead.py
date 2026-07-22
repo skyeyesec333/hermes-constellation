@@ -23,6 +23,7 @@ def test_likely_person_name_rejects_address_and_region():
     assert _is_likely_person_name("JIRA MENGERN") is True
     assert _is_likely_person_name("Mr. Mohd Hafizi Yusoff") is True
     assert _is_likely_person_name("Ada Example") is True
+    assert _is_likely_person_name("Floor Jansen") is True
 
     # Addresses must NOT be recognised as person names
     assert _is_likely_person_name("Bang Rak, Bangkok 10500") is False
@@ -60,6 +61,36 @@ def test_hint_marks_uncertain_ocr_text_for_review_without_inventing_identity():
     assert hint["company_hint"] is None
     assert hint["name_review_required"] is True
     assert hint["email"] == "office@" + "trade.example.test"
+
+
+def test_hint_rejects_unit_address_and_domain_as_identity():
+    """Live-card regression: address/domain OCR must not become person/company identity."""
+    hint = _hint_from_card_fields(
+        [
+            {"field": "unclassified_text", "value": "Informamarkets.com", "anchor": "OCR:R0001"},
+            {"field": "unclassified_text", "value": "1308PasayCity,MetroManila", "anchor": "OCR:R0004"},
+            {
+                "field": "unclassified_text",
+                "value": "Unit1 Mezzanine Floor,FlyAce CorporateCenter",
+                "anchor": "OCR:R0006",
+            },
+            {
+                "field": "unclassified_text",
+                "value": "UBM ExhibitionsPhilippines Inc.",
+                "anchor": "OCR:R0007",
+            },
+            {
+                "field": "unclassified_text",
+                "value": "SalesExecutive-Philippines",
+                "anchor": "OCR:R0008",
+            },
+            {"field": "unclassified_text", "value": "MICHAELMOLINO", "anchor": "OCR:R0009"},
+        ]
+    )
+
+    assert hint["raw_name"] is None
+    assert hint["company_hint"] is None
+    assert hint["name_review_required"] is True
 
 
 def test_name_scoring_prefers_person_over_company():
