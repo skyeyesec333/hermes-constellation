@@ -84,6 +84,7 @@ def _linked_records(
                         or fm.get("decided_at")
                         or fm.get("created_at", "")
                     )[:10],
+                    "kanban_card_path": str(fm.get("kanban_card_path", "")),
                 })
         return results
 
@@ -198,6 +199,11 @@ def compile_prep(root: Path | str, entity_id: str) -> str:
         lines.append("")
         for o in opportunities[-5:]:
             lines.append(f"- {o['title']}")
+            card_path = str(o.get("kanban_card_path", ""))
+            if card_path:
+                lines.append(f"  - PM card: [[{card_path}]]")
+        if any(str(o.get("kanban_card_path", "")) for o in opportunities):
+            lines.append("- PM → canonical synchronization: unsupported in this beta.")
         lines.append("")
 
     # ── Entity background ──

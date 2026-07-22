@@ -1,11 +1,11 @@
-"""Tests for Opportunity ↔ PM round-trip sync."""
+"""Tests for one-way canonical Opportunity → PM card synchronization."""
 
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 
-from constellation.frontmatter import render_frontmatter
+from constellation.frontmatter import parse_frontmatter, render_frontmatter
 from constellation.models import (
     EntityKind,
     EntityRecord,
@@ -15,6 +15,7 @@ from constellation.models import (
     generate_ulid,
 )
 from constellation.pm_sync import PmSyncError, pm_sync_apply, pm_sync_plan
+from constellation.prep import compile_prep
 from constellation.vault import initialize_vault
 
 NOW = datetime(2026, 7, 18, 8, 0, tzinfo=timezone.utc)
@@ -69,7 +70,13 @@ def test_plan_produces_sync_plan(tmp_path: Path) -> None:
     assert plan["status"] == "plan_ready"
     assert plan["opportunity_id"] == opp_id
     assert "expected_sha256" in plan
-    assert plan["proposed"]["project_title"] == "Constellation CRM"
+    proposed = plan["proposed"]
+    assert isinstance(proposed, dict)
+    assert proposed["project_title"] == "Constellation CRM"
+    task_body = str(proposed["task_body"])
+    assert f"[[opportunities/{opp_id}.md]]" in task_body
+    assert f"[[entities/{entity_id}.md]]" in task_body
+    assert "Inbound PM → canonical sync: unsupported in this beta." in task_body
 
 
 def test_plan_recognizes_already_synced(tmp_path: Path) -> None:
@@ -82,6 +89,25 @@ def test_plan_recognizes_already_synced(tmp_path: Path) -> None:
     # Second plan should show synced
     plan2 = pm_sync_plan(vault, opp_id)
     assert plan2["status"] == "synced"
+
+
+def test_apply_writes_reciprocal_opportunity_and_entity_links(tmp_path: Path) -> None:
+    vault, entity_id = _setup_vault(tmp_path)
+    opp_id = _add_opportunity(vault, entity_id)
+    plan = pm_sync_plan(vault, opp_id)
+
+    result = pm_sync_apply(vault, opp_id, expected_sha256=str(plan["expected_sha256"]))
+
+    opportunity_text = (vault / "opportunities" / f"{opp_id}.md").read_text(encoding="utf-8")
+    opportunity_metadata, _ = parse_frontmatter(opportunity_text)
+    assert opportunity_metadata["kanban_card_path"] == result["kanban_card_path"]
+    task_text = (vault / str(result["kanban_card_path"])).read_text(encoding="utf-8")
+    assert f"opportunities/{opp_id}.md" in task_text
+    assert f"entities/{entity_id}.md" in task_text
+    assert "Inbound PM → canonical sync: unsupported in this beta." in task_text
+    prep = compile_prep(vault, entity_id)
+    assert str(result["kanban_card_path"]) in prep
+    assert "PM → canonical synchronization: unsupported in this beta." in prep
 
 
 def test_apply_rejects_hash_mismatch(tmp_path: Path) -> None:

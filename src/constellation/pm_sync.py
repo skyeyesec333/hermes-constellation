@@ -1,8 +1,8 @@
-"""Opportunity ↔ Project Manager round-trip synchronization.
+"""One-way canonical Opportunity → Project Manager card synchronization.
 
-Separates PM card creation from opportunity staging: staging writes only a
-review candidate; promotion creates the canonical opportunity; pm-sync
-creates the PM kanban card and writes the reciprocal path back.
+Promotion creates the canonical Opportunity. ``pm-sync`` then creates or updates
+its PM card and stores that card path back on the Opportunity. PM → canonical
+changes are deliberately unsupported in this beta.
 
 Every operation is idempotent via lead_key — rerunning pm-sync on the same
 opportunity does not create duplicate cards.
@@ -77,7 +77,16 @@ def pm_sync_plan(vault: Path | str, opportunity_id: str) -> dict[str, object]:
         "proposed": {
             "project_title": "Constellation CRM",
             "task_title": f"opportunity-{entity_label}",
-            "task_body": f"Stage: {stage}\nNext action: {metadata.get('next_action', '')}\nEntity: {', '.join(str(s) for s in subject_ids)}",
+            "task_body": "\n".join(
+                [
+                    f"Stage: {stage}",
+                    f"Next action: {metadata.get('next_action', '')}",
+                    f"Canonical opportunity: [[opportunities/{opportunity_id}.md]]",
+                    "Canonical entities:",
+                    *[f"- [[entities/{subject_id}.md]]" for subject_id in subject_ids],
+                    "Inbound PM → canonical sync: unsupported in this beta.",
+                ]
+            ),
             "opportunity_path": f"opportunities/{opportunity_id}.md",
         },
     }
@@ -129,7 +138,10 @@ def pm_sync_apply(
     body_lines = [
         f"Stage: {stage}",
         f"Next action: {metadata.get('next_action', '')}",
-        f"Entity IDs: {', '.join(str(s) for s in subject_ids)}",
+        f"Canonical opportunity: [[opportunities/{opportunity_id}.md]]",
+        "Canonical entities:",
+        *[f"- [[entities/{subject_id}.md]]" for subject_id in subject_ids],
+        "Inbound PM → canonical sync: unsupported in this beta.",
     ]
 
     try:
