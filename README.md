@@ -1,8 +1,12 @@
+<img alt="the_black_univere_remix_scene" src="https://github.com/user-attachments/assets/eb8d6891-f978-40ef-ba53-ca2da26ee393" width="100%" />
+
 # Constellation
 
-Constellation is a private intelligence system for people and teams whose work depends on relationships, evidence, decisions, and timing. It turns the material behind that work into a connected record, then helps you understand it, act on it, and notice when it changes.
+Constellation is a private intelligence system for people and teams whose work depends on relationships, evidence, decisions, and timing. It turns the material behind that work, including deep web research and your inbound sources (PDFs, images, texts, books, reports, etc.)  into an interconnected record, then helps you understand it, act on it, and notice when it changes.
 
 This public repository is a product overview, not a package installer. Constellation deployments are designed and operated privately around an organization's sources, workflows, governance, and model choices.
+
+Version v0.1 coming soon. 
 
 ## The job
 
