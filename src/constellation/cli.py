@@ -429,6 +429,12 @@ def build_parser() -> argparse.ArgumentParser:
     timeline.add_argument("--as-of", help="ISO-8601 with timezone")
     timeline.add_argument("--sensitivity", default="internal")
 
+    graph_surface = sub.add_parser("graph-surface", help="Render the offline graph review surface")
+    graph_surface.add_argument("vault", type=Path)
+    graph_surface.add_argument("--output", type=Path, required=True)
+    graph_surface.add_argument("--entity", help="Focus on one entity's neighborhood")
+    graph_surface.add_argument("--sensitivity", default="internal")
+
     snapshot = sub.add_parser("snapshot", help="Stage a point-in-time snapshot")
     snapshot.add_argument("vault", type=Path)
     snapshot.add_argument("--watchlist-id", required=True)
@@ -1201,6 +1207,26 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
             as_of=str(as_of) if as_of else None,
             sensitivity_ceiling=str(values.get("sensitivity", "internal")),
         )
+    if action == "graph-surface":
+        from constellation.graph_surface import build_graph_projection, render_graph_surface
+
+        focus = values.get("entity")
+        projection = build_graph_projection(
+            vault,
+            sensitivity_ceiling=str(values.get("sensitivity", "internal")),
+            entity_id=str(focus) if focus else None,
+        )
+        output = Path(values["output"]).expanduser().absolute()
+        rendered = render_graph_surface(projection)
+        output.write_text(rendered, encoding="utf-8")
+        return {
+            "status": "written",
+            "output_path": str(output),
+            "bytes_written": output.stat().st_size,
+            "total_nodes": projection["total_nodes"],
+            "total_edges": projection["total_edges"],
+            "degraded": projection["degraded"],
+        }
     if action == "snapshot":
         from constellation.watchlists import stage_snapshot
 
