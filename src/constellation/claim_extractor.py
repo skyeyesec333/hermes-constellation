@@ -300,6 +300,19 @@ def _write_extraction_receipt(
     return relative.as_posix()
 
 
+def _resolve_evidence_excerpt(source_content: str, excerpt: str) -> str:
+    if excerpt in source_content:
+        return excerpt
+    tokens = re.findall(r"\S+", excerpt)
+    if not tokens:
+        raise ClaimExtractionError("claim evidence excerpt was not found exactly in the source")
+    body_pattern = r"\s+".join(re.escape(token) for token in tokens)
+    matches = list(re.finditer(f"(?=({body_pattern}))", source_content))
+    if len(matches) != 1:
+        raise ClaimExtractionError("claim evidence excerpt was not found exactly in the source")
+    return matches[0].group(1)
+
+
 def _exact_line_anchor(source_content: str, excerpt: str, *, first_line: int = 1) -> str:
     start = source_content.find(excerpt)
     if start < 0:
@@ -359,7 +372,7 @@ def _parse_claims(
         assert isinstance(confidence_name, str)
         if confidence_name not in _CONFIDENCE:
             raise ClaimExtractionError("model claim confidence is invalid")
-        evidence = evidence.strip()
+        evidence = _resolve_evidence_excerpt(source_content, evidence.strip())
         claims.append(
             _ExtractedClaim(
                 predicate=predicate.strip(),

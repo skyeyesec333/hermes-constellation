@@ -562,6 +562,24 @@ def test_embedded_array_text_inside_claim_does_not_create_a_second_payload() -> 
     assert claim_extractor._load_claim_payload(wrapped) == payload
 
 
+def test_unique_whitespace_normalized_evidence_resolves_to_exact_source() -> None:
+    source = "Values  [1, 2]\r\nwere recorded."
+
+    assert claim_extractor._resolve_evidence_excerpt(
+        source, "Values [1, 2] were recorded."
+    ) == source
+
+
+def test_overlapping_whitespace_normalized_evidence_is_rejected() -> None:
+    with pytest.raises(
+        ClaimExtractionError,
+        match="claim evidence excerpt was not found exactly in the source",
+    ):
+        claim_extractor._resolve_evidence_excerpt(
+            "alpha  alpha  alpha", "alpha alpha"
+        )
+
+
 def test_unique_embedded_json_array_is_accepted(tmp_path: Path) -> None:
     vault, source_path, source_id, subject_id = _fixture(tmp_path)
     raw_json = _claim_response()["content"]
