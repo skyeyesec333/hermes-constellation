@@ -432,11 +432,27 @@ def _source_ids_for_hash(vault: Path, source_hash: str) -> list[str]:
     return matches
 
 
+def _model_max_tokens() -> int:
+    setting = os.environ.get("CONSTELLATION_MODEL_MAX_TOKENS", str(_MAX_MODEL_TOKENS))
+    try:
+        max_tokens = int(setting)
+    except ValueError as exc:
+        raise ClaimExtractionError(
+            "CONSTELLATION_MODEL_MAX_TOKENS must be an integer from 1 to 16000"
+        ) from exc
+    if not 1 <= max_tokens <= 16_000:
+        raise ClaimExtractionError(
+            "CONSTELLATION_MODEL_MAX_TOKENS must be an integer from 1 to 16000"
+        )
+    return max_tokens
+
+
 def _invoke_model(
     *,
     provider: str,
     model: str,
     prompt: str,
+    max_tokens: int,
     transport: str | None,
     model_caller: Callable[..., object] | None,
     api_key: str | None,
@@ -446,7 +462,7 @@ def _invoke_model(
             provider=provider,
             model=model,
             prompt=prompt,
-            max_tokens=_MAX_MODEL_TOKENS,
+            max_tokens=max_tokens,
         )
         if not isinstance(response, dict):
             raise ClaimExtractionError("model caller returned an invalid response")
@@ -474,7 +490,7 @@ def _invoke_model(
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.1,
-        "max_tokens": _MAX_MODEL_TOKENS,
+        "max_tokens": max_tokens,
     }
     reasoning_setting = os.environ.get("CONSTELLATION_MODEL_REASONING_ENABLED")
     if reasoning_setting is not None:
@@ -608,6 +624,7 @@ def extract_claims_from_source(
 
     receipt_id = generate_ulid()
     try:
+        max_tokens = _model_max_tokens()
         _require_canonical_subject(vault, subject_id)
         source_items = _require_matching_source_items(vault, source_ids, source_hash)
         sensitivity_order = tuple(Sensitivity)
@@ -690,6 +707,7 @@ def extract_claims_from_source(
                 provider=provider_name,
                 model=model_name,
                 prompt=prompt,
+                max_tokens=max_tokens,
                 transport=authorization.transport,
                 model_caller=model_caller,
                 api_key=api_key,
@@ -860,6 +878,7 @@ def extract_claims_from_run(
     try:
         if not provider_name or not model_name:
             raise ClaimExtractionError("provider and model are required for claim extraction")
+        _model_max_tokens()
         _require_canonical_subject(vault, subject_id)
     except ClaimExtractionError:
         for source_hash in source_hashes:

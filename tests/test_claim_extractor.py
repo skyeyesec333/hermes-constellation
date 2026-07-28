@@ -818,3 +818,45 @@ def test_default_transport_uses_generic_endpoint_and_credentials(
     assert payload["max_tokens"] == 4_000
     assert payload["reasoning"] == {"enabled": False}
     assert "response_format" not in payload
+
+
+def test_model_max_tokens_override_is_passed_to_injected_caller(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    vault, source_path, source_id, subject_id = _fixture(tmp_path)
+    monkeypatch.setenv("CONSTELLATION_MODEL_MAX_TOKENS", "8000")
+    observed: list[int] = []
+
+    def caller(**request):
+        observed.append(request["max_tokens"])
+        return _claim_response()
+
+    result = _extract(vault, source_path, source_id, subject_id, caller)
+
+    assert result["staged"] == 1
+    assert observed == [8000]
+
+
+@pytest.mark.parametrize("value", ["0", "16001", "not-an-integer"])
+def test_invalid_model_max_tokens_fails_before_egress(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    vault, source_path, source_id, subject_id = _fixture(tmp_path)
+    monkeypatch.setenv("CONSTELLATION_MODEL_MAX_TOKENS", value)
+
+    with pytest.raises(
+        ClaimExtractionError,
+        match="CONSTELLATION_MODEL_MAX_TOKENS must be an integer from 1 to 16000",
+    ):
+        _extract(
+            vault,
+            source_path,
+            source_id,
+            subject_id,
+            lambda **_: pytest.fail("model must not run"),
+        )
+
+    assert not (vault / ".constellation/egress-ledger.jsonl").exists()
+    receipt = _single_receipt(vault)
+    assert receipt["status"] == "failed"
+    assert receipt["error"] == "preflight_failed"
