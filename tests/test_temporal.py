@@ -13,8 +13,6 @@ from constellation.models import (
     EntityRecord,
     Event,
     Observation,
-    Opportunity,
-    OpportunityStage,
     Sensitivity,
     generate_ulid,
 )
