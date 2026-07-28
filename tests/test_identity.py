@@ -164,9 +164,32 @@ def test_crm_reads_and_updates_resolved_slug_path(tmp_path: Path) -> None:
     vault = _resolution_vault(tmp_path)
     company = _write_subject(vault, "entities", "company-example-labs.md", EntityKind.COMPANY)
 
+    from constellation.models import Interaction, InteractionType
+
+    now = datetime(2026, 7, 15, 10, 0, tzinfo=UTC)
+    interaction = Interaction(
+        id=generate_ulid(),
+        title="Intro call",
+        status="active",
+        sensitivity=Sensitivity.INTERNAL,
+        interaction_type=InteractionType.MEETING,
+        subject_ids=[company.id],
+        participants=[company.id],
+        channel="phone",
+        summary="Discussed partnership",
+        occurred_at=now,
+        created_at=now,
+        updated_at=now,
+    )
+    (vault / "interactions" / f"{interaction.id}.md").write_text(
+        render_frontmatter(interaction.model_dump(mode="json", exclude_none=True), "# Interaction\n"),
+        encoding="utf-8",
+    )
+
     proposal = crm_plan(vault, entity_id=company.id)[0]
     changes = proposal["proposed"]
     assert isinstance(changes, dict)
+    assert changes.get("stage") == "engaged"
     result = crm_apply(
         vault,
         company.id,
