@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 from datetime import UTC, datetime
+from typing import Any, cast
 
 import pytest
 import yaml
@@ -270,6 +271,9 @@ def test_doctor_separates_pipeline_relevant_crm_coverage_from_research_only_enti
         "with_touch": 0,
         "with_action": 1,
         "coverage_pct": 33.3,
+        "legacy_inline_stage": 1,
+        "legacy_inline_touch": 0,
+        "legacy_inline_action": 1,
         "pipeline_relevant_entities": 2,
         "research_only_entities": 1,
         "pipeline_relevant_with_stage": 1,
@@ -277,3 +281,45 @@ def test_doctor_separates_pipeline_relevant_crm_coverage_from_research_only_enti
         "pipeline_relevant_with_action": 1,
         "pipeline_relevant_coverage_pct": 50.0,
     }
+
+
+def test_doctor_counts_frontmatter_crm_fields_and_flags_legacy_inline(tmp_path) -> None:
+    root = tmp_path / "vault"
+    initialize_vault(root)
+    now = datetime.now(UTC)
+
+    frontmatter_entity = EntityRecord(
+        type=EntityKind.COMPANY,
+        title="Frontmatter CRM Company",
+        status="active",
+        sensitivity=Sensitivity.INTERNAL,
+        created_at=now,
+        updated_at=now,
+    )
+    fm_metadata = frontmatter_entity.model_dump(mode="json")
+    fm_metadata["stage"] = "opportunity"
+    fm_metadata["next_action"] = "Send proposal"
+    atomic_write_text(
+        root,
+        f"entities/{frontmatter_entity.id}.md",
+        render_frontmatter(fm_metadata, "No inline CRM fields.\n"),
+    )
+
+    inline_entity = EntityRecord(
+        type=EntityKind.COMPANY,
+        title="Inline CRM Company",
+        status="active",
+        sensitivity=Sensitivity.INTERNAL,
+        created_at=now,
+        updated_at=now,
+    )
+    atomic_write_text(
+        root,
+        f"entities/{inline_entity.id}.md",
+        render_frontmatter(inline_entity.model_dump(mode="json"), "pipeline_stage:: lead\n"),
+    )
+
+    crm = cast(dict[str, Any], doctor_report(root)["crm_coverage"])
+
+    assert crm["with_stage"] == 2
+    assert crm["legacy_inline_stage"] == 1

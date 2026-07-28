@@ -65,12 +65,12 @@ def test_plan_derives_stage_from_interactions(tmp_path: Path) -> None:
     assert plan[0]["proposed"]["stage"] == "engaged"
 
 
-def test_plan_noop_when_stage_matches(tmp_path: Path) -> None:
+def test_plan_proposes_nothing_for_evidence_free_entity(tmp_path: Path) -> None:
     vault, entity_id = _setup_vault(tmp_path)
-    # Entity has no stage, no interactions — defaults to "research-only"
+    # Entity has no interactions, opportunities, or classifications — a
+    # research-only entity must not be bulk-filled with placeholder stages.
     plan = crm_plan(vault, entity_id=entity_id)
-    assert len(plan) == 1
-    assert plan[0]["proposed"]["stage"] == "research-only"
+    assert plan == []
 
 
 def test_plan_derives_last_touch_from_interaction(tmp_path: Path) -> None:
@@ -130,6 +130,36 @@ def test_status_reports_coverage(tmp_path: Path) -> None:
     status = crm_status(vault)
     assert status["total"] == 1
     assert status["with_stage"] == 1
+
+
+def test_status_recognizes_legacy_inline_fields_and_reports_them(tmp_path: Path) -> None:
+    vault = tmp_path / "vault"
+    initialize_vault(vault)
+
+    inline_entity = EntityRecord(
+        id=generate_ulid(),
+        type=EntityKind.COMPANY,
+        title="InlineCo",
+        status="active",
+        sensitivity=Sensitivity.INTERNAL,
+        source_ids=[],
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    (vault / "entities" / f"{inline_entity.id}.md").write_text(
+        render_frontmatter(
+            inline_entity.model_dump(mode="json", exclude_none=True),
+            "pipeline_stage:: opportunity\nnext_action:: Follow up\n",
+        ),
+        encoding="utf-8",
+    )
+
+    status = crm_status(vault)
+    assert status["total"] == 1
+    assert status["with_stage"] == 1
+    assert status["with_next_action"] == 1
+    assert status["legacy_inline_stage"] == 1
+    assert status["legacy_inline_action"] == 1
 
 
 def test_crm_cli_args() -> None:

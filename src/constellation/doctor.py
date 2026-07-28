@@ -136,6 +136,9 @@ def _crm_coverage(root: Path) -> dict[str, object]:
             "with_touch": 0,
             "with_action": 0,
             "coverage_pct": 0.0,
+            "legacy_inline_stage": 0,
+            "legacy_inline_touch": 0,
+            "legacy_inline_action": 0,
             "pipeline_relevant_entities": 0,
             "research_only_entities": 0,
             "pipeline_relevant_with_stage": 0,
@@ -156,9 +159,12 @@ def _crm_coverage(root: Path) -> dict[str, object]:
         if not entity_id:
             continue
         entities[entity_id] = {
-            "stage": "pipeline_stage::" in body,
-            "touch": "last_touch::" in body,
-            "action": "next_action::" in body,
+            "stage": bool(metadata.get("stage")) or "pipeline_stage::" in body,
+            "touch": bool(metadata.get("last_touch")) or "last_touch::" in body,
+            "action": bool(metadata.get("next_action")) or "next_action::" in body,
+            "legacy_stage": not metadata.get("stage") and "pipeline_stage::" in body,
+            "legacy_touch": not metadata.get("last_touch") and "last_touch::" in body,
+            "legacy_action": not metadata.get("next_action") and "next_action::" in body,
         }
 
     referenced: set[str] = set()
@@ -203,6 +209,9 @@ def _crm_coverage(root: Path) -> dict[str, object]:
         "with_touch": with_touch,
         "with_action": with_action,
         "coverage_pct": round(with_stage / total * 100, 1) if total else 0.0,
+        "legacy_inline_stage": sum(fields["legacy_stage"] for fields in entities.values()),
+        "legacy_inline_touch": sum(fields["legacy_touch"] for fields in entities.values()),
+        "legacy_inline_action": sum(fields["legacy_action"] for fields in entities.values()),
         "pipeline_relevant_entities": relevant_total,
         "research_only_entities": total - relevant_total,
         "pipeline_relevant_with_stage": relevant_with_stage,

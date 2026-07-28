@@ -114,7 +114,9 @@ def _derive_stage(entity_id: str, opportunities: list[dict], classifications: li
     if interactions:
         return "engaged"
 
-    return "research-only"
+    # No evidence: derive nothing. Research-only entities must not be
+    # bulk-filled with placeholder pipeline stages.
+    return ""
 
 
 def _derive_next_action(opportunities: list[dict], interactions: list[dict]) -> str | None:
@@ -291,21 +293,37 @@ def crm_status(vault: Path | str) -> dict[str, object]:
     with_stage = 0
     with_next_action = 0
     with_last_touch = 0
+    legacy_inline_stage = 0
+    legacy_inline_action = 0
+    legacy_inline_touch = 0
 
     for path in entities_dir.glob("*.md"):
         if path.is_symlink():
             continue
         try:
-            metadata, _ = parse_frontmatter(path.read_text(encoding="utf-8"))
+            metadata, body = parse_frontmatter(path.read_text(encoding="utf-8"))
             if not isinstance(metadata, dict):
                 continue
+            body_text = body if isinstance(body, str) else ""
             total += 1
-            if metadata.get("stage"):
+            fm_stage = bool(metadata.get("stage"))
+            fm_action = bool(metadata.get("next_action"))
+            fm_touch = bool(metadata.get("last_touch"))
+            inline_stage = "pipeline_stage::" in body_text
+            inline_action = "next_action::" in body_text
+            inline_touch = "last_touch::" in body_text
+            if fm_stage or inline_stage:
                 with_stage += 1
-            if metadata.get("next_action"):
+            if fm_action or inline_action:
                 with_next_action += 1
-            if metadata.get("last_touch"):
+            if fm_touch or inline_touch:
                 with_last_touch += 1
+            if inline_stage and not fm_stage:
+                legacy_inline_stage += 1
+            if inline_action and not fm_action:
+                legacy_inline_action += 1
+            if inline_touch and not fm_touch:
+                legacy_inline_touch += 1
         except Exception:
             continue
 
@@ -314,4 +332,7 @@ def crm_status(vault: Path | str) -> dict[str, object]:
         "with_stage": with_stage,
         "with_next_action": with_next_action,
         "with_last_touch": with_last_touch,
+        "legacy_inline_stage": legacy_inline_stage,
+        "legacy_inline_action": legacy_inline_action,
+        "legacy_inline_touch": legacy_inline_touch,
     }
