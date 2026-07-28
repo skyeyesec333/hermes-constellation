@@ -435,6 +435,13 @@ def build_parser() -> argparse.ArgumentParser:
     graph_surface.add_argument("--entity", help="Focus on one entity's neighborhood")
     graph_surface.add_argument("--sensitivity", default="internal")
 
+    timeline_surface = sub.add_parser("timeline-surface", help="Render the offline entity timeline surface")
+    timeline_surface.add_argument("vault", type=Path)
+    timeline_surface.add_argument("entity_id")
+    timeline_surface.add_argument("--output", type=Path, required=True)
+    timeline_surface.add_argument("--as-of", help="ISO-8601 with timezone")
+    timeline_surface.add_argument("--sensitivity", default="internal")
+
     snapshot = sub.add_parser("snapshot", help="Stage a point-in-time snapshot")
     snapshot.add_argument("vault", type=Path)
     snapshot.add_argument("--watchlist-id", required=True)
@@ -1207,6 +1214,26 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
             as_of=str(as_of) if as_of else None,
             sensitivity_ceiling=str(values.get("sensitivity", "internal")),
         )
+    if action == "timeline-surface":
+        from constellation.temporal import entity_timeline
+        from constellation.timeline_surface import render_timeline_surface
+
+        as_of = values.get("as_of")
+        timeline = entity_timeline(
+            vault,
+            str(values["entity_id"]),
+            as_of=str(as_of) if as_of else None,
+            sensitivity_ceiling=str(values.get("sensitivity", "internal")),
+        )
+        output = Path(values["output"]).expanduser().absolute()
+        output.write_text(render_timeline_surface(timeline), encoding="utf-8")
+        return {
+            "status": "written",
+            "output_path": str(output),
+            "bytes_written": output.stat().st_size,
+            "total_entries": timeline["total_entries"],
+            "truncated_by_as_of": timeline["truncated_by_as_of"],
+        }
     if action == "graph-surface":
         from constellation.graph_surface import build_graph_projection, render_graph_surface
 

@@ -237,6 +237,8 @@ files:
     lineage: handwritten-generic
   src/constellation/graph_surface.py:
     lineage: handwritten-generic
+  src/constellation/timeline_surface.py:
+    lineage: handwritten-generic
   src/constellation/cli.py:
     lineage: handwritten-generic
   src/constellation/conference.py:

@@ -194,3 +194,69 @@ def test_timeline_rejects_naive_as_of(tmp_path: Path) -> None:
     vault, entity_id, _ = _vault_with_entity(tmp_path)
     with pytest.raises(Exception, match="timezone"):
         entity_timeline(vault, entity_id, as_of="2026-03-01T00:00:00")
+
+
+def test_timeline_surface_renders_offline_cited_html(tmp_path: Path) -> None:
+    from constellation.timeline_surface import render_timeline_surface
+
+    vault, entity_id, source_id = _vault_with_entity(tmp_path)
+    claim = Claim(
+        id=generate_ulid(), title="Surface claim", status="active",
+        sensitivity=Sensitivity.INTERNAL, subject_id=entity_id,
+        predicate="competes_in", object_literal="logistics",
+        source_ids=[source_id], created_at=NOW, updated_at=NOW,
+    )
+    _write(vault, "claims", claim)
+
+    timeline = entity_timeline(vault, entity_id)
+    html = render_timeline_surface(timeline, entity_title="TemporalCo")
+
+    assert "http://" not in html and "https://" not in html
+    assert "<script" not in html
+    assert "TemporalCo" in html
+    assert "Surface claim" in html
+    assert "claims/" in html
+
+
+def test_timeline_surface_marks_truncation_visibly(tmp_path: Path) -> None:
+    from constellation.timeline_surface import render_timeline_surface
+
+    vault, entity_id, source_id = _vault_with_entity(tmp_path)
+    late = Claim(
+        id=generate_ulid(), title="Late claim", status="active",
+        sensitivity=Sensitivity.INTERNAL, subject_id=entity_id,
+        predicate="entered_market", object_literal="shipping",
+        source_ids=[source_id], created_at=NOW, updated_at=NOW,
+    )
+    _write(vault, "claims", late)
+
+    timeline = entity_timeline(vault, entity_id, as_of="2026-01-01T00:00:00+00:00")
+    html = render_timeline_surface(timeline, entity_title="TemporalCo")
+
+    assert timeline["truncated_by_as_of"] is True
+    assert "truncated" in html.lower()
+
+
+def test_timeline_surface_cli_writes_file_with_confirmation(tmp_path: Path) -> None:
+    from constellation.cli import build_parser, run_action
+
+    vault, entity_id, source_id = _vault_with_entity(tmp_path)
+    claim = Claim(
+        id=generate_ulid(), title="CLI surface claim", status="active",
+        sensitivity=Sensitivity.INTERNAL, subject_id=entity_id,
+        predicate="competes_in", object_literal="logistics",
+        source_ids=[source_id], created_at=NOW, updated_at=NOW,
+    )
+    _write(vault, "claims", claim)
+    output = tmp_path / "timeline.html"
+
+    values = vars(
+        build_parser().parse_args(
+            ["timeline-surface", str(vault), entity_id, "--output", str(output)]
+        )
+    )
+    result = run_action(str(values.pop("command")), values)
+
+    assert result["status"] == "written"
+    assert result["bytes_written"] == output.stat().st_size
+    assert "CLI surface claim" in output.read_text(encoding="utf-8")
