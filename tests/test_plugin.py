@@ -85,9 +85,11 @@ def test_root_slash_injects_configured_vault_for_active_vault_commands(
 
     assert plugin._handle_slash("validate") == "ok"
     assert plugin._handle_slash("search Nestle") == "ok"
+    assert plugin._handle_slash("watch-run --watchlist-id W --source-ids S --content Alpha") == "ok"
     assert calls == [
         ["validate", str(tmp_path)],
         ["search", str(tmp_path), "Nestle"],
+        ["watch-run", str(tmp_path), "--watchlist-id", "W", "--source-ids", "S", "--content", "Alpha"],
     ]
 
 

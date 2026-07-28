@@ -20,6 +20,7 @@ def test_cli_exposes_trusted_loop_commands():
     assert "migrate-rehearse" in help_text
     assert "migrate-prepare" in help_text
     assert "migrate-activate" in help_text
+    assert "watch-run" in help_text
 
 
 def test_extract_claims_cli_requires_provider_and_model_identity():

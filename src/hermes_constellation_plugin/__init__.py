@@ -72,6 +72,7 @@ _CONFIGURED_VAULT_ACTIONS = frozenset(
         "health",
         "hybrid",
         "watchlist",
+        "watch-run",
         "snapshot",
         "observation",
         "event",

@@ -402,6 +402,13 @@ def build_parser() -> argparse.ArgumentParser:
     watchlist.add_argument("--sources", nargs="*", default=[], choices=["gdelt", "edgar", "polymarket"])
     watchlist.add_argument("--schedule", default="")
 
+    watch_run = sub.add_parser("watch-run", help="Execute a source-grounded deterministic watchlist snapshot")
+    watch_run.add_argument("vault", type=Path)
+    watch_run.add_argument("--watchlist-id", required=True)
+    watch_run.add_argument("--source-ids", nargs="+", required=True)
+    watch_run.add_argument("--content", required=True)
+    watch_run.add_argument("--previous-snapshot-id")
+
     snapshot = sub.add_parser("snapshot", help="Stage a point-in-time snapshot")
     snapshot.add_argument("vault", type=Path)
     snapshot.add_argument("--watchlist-id", required=True)
@@ -1126,6 +1133,17 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
             query_terms=[str(q) for q in (values.get("query_terms") or [])],
             sources=[str(s) for s in (values.get("sources") or [])],
             schedule=str(values.get("schedule", "")),
+        )
+    if action == "watch-run":
+        from constellation.watchlists import execute_watchlist_snapshot
+
+        previous_snapshot_id = values.get("previous_snapshot_id")
+        return execute_watchlist_snapshot(
+            vault,
+            watchlist_id=str(values["watchlist_id"]),
+            source_ids=[str(source_id) for source_id in values["source_ids"]],
+            preserved_content=str(values["content"]),
+            previous_snapshot_id=str(previous_snapshot_id) if previous_snapshot_id else None,
         )
     if action == "snapshot":
         from constellation.watchlists import stage_snapshot
