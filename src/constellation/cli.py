@@ -1130,22 +1130,24 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
     if action == "snapshot":
         from constellation.watchlists import stage_snapshot
 
+        _psid = values.get("previous_snapshot_id")
         return stage_snapshot(
             vault,
             watchlist_id=str(values["watchlist_id"]),
             source_ids=[str(s) for s in (values.get("source_ids") or [])],
             preserved_content=str(values.get("content", "")),
-            previous_snapshot_id=str(values.get("previous_snapshot_id") or ""),
+            previous_snapshot_id=str(_psid) if _psid else None,
         )
     if action == "observation":
         from constellation.watchlists import stage_observation
 
+        _psid2 = values.get("previous_snapshot_id")
         return stage_observation(
             vault,
             watchlist_id=str(values["watchlist_id"]),
             snapshot_id=str(values["snapshot_id"]),
             change_summary=str(values["change_summary"]),
-            previous_snapshot_id=str(values.get("previous_snapshot_id") or ""),
+            previous_snapshot_id=str(_psid2) if _psid2 else None,
             entity_ids=[str(e) for e in (values.get("entity_ids") or [])],
             source_ids=[str(s) for s in (values.get("source_ids") or [])],
         )
