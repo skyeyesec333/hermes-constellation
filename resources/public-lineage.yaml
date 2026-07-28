@@ -183,6 +183,8 @@ files:
     lineage: handwritten-generic
   scripts/privacy_audit.py:
     lineage: handwritten-generic
+  scripts/graph_server.py:
+    lineage: handwritten-generic
   scripts/verify_fast.sh:
     lineage: handwritten-generic
   scripts/verify_release.sh:
