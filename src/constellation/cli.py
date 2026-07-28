@@ -415,6 +415,14 @@ def build_parser() -> argparse.ArgumentParser:
     watch_run.add_argument("--content", required=True)
     watch_run.add_argument("--previous-snapshot-id")
 
+    watch_collect = sub.add_parser("watch-collect", help="Run a watchlist through a bounded connector")
+    watch_collect.add_argument("vault", type=Path)
+    watch_collect.add_argument("--watchlist-id", required=True)
+    watch_collect.add_argument("--fixture-dir", type=Path, required=True)
+    watch_collect.add_argument("--max-items", type=int, default=50)
+    watch_collect.add_argument("--max-bytes", type=int, default=5_000_000)
+    watch_collect.add_argument("--previous-snapshot-id")
+
     snapshot = sub.add_parser("snapshot", help="Stage a point-in-time snapshot")
     snapshot.add_argument("vault", type=Path)
     snapshot.add_argument("--watchlist-id", required=True)
@@ -1164,6 +1172,17 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
             watchlist_id=str(values["watchlist_id"]),
             source_ids=[str(source_id) for source_id in values["source_ids"]],
             preserved_content=str(values["content"]),
+            previous_snapshot_id=str(previous_snapshot_id) if previous_snapshot_id else None,
+        )
+    if action == "watch-collect":
+        from constellation.watchlists import LocalFixtureConnector, RunCaps, run_watchlist
+
+        previous_snapshot_id = values.get("previous_snapshot_id")
+        return run_watchlist(
+            vault,
+            watchlist_id=str(values["watchlist_id"]),
+            connector=LocalFixtureConnector(Path(values["fixture_dir"])),
+            caps=RunCaps(max_items=int(values["max_items"]), max_bytes=int(values["max_bytes"])),
             previous_snapshot_id=str(previous_snapshot_id) if previous_snapshot_id else None,
         )
     if action == "snapshot":

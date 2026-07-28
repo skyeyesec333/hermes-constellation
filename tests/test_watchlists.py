@@ -236,6 +236,31 @@ def test_watch_run_cli_dispatches_execution_path(tmp_path: Path) -> None:
     assert (vault / result["receipt_path"]).is_file()
 
 
+def test_watch_collect_cli_runs_fixture_connector(tmp_path: Path) -> None:
+    vault, watchlist_id, _ = _setup_execution_vault(tmp_path)
+    fixture = _fixture_dir(tmp_path)
+    values = vars(
+        build_parser().parse_args(
+            [
+                "watch-collect",
+                str(vault),
+                "--watchlist-id",
+                watchlist_id,
+                "--fixture-dir",
+                str(fixture),
+                "--max-items",
+                "10",
+            ]
+        )
+    )
+
+    result = run_action(str(values.pop("command")), values)
+
+    assert result["status"] == "ok"
+    assert result["items_fetched"] == 2
+    assert (vault / str(result["receipt_path"])).is_file()
+
+
 # ── Step 2 safety gaps ───────────────────────────────────────────────────
 
 
@@ -431,6 +456,120 @@ def test_stage_watchlist(tmp_path: Path) -> None:
     result = stage_watchlist(vault, title="Competitor Watch", query_terms=["acme", "competitor"], sources=["gdelt"])
     assert result["status"] == "staged"
     assert (vault / result["candidate_path"]).is_file()
+
+
+# ── Step 11: connector execution ─────────────────────────────────────────
+
+
+def _fixture_dir(tmp_path: Path) -> Path:
+    fixture = tmp_path / "fixture-feed"
+    fixture.mkdir()
+    (fixture / "item-1.txt").write_text("Acme launched a new product line\n", encoding="utf-8")
+    (fixture / "item-2.txt").write_text("Acme hired a new CTO\n", encoding="utf-8")
+    return fixture
+
+
+def test_run_watchlist_fixture_connector_preserves_sources_and_snapshot(tmp_path: Path) -> None:
+    vault, watchlist_id, _ = _setup_execution_vault(tmp_path)
+    fixture = _fixture_dir(tmp_path)
+
+    result = watchlists.run_watchlist(
+        vault,
+        watchlist_id=watchlist_id,
+        connector=watchlists.LocalFixtureConnector(fixture),
+        caps=watchlists.RunCaps(max_items=10, max_bytes=1_000_000),
+    )
+
+    assert result["status"] == "ok"
+    assert result["items_fetched"] == 2
+    assert result["source_state"] == "candidate"
+    for candidate_rel in result["source_candidate_paths"]:
+        assert (vault / str(candidate_rel)).is_file()
+    assert (vault / str(result["snapshot_candidate_path"])).is_file()
+    assert (vault / str(result["receipt_path"])).is_file()
+
+
+def test_run_watchlist_empty_fixture_reports_empty(tmp_path: Path) -> None:
+    vault, watchlist_id, _ = _setup_execution_vault(tmp_path)
+    empty = tmp_path / "empty-feed"
+    empty.mkdir()
+
+    result = watchlists.run_watchlist(
+        vault,
+        watchlist_id=watchlist_id,
+        connector=watchlists.LocalFixtureConnector(empty),
+        caps=watchlists.RunCaps(max_items=10, max_bytes=1_000_000),
+    )
+
+    assert result["status"] == "empty"
+    assert result["items_fetched"] == 0
+    assert result["snapshot_candidate_path"] is None
+    assert (vault / str(result["receipt_path"])).is_file()
+
+
+def test_run_watchlist_enforces_item_cap_with_partial_state(tmp_path: Path) -> None:
+    vault, watchlist_id, _ = _setup_execution_vault(tmp_path)
+    fixture = _fixture_dir(tmp_path)
+
+    result = watchlists.run_watchlist(
+        vault,
+        watchlist_id=watchlist_id,
+        connector=watchlists.LocalFixtureConnector(fixture),
+        caps=watchlists.RunCaps(max_items=1, max_bytes=1_000_000),
+    )
+
+    assert result["status"] == "partial"
+    assert result["items_fetched"] == 1
+    assert result["truncated"] is True
+
+
+def test_run_watchlist_rerun_same_content_emits_no_duplicate_observation(tmp_path: Path) -> None:
+    vault, watchlist_id, _ = _setup_execution_vault(tmp_path)
+    fixture = _fixture_dir(tmp_path)
+    caps = watchlists.RunCaps(max_items=10, max_bytes=1_000_000)
+
+    first = watchlists.run_watchlist(
+        vault, watchlist_id=watchlist_id,
+        connector=watchlists.LocalFixtureConnector(fixture), caps=caps,
+    )
+    second = watchlists.run_watchlist(
+        vault, watchlist_id=watchlist_id,
+        connector=watchlists.LocalFixtureConnector(fixture), caps=caps,
+        previous_snapshot_id=str(first["snapshot_id"]),
+    )
+
+    assert second["material_change"] is False
+    observations = list((vault / ".constellation/candidates").glob("observation-*.json"))
+    assert observations == []
+
+
+def test_run_watchlist_changed_content_stages_one_observation_then_dedups(tmp_path: Path) -> None:
+    vault, watchlist_id, _ = _setup_execution_vault(tmp_path)
+    fixture = _fixture_dir(tmp_path)
+    caps = watchlists.RunCaps(max_items=10, max_bytes=1_000_000)
+
+    first = watchlists.run_watchlist(
+        vault, watchlist_id=watchlist_id,
+        connector=watchlists.LocalFixtureConnector(fixture), caps=caps,
+    )
+    (fixture / "item-3.txt").write_text("Acme acquired a competitor\n", encoding="utf-8")
+
+    second = watchlists.run_watchlist(
+        vault, watchlist_id=watchlist_id,
+        connector=watchlists.LocalFixtureConnector(fixture), caps=caps,
+        previous_snapshot_id=str(first["snapshot_id"]),
+    )
+    assert second["material_change"] is True
+    assert second["observation_candidate_path"] is not None
+
+    third = watchlists.run_watchlist(
+        vault, watchlist_id=watchlist_id,
+        connector=watchlists.LocalFixtureConnector(fixture), caps=caps,
+        previous_snapshot_id=str(first["snapshot_id"]),
+    )
+    assert third["status"] == "duplicate_change"
+    observations = list((vault / ".constellation/candidates").glob("observation-*.json"))
+    assert len(observations) == 1
 
 
 def test_stage_snapshot(tmp_path: Path) -> None:
