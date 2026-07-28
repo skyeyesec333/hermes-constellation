@@ -409,16 +409,16 @@ def list_candidates(root: Path | str) -> list[dict[str, object]]:
                 results.append(_analysis_candidate_summary(path, payload))
                 continue
             if payload.get("type") == "watchlist":
-                results.append(_generic_candidate_summary(path, payload, "watchlists"))
+                results.append(_generic_candidate_summary(path, payload, _canonical_folder_for_type("watchlist")))
                 continue
             if payload.get("type") == "snapshot":
-                results.append(_generic_candidate_summary(path, payload, "snapshots"))
+                results.append(_generic_candidate_summary(path, payload, _canonical_folder_for_type("snapshot")))
                 continue
             if payload.get("type") == "observation":
-                results.append(_generic_candidate_summary(path, payload, "observations"))
+                results.append(_generic_candidate_summary(path, payload, _canonical_folder_for_type("observation")))
                 continue
             if payload.get("type") == "event":
-                results.append(_generic_candidate_summary(path, payload, "events"))
+                results.append(_generic_candidate_summary(path, payload, _canonical_folder_for_type("event")))
                 continue
             candidate = CandidatePatch.model_validate_json(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError, ValidationError, ValueError, PromotionError):
@@ -811,6 +811,17 @@ def _promote_analysis_candidate(
     )
 
 
+def _canonical_folder_for_type(record_type: str) -> str:
+    """Map model type (singular) to canonical folder (plural)."""
+    _TYPE_FOLDER = {
+        "watchlist": "watchlists",
+        "snapshot": "snapshots",
+        "observation": "observations",
+        "event": "events",
+    }
+    return _TYPE_FOLDER.get(record_type, record_type)
+
+
 def _generic_candidate_summary(path: Path, payload: dict[str, object], folder: str) -> dict[str, object]:
     record_id = str(payload.get("id", ""))
     title = str(payload.get("title", path.stem))
@@ -830,7 +841,7 @@ def _promote_generic_candidate(
     payload: dict[str, object],
     expected_base_hash: str | None,
 ) -> dict[str, str]:
-    summary = _generic_candidate_summary(candidate_path, payload, str(payload.get("type", "unknown")))
+    summary = _generic_candidate_summary(candidate_path, payload, _canonical_folder_for_type(str(payload.get("type", "unknown"))))
     if expected_base_hash is not None:
         raise PromotionError("generic candidate must be promoted as a create-only record")
     target_path = str(summary["target_path"])

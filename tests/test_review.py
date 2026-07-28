@@ -318,3 +318,29 @@ def test_promotion_rejects_conflict_invalid_schema_and_disallowed_folder(tmp_pat
     invalid, _ = make_candidate(root, content="---\nno: schema\n---\n")
     with pytest.raises(PromotionError):
         promote_candidate(root, invalid.id, confirm=True, expected_base_hash=None)
+
+
+def test_watchlist_candidate_promotion_uses_correct_folder(tmp_path):
+    """Watchlist type 'watchlist' must promote into 'watchlists/' folder."""
+    root = tmp_path / "vault"
+    initialize_vault(root)
+    candidate_id = "watchlist-01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    candidate_path = root / ".constellation/candidates" / f"{candidate_id}.json"
+    candidate_path.parent.mkdir(parents=True, exist_ok=True)
+    candidate_path.write_text(json.dumps({
+        "schema_version": "0.1",
+        "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "type": "watchlist",
+        "title": "Test Watchlist",
+        "status": "active",
+        "sensitivity": "internal",
+        "created_at": "2026-02-03T00:00:00+00:00",
+        "updated_at": "2026-02-03T00:00:00+00:00",
+        "entity_ids": [],
+        "query_terms": [],
+        "sources": [],
+        "schedule": "",
+        "version": 1,
+    }))
+    promote_candidate(root, candidate_id, confirm=True, expected_base_hash=None)
+    assert (root / "watchlists/01ARZ3NDEKTSV4RRFFQ69G5FAV.md").exists()
