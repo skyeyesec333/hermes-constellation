@@ -994,10 +994,7 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
 
             return list_classifications(vault)
         elif classify_action == "stage":
-            from datetime import datetime as dt
-
-            from constellation.models import Classification, Sensitivity as _Sens5, generate_ulid as _g_ulid
-            from constellation.storage import atomic_write_text as _awt5
+            from constellation.classification import stage_classification
 
             entity_id = str(values.get("entity_id") or "")
             if not entity_id:
@@ -1012,30 +1009,16 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
             if not rationale:
                 raise ValueError("--rationale is required for stage")
 
-            now = dt.now().astimezone()
-            classification = Classification(
-                id=_g_ulid(),
-                title=f"{category.title()} classification for {entity_id}",
-                status="active",
-                sensitivity=_Sens5.INTERNAL,
-                created_at=now,
-                updated_at=now,
-                category=category,
+            return stage_classification(
+                vault,
                 entity_id=entity_id,
+                category=category,
+                methodology=methodology,
+                rationale=rationale,
                 supporting_claim_ids=[str(c) for c in values.get("supporting_claim_ids") or []],
                 supporting_source_ids=[str(s) for s in values.get("supporting_source_ids") or []],
-                methodology=methodology,
                 confidence=str(values.get("confidence", "medium")),
-                rationale=rationale,
-                operator_reviewed=False,
             )
-            candidate_rel = Path(".constellation/candidates") / f"classification-{classification.id}.json"
-            _awt5(vault, candidate_rel.relative_to(vault) if candidate_rel.is_absolute() else candidate_rel, classification.model_dump_json(indent=2) + "\n")
-            return {
-                "status": "staged",
-                "classification_id": classification.id,
-                "candidate_path": candidate_rel.as_posix(),
-            }
     if action == "book":
         book_action = str(values.get("book_action", ""))
         if book_action == "ingest":
