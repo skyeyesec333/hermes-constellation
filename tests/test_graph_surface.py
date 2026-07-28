@@ -140,3 +140,23 @@ def test_graph_surface_cli_writes_file_with_confirmation(tmp_path: Path) -> None
     assert output.is_file()
     content = output.read_text(encoding="utf-8")
     assert "Alpha" in content
+
+
+def test_graph_surface_cli_empty_vault_writes_visible_degraded_state(tmp_path: Path) -> None:
+    from constellation.cli import build_parser, run_action
+
+    vault = tmp_path / "vault"
+    initialize_vault(vault)
+    output = tmp_path / "graph.html"
+
+    values = vars(
+        build_parser().parse_args(
+            ["graph-surface", str(vault), "--output", str(output)]
+        )
+    )
+    result = run_action(str(values.pop("command")), values)
+
+    assert result["status"] == "written"
+    assert result["degraded"] is True
+    content = output.read_text(encoding="utf-8")
+    assert "Degraded" in content
