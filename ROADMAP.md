@@ -6,12 +6,9 @@ This file is the durable cross-model handoff. Conversation history is not requir
 
 **Stage 1 — release integrity and v0.2 candidate**
 
-Status: `promotion authorized 2026-07-28 — ready for public release pipeline`
+Status: `blocked — waiting for explicit private acceptance/public-promotion approval`
 
 Immediate plan: `docs/plans/01-release-integrity.md`
-
-**Promotion freeze commit:** `11080818d9116cd278534d895368157a8c4ac1c1`
-**Release tree SHA-256:** `c5f9a0492cb0f618c9d1285f4495b9f59e53dcc02783ed944a86385d4a835b07`
 
 Stage 0 completed on 2026-07-17 with these executed gates:
 
