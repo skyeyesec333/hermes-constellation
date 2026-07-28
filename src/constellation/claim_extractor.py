@@ -263,7 +263,6 @@ def _invoke_model(
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0.1,
             "max_tokens": _MAX_MODEL_TOKENS,
-            "response_format": {"type": "json_object"},
         }
     ).encode("utf-8")
     request = urllib.request.Request(
