@@ -231,6 +231,8 @@ files:
     lineage: handwritten-generic
   src/constellation/classification.py:
     lineage: handwritten-generic
+  src/constellation/embedding_providers.py:
+    lineage: handwritten-generic
   src/constellation/cli.py:
     lineage: handwritten-generic
   src/constellation/conference.py:
@@ -326,6 +328,8 @@ files:
   tests/test_card_ingest.py:
     lineage: handwritten-generic
   tests/test_book_intelligence.py:
+    lineage: handwritten-generic
+  tests/test_embedding_providers.py:
     lineage: handwritten-generic
   tests/test_claim_extractor.py:
     lineage: handwritten-generic

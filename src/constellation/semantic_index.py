@@ -11,9 +11,12 @@ import json
 from pathlib import Path
 from typing import Protocol
 
+from .frontmatter import parse_frontmatter
+from .storage import atomic_write_text, sha256_file
 from .vault import is_initialized
 
 _SEMANTIC_DIR = Path(".constellation/semantic-index")
+_CANONICAL_SCAN_FOLDERS = ("source-items", "entities", "people", "claims")
 
 
 class SemanticIndexError(RuntimeError):
@@ -64,9 +67,87 @@ def _read_state(vault: Path) -> dict:
 
 
 def _write_state(vault: Path, state: dict) -> None:
-    path = _state_path(vault)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    atomic_write_text(
+        vault,
+        _SEMANTIC_DIR / "state.json",
+        json.dumps(state, indent=2, sort_keys=True) + "\n",
+    )
+
+
+def _canonical_fingerprint(vault: Path) -> str:
+    """Content hash over scanned canonical folders (path + file hash pairs)."""
+    parts: list[str] = []
+    for folder in _CANONICAL_SCAN_FOLDERS:
+        base = vault / folder
+        if not base.is_dir():
+            continue
+        for path in sorted(base.glob("*.md")):
+            if path.is_symlink() or not path.is_file():
+                continue
+            parts.append(f"{folder}/{path.name}:{sha256_file(path)}")
+    return hashlib.sha256("\n".join(parts).encode()).hexdigest()
+
+
+def build_from_vault(
+    vault: Path | str,
+    *,
+    provider: EmbeddingProvider,
+    provider_name: str = "local-hashing",
+) -> dict[str, object]:
+    """Build the semantic index from validated canonical records.
+
+    Scans canonical folders, parses each record, skips and visibly reports
+    invalid files, and stores a canonical fingerprint for freshness checks.
+    """
+    vault = Path(vault).absolute()
+    if not is_initialized(vault):
+        raise SemanticIndexError("vault is not initialized")
+
+    records: list[dict[str, object]] = []
+    invalid_records: list[str] = []
+    for folder in _CANONICAL_SCAN_FOLDERS:
+        base = vault / folder
+        if not base.is_dir():
+            continue
+        for path in sorted(base.glob("*.md")):
+            if path.is_symlink() or not path.is_file():
+                continue
+            rel = f"{folder}/{path.name}"
+            try:
+                metadata, body = parse_frontmatter(path.read_text(encoding="utf-8"))
+                record_id = str(metadata.get("id", ""))
+                title = str(metadata.get("title", ""))
+                if not record_id or not title:
+                    raise ValueError("missing id or title")
+            except Exception:
+                invalid_records.append(rel)
+                continue
+            text = f"{title}\n{body}"[:4000]
+            records.append({
+                "id": record_id,
+                "text": text,
+                "path": rel,
+                "source_hash": sha256_file(path),
+                "sensitivity": str(metadata.get("sensitivity", "internal")),
+            })
+
+    fingerprint = _canonical_fingerprint(vault)
+    build = build_semantic_index(vault, records, embed_fn=provider)
+
+    state = _read_state(vault)
+    state["canonical_fingerprint"] = fingerprint
+    state["provider"] = provider_name
+    state["skipped_invalid"] = len(invalid_records)
+    _write_state(vault, state)
+
+    return {
+        "status": "built",
+        "generation_id": build["generation_id"],
+        "total_entries": build["total_entries"],
+        "skipped_invalid": len(invalid_records),
+        "invalid_records": invalid_records,
+        "provider": provider_name,
+    }
 
 
 def build_semantic_index(
@@ -189,16 +270,20 @@ def semantic_index_status(vault: Path | str) -> dict[str, object]:
     state = _read_state(vault)
     gen_id = state.get("generation_id")
     if not gen_id:
-        return {"status": "missing", "degraded": False}
+        return {"status": "missing", "degraded": False, "stale": False}
 
     index_path = _index_path(vault, str(gen_id))
     if not index_path.is_file():
-        return {"status": "missing", "generation_id": gen_id, "degraded": True}
+        return {"status": "missing", "generation_id": gen_id, "degraded": True, "stale": False}
 
+    fingerprint = state.get("canonical_fingerprint")
+    stale = bool(fingerprint) and fingerprint != _canonical_fingerprint(vault)
     return {
         "status": "ready",
         "generation_id": gen_id,
         "total_entries": state.get("total_entries", 0),
+        "provider": state.get("provider", "custom-injected"),
+        "stale": stale,
         "degraded": False,
     }
 

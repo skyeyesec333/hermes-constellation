@@ -47,6 +47,7 @@ def hybrid_search(
     # Semantic (degradable)
     semantic_results: list[dict] = []
     degraded = False
+    stale = False
     try:
         from .semantic_index import semantic_index_status
 
@@ -54,6 +55,7 @@ def hybrid_search(
         if idx_status.get("status") != "ready":
             degraded = True
         else:
+            stale = bool(idx_status.get("stale"))
             semantic_results = semantic_search(
                 vault,
                 query,
@@ -61,6 +63,8 @@ def hybrid_search(
                 sensitivity_ceiling=sensitivity_ceiling,
                 embed_fn=embed_fn,
             )
+            if stale:
+                degraded = True
     except Exception:
         degraded = True
 
@@ -123,6 +127,7 @@ def hybrid_search(
         "results": results,
         "total_fused": len(results),
         "degraded": degraded,
+        "stale": stale,
         "fusion_method": "reciprocal_rank_fusion",
         "lexical_count": len(lexical_results),
         "semantic_count": len(semantic_results),

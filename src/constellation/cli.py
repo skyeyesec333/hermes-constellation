@@ -395,6 +395,11 @@ def build_parser() -> argparse.ArgumentParser:
     hybrid.add_argument("--limit", type=int, default=10)
     hybrid.add_argument("--sensitivity", default="internal")
 
+    semantic = sub.add_parser("semantic", help="Manage the local semantic index")
+    semantic.add_argument("semantic_action", choices=["build", "status", "delete"])
+    semantic.add_argument("vault", type=Path)
+    semantic.add_argument("--provider", help="Explicit embedding provider name")
+
     watchlist = sub.add_parser("watchlist", help="Stage a watchlist to monitor entities/terms")
     watchlist.add_argument("vault", type=Path)
     watchlist.add_argument("--title", required=True)
@@ -1103,14 +1108,41 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
         from constellation.research_health import probe_research_health
 
         return probe_research_health(vault)
+    if action == "semantic":
+        from constellation.semantic_index import (
+            build_from_vault,
+            delete_semantic_index,
+            semantic_index_status,
+        )
+
+        semantic_action = str(values.get("semantic_action", ""))
+        if semantic_action == "status":
+            return semantic_index_status(vault)
+        if semantic_action == "delete":
+            return delete_semantic_index(vault)
+        from constellation.embedding_providers import resolve_embedding_provider
+
+        provider_name = values.get("provider")
+        provider = resolve_embedding_provider(
+            vault, name=str(provider_name) if provider_name else None
+        )
+        return build_from_vault(vault, provider=provider)
     if action == "hybrid":
         from constellation.hybrid_retrieval import hybrid_search
 
+        embed_fn = None
+        try:
+            from constellation.embedding_providers import resolve_embedding_provider
+
+            embed_fn = resolve_embedding_provider(vault)
+        except Exception:
+            embed_fn = None
         return hybrid_search(
             vault,
             str(values["query"]),
             n_results=int(values.get("limit", 10)),
             sensitivity_ceiling=str(values.get("sensitivity", "internal")),
+            embed_fn=embed_fn,
         )
     if action == "watchlist":
         from constellation.watchlists import stage_watchlist
