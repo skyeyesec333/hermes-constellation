@@ -309,13 +309,33 @@ def _exact_line_anchor(source_content: str, excerpt: str, *, first_line: int = 1
     return f"L{start_line:06d}-L{end_line:06d}"
 
 
+def _load_claim_payload(raw_content: str) -> object:
+    try:
+        return json.loads(raw_content)
+    except json.JSONDecodeError as direct_error:
+        decoder = json.JSONDecoder()
+        arrays: list[object] = []
+        cursor = 0
+        while (start := raw_content.find("[", cursor)) >= 0:
+            try:
+                candidate, end = decoder.raw_decode(raw_content, start)
+            except json.JSONDecodeError:
+                cursor = start + 1
+                continue
+            if isinstance(candidate, list):
+                arrays.append(candidate)
+                cursor = end
+            else:
+                cursor = start + 1
+        if len(arrays) == 1:
+            return arrays[0]
+        raise ClaimExtractionError("failed to parse model claims JSON") from direct_error
+
+
 def _parse_claims(
     raw_content: str, source_content: str, *, first_line: int = 1
 ) -> list[_ExtractedClaim]:
-    try:
-        payload = json.loads(raw_content)
-    except json.JSONDecodeError as exc:
-        raise ClaimExtractionError(f"failed to parse model claims JSON: {exc}") from exc
+    payload = _load_claim_payload(raw_content)
     values = payload if isinstance(payload, list) else payload.get("claims") if isinstance(payload, dict) else None
     if not isinstance(values, list):
         raise ClaimExtractionError("model claims must be a JSON array")

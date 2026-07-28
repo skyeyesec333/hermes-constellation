@@ -532,6 +532,52 @@ def test_model_failure_writes_failed_receipt_without_provider_text(tmp_path: Pat
     assert provider_marker not in receipt_text
 
 
+def test_strict_json_markdown_fence_is_accepted(tmp_path: Path) -> None:
+    vault, source_path, source_id, subject_id = _fixture(tmp_path)
+    raw_json = _claim_response()["content"]
+
+    result = _extract(
+        vault,
+        source_path,
+        source_id,
+        subject_id,
+        lambda **_: {"content": f"```json\n{raw_json}\n```"},
+    )
+
+    assert result["staged"] == 1
+    assert _single_receipt(vault)["status"] == "complete"
+
+
+def test_embedded_array_text_inside_claim_does_not_create_a_second_payload() -> None:
+    payload = [
+        {
+            "predicate": "reported_values",
+            "object_literal": "recorded values",
+            "evidence_excerpt": "Values [1, 2] were recorded.",
+            "confidence": "direct_quote",
+        }
+    ]
+    wrapped = f"```json\n{json.dumps(payload)}\n```"
+
+    assert claim_extractor._load_claim_payload(wrapped) == payload
+
+
+def test_unique_embedded_json_array_is_accepted(tmp_path: Path) -> None:
+    vault, source_path, source_id, subject_id = _fixture(tmp_path)
+    raw_json = _claim_response()["content"]
+
+    result = _extract(
+        vault,
+        source_path,
+        source_id,
+        subject_id,
+        lambda **_: {"content": f"Here are the claims:\n{raw_json}\nEnd."},
+    )
+
+    assert result["staged"] == 1
+    assert _single_receipt(vault)["status"] == "complete"
+
+
 def test_malformed_model_output_fails_closed_with_receipt(tmp_path: Path) -> None:
     vault, source_path, source_id, subject_id = _fixture(tmp_path)
     with pytest.raises(ClaimExtractionError, match="parse model claims"):
@@ -778,6 +824,7 @@ def test_default_transport_uses_generic_endpoint_and_credentials(
     monkeypatch.setenv("CONSTELLATION_MODEL_API_KEY", "fictional-test-key")
     monkeypatch.setenv("CONSTELLATION_MODEL_REASONING_ENABLED", "false")
     monkeypatch.setenv("CONSTELLATION_MODEL_TIMEOUT_SECONDS", "180")
+    monkeypatch.delenv("CONSTELLATION_MODEL_MAX_TOKENS", raising=False)
     requests: list[Any] = []
 
     class Response:
