@@ -131,6 +131,28 @@ def test_apply_dry_run(tmp_path: Path) -> None:
     assert result["status"] == "dry_run"
 
 
+def test_apply_rerun_is_idempotent_and_preserves_card(tmp_path: Path) -> None:
+    vault, entity_id = _setup_vault(tmp_path)
+    opp_id = _add_opportunity(vault, entity_id)
+    plan = pm_sync_plan(vault, opp_id)
+
+    first = pm_sync_apply(vault, opp_id, expected_sha256=str(plan["expected_sha256"]))
+    card_path = vault / str(first["kanban_card_path"])
+    card_bytes_after_first = card_path.read_bytes()
+
+    opp_text = (vault / "opportunities" / f"{opp_id}.md").read_text(encoding="utf-8")
+    from constellation.storage import sha256_file
+
+    second = pm_sync_apply(
+        vault, opp_id, expected_sha256=sha256_file(vault / "opportunities" / f"{opp_id}.md")
+    )
+
+    assert second["status"] == "already_synced"
+    assert second["kanban_card_path"] == first["kanban_card_path"]
+    assert card_path.read_bytes() == card_bytes_after_first
+    assert opp_text == (vault / "opportunities" / f"{opp_id}.md").read_text(encoding="utf-8")
+
+
 def test_missing_opportunity_rejected(tmp_path: Path) -> None:
     vault, _ = _setup_vault(tmp_path)
     with pytest.raises(PmSyncError, match="canonical opportunity"):
