@@ -344,6 +344,7 @@ def test_default_transport_uses_generic_endpoint_and_credentials(
     monkeypatch.setenv("CONSTELLATION_MODEL_ENDPOINT", endpoint)
     monkeypatch.setenv("CONSTELLATION_MODEL_API_KEY", "fictional-test-key")
     monkeypatch.setenv("CONSTELLATION_MODEL_REASONING_ENABLED", "false")
+    monkeypatch.setenv("CONSTELLATION_MODEL_TIMEOUT_SECONDS", "180")
     requests: list[Any] = []
 
     class Response:
@@ -362,7 +363,7 @@ def test_default_transport_uses_generic_endpoint_and_credentials(
 
     def urlopen(request, timeout):
         requests.append(request)
-        assert timeout == 60
+        assert timeout == 180
         return Response()
 
     monkeypatch.setattr("constellation.claim_extractor.urllib.request.urlopen", urlopen)

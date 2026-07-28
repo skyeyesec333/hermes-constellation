@@ -285,8 +285,19 @@ def _invoke_model(
         },
         method="POST",
     )
+    timeout_setting = os.environ.get("CONSTELLATION_MODEL_TIMEOUT_SECONDS", "60")
     try:
-        with urllib.request.urlopen(request, timeout=60) as response:
+        timeout_seconds = int(timeout_setting)
+    except ValueError as exc:
+        raise ClaimExtractionError(
+            "CONSTELLATION_MODEL_TIMEOUT_SECONDS must be an integer from 1 to 300"
+        ) from exc
+    if not 1 <= timeout_seconds <= 300:
+        raise ClaimExtractionError(
+            "CONSTELLATION_MODEL_TIMEOUT_SECONDS must be an integer from 1 to 300"
+        )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
             response_bytes = response.read(_MAX_MODEL_RESPONSE_BYTES + 1)
         if len(response_bytes) > _MAX_MODEL_RESPONSE_BYTES:
             raise ClaimExtractionError("model response exceeds 1000000 bytes")
