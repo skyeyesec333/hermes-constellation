@@ -285,6 +285,7 @@ def build_parser() -> argparse.ArgumentParser:
     search_books.add_argument("vault", type=Path)
     search_books.add_argument("query", help="Natural language query")
     search_books.add_argument("--limit", type=int, default=5, help="Max results")
+    search_books.add_argument("--sensitivity", default="internal", help="Sensitivity ceiling")
 
     extract_claims = sub.add_parser("extract-claims", help="Auto-extract claims from preserved sources via LLM")
     extract_claims.add_argument("vault", type=Path)
@@ -943,7 +944,12 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
     if action == "search-books":
         from constellation.book_intelligence import search_books
 
-        return search_books(vault, str(values["query"]), n_results=int(values.get("limit", 5)))
+        return search_books(
+            vault,
+            str(values["query"]),
+            n_results=int(values.get("limit", 5)),
+            sensitivity_ceiling=str(values.get("sensitivity", "internal")),
+        )
     if action == "extract-claims":
         from constellation.claim_extractor import extract_claims_from_run
 

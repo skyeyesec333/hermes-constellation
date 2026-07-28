@@ -164,6 +164,54 @@ def test_search_empty_vault(tmp_path: Path) -> None:
     assert results == []
 
 
+def _add_book_source(
+    vault: Path, sensitivity: Sensitivity, filename: str, text: str
+) -> tuple[str, Path]:
+    source_id = generate_ulid()
+    source_item = SourceItem(
+        id=source_id,
+        type="source_item",
+        title=f"Book {filename}",
+        status="active",
+        sensitivity=sensitivity,
+        source_hash=hashlib.sha256(text.encode()).hexdigest(),
+        original_path=f"Library/Files/2026/{filename}",
+        media_type="text/markdown",
+        created_at=NOW,
+        updated_at=NOW,
+    )
+    (vault / "source-items" / f"{source_id}.md").write_text(
+        render_frontmatter(source_item.model_dump(mode="json", exclude_none=True), "# Source\n"),
+        encoding="utf-8",
+    )
+    src_path = vault / "Library/Files/2026" / filename
+    src_path.parent.mkdir(parents=True, exist_ok=True)
+    src_path.write_text(text, encoding="utf-8")
+    return source_id, src_path
+
+
+def test_search_enforces_sensitivity_ceiling(tmp_path: Path) -> None:
+    vault = tmp_path / "vault"
+    initialize_vault(vault)
+    public_text = "# Public Book\n\n## Chapter 1: Open\n\nShared chapter content for everyone.\n"
+    conf_text = "# Confidential Book\n\n## Chapter 1: Sealed\n\nRestricted chapter content for few.\n"
+    public_id, public_path = _add_book_source(vault, Sensitivity.PUBLIC, "public-book.md", public_text)
+    conf_id, conf_path = _add_book_source(vault, Sensitivity.CONFIDENTIAL, "conf-book.md", conf_text)
+    ingest_book(vault, public_path, source_id=public_id, embed_fn=_identity_embedding)
+    ingest_book(vault, conf_path, source_id=conf_id, embed_fn=_identity_embedding)
+
+    public_only = search_books(
+        vault, "chapter", n_results=10, sensitivity_ceiling="public", embed_fn=_identity_embedding
+    )
+    assert public_only, "expected at least the public chunk"
+    assert {r["source_id"] for r in public_only} == {public_id}
+
+    widened = search_books(
+        vault, "chapter", n_results=10, sensitivity_ceiling="confidential", embed_fn=_identity_embedding
+    )
+    assert {r["source_id"] for r in widened} == {public_id, conf_id}
+
+
 # ── Delete ──────────────────────────────────────────────────────────────
 
 

@@ -22,6 +22,10 @@ class BookIntelligenceError(RuntimeError):
     """Raised when book intelligence operations fail."""
 
 
+_SENSITIVITY_RANK = {"public": 0, "internal": 1, "confidential": 2, "restricted": 3}
+_RESTRICTED_RANK = 3
+
+
 # ── Embedding provider interface ────────────────────────────────────────
 
 
@@ -238,12 +242,14 @@ def search_books(
     query: str,
     *,
     n_results: int = 5,
+    sensitivity_ceiling: str = "internal",
     embed_fn: EmbeddingProvider | None = None,
 ) -> list[dict[str, object]]:
     """Semantic search across all indexed books.
 
     Returns list of dicts with chunk_id, content, title, score, source_id,
-    source_hash, chunk_hash.
+    source_hash, chunk_hash. Chunks above the sensitivity ceiling are excluded;
+    unknown sensitivity metadata fails closed as restricted.
     """
     vault = Path(vault).absolute()
     if not is_initialized(vault):
@@ -253,12 +259,16 @@ def search_books(
     if collection.count() == 0:
         return []
 
+    ceiling_rank = _SENSITIVITY_RANK.get(str(sensitivity_ceiling))
+    if ceiling_rank is None:
+        raise BookIntelligenceError(f"unknown sensitivity ceiling: {sensitivity_ceiling}")
+
     provider = embed_fn or _default_embedding_function()
     query_embedding = provider([query])
 
     results = collection.query(
         query_embeddings=query_embedding,
-        n_results=min(n_results, collection.count()),
+        n_results=collection.count(),
     )
 
     if not results or not results.get("ids") or not results["ids"][0]:
@@ -272,6 +282,9 @@ def search_books(
         distance = results["distances"][0][i] if results.get("distances") else 0.0
 
         md = metadata if isinstance(metadata, dict) else {}
+        chunk_rank = _SENSITIVITY_RANK.get(str(md.get("sensitivity", "")), _RESTRICTED_RANK)
+        if chunk_rank > ceiling_rank:
+            continue
         output.append(
             {
                 "chunk_id": chunk_id,
@@ -283,6 +296,8 @@ def search_books(
                 "score": round(float(1.0 - float(distance)), 4) if distance else 0.0,
             }
         )
+        if len(output) >= n_results:
+            break
 
     return output
 

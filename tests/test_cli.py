@@ -100,6 +100,22 @@ def test_ingest_cli_accepts_meeting_transcript_format_hint():
     assert values["meeting_format"] == "meetily"
 
 
+def test_search_books_cli_accepts_sensitivity_ceiling():
+    values = vars(
+        build_parser().parse_args(
+            [
+                "search-books",
+                "/tmp/vault",
+                "field intelligence",
+                "--sensitivity",
+                "confidential",
+            ]
+        )
+    )
+
+    assert values["sensitivity"] == "confidential"
+
+
 def test_optional_source_timestamp_is_not_replaced_with_operator_time():
     assert _parse_aware_timestamp(None, "--occurred-at") is None
     timestamp = _parse_aware_timestamp("2026-04-08T15:00:00-04:00", "--occurred-at")
