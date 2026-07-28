@@ -32,7 +32,7 @@ class ClaimExtractionError(RuntimeError):
 
 
 _MAX_MODEL_RESPONSE_BYTES = 1_000_000
-_MAX_MODEL_TOKENS = 4_000
+_MAX_MODEL_TOKENS = 8_192
 _CONFIDENCE = {"direct_quote": 0.95, "paraphrase": 0.85, "inference": 0.70}
 
 

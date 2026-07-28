@@ -380,4 +380,5 @@ def test_default_transport_uses_generic_endpoint_and_credentials(
     assert request.get_header("Authorization") == "Bearer fictional-test-key"
     payload = json.loads(request.data)
     assert payload["model"] == MODEL
+    assert payload["max_tokens"] == 8_192
     assert "response_format" not in payload
