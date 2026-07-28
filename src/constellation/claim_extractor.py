@@ -32,8 +32,7 @@ class ClaimExtractionError(RuntimeError):
 
 
 _MAX_MODEL_RESPONSE_BYTES = 1_000_000
-_MAX_MODEL_TOKENS = 8_192
-_MODEL_TIMEOUT_SECONDS = 180
+_MAX_MODEL_TOKENS = 4_000
 _CONFIDENCE = {"direct_quote": 0.95, "paraphrase": 0.85, "inference": 0.70}
 
 
@@ -258,14 +257,25 @@ def _invoke_model(
     if transport == "external" and not endpoint.startswith("https://"):
         raise ClaimExtractionError("external model endpoint must use HTTPS")
 
-    payload = json.dumps(
-        {
-            "model": model,
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.1,
-            "max_tokens": _MAX_MODEL_TOKENS,
-        }
-    ).encode("utf-8")
+    payload_data: dict[str, object] = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.1,
+        "max_tokens": _MAX_MODEL_TOKENS,
+    }
+    reasoning_setting = os.environ.get("CONSTELLATION_MODEL_REASONING_ENABLED")
+    if reasoning_setting is not None:
+        normalized_reasoning = reasoning_setting.strip().casefold()
+        if normalized_reasoning in {"true", "1", "yes", "on"}:
+            reasoning_enabled = True
+        elif normalized_reasoning in {"false", "0", "no", "off"}:
+            reasoning_enabled = False
+        else:
+            raise ClaimExtractionError(
+                "CONSTELLATION_MODEL_REASONING_ENABLED must be true or false"
+            )
+        payload_data["reasoning"] = {"enabled": reasoning_enabled}
+    payload = json.dumps(payload_data).encode("utf-8")
     request = urllib.request.Request(
         endpoint,
         data=payload,
@@ -276,7 +286,7 @@ def _invoke_model(
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=_MODEL_TIMEOUT_SECONDS) as response:
+        with urllib.request.urlopen(request, timeout=60) as response:
             response_bytes = response.read(_MAX_MODEL_RESPONSE_BYTES + 1)
         if len(response_bytes) > _MAX_MODEL_RESPONSE_BYTES:
             raise ClaimExtractionError("model response exceeds 1000000 bytes")

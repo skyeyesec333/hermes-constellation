@@ -343,6 +343,7 @@ def test_default_transport_uses_generic_endpoint_and_credentials(
     endpoint = "https://models.example.test/v1/chat/completions"
     monkeypatch.setenv("CONSTELLATION_MODEL_ENDPOINT", endpoint)
     monkeypatch.setenv("CONSTELLATION_MODEL_API_KEY", "fictional-test-key")
+    monkeypatch.setenv("CONSTELLATION_MODEL_REASONING_ENABLED", "false")
     requests: list[Any] = []
 
     class Response:
@@ -361,7 +362,7 @@ def test_default_transport_uses_generic_endpoint_and_credentials(
 
     def urlopen(request, timeout):
         requests.append(request)
-        assert timeout == 180
+        assert timeout == 60
         return Response()
 
     monkeypatch.setattr("constellation.claim_extractor.urllib.request.urlopen", urlopen)
@@ -380,5 +381,6 @@ def test_default_transport_uses_generic_endpoint_and_credentials(
     assert request.get_header("Authorization") == "Bearer fictional-test-key"
     payload = json.loads(request.data)
     assert payload["model"] == MODEL
-    assert payload["max_tokens"] == 8_192
+    assert payload["max_tokens"] == 4_000
+    assert payload["reasoning"] == {"enabled": False}
     assert "response_format" not in payload
