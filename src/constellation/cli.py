@@ -423,6 +423,12 @@ def build_parser() -> argparse.ArgumentParser:
     watch_collect.add_argument("--max-bytes", type=int, default=5_000_000)
     watch_collect.add_argument("--previous-snapshot-id")
 
+    timeline = sub.add_parser("timeline", help="Cited as-of entity timeline")
+    timeline.add_argument("vault", type=Path)
+    timeline.add_argument("entity_id")
+    timeline.add_argument("--as-of", help="ISO-8601 with timezone")
+    timeline.add_argument("--sensitivity", default="internal")
+
     snapshot = sub.add_parser("snapshot", help="Stage a point-in-time snapshot")
     snapshot.add_argument("vault", type=Path)
     snapshot.add_argument("--watchlist-id", required=True)
@@ -1184,6 +1190,16 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
             connector=LocalFixtureConnector(Path(values["fixture_dir"])),
             caps=RunCaps(max_items=int(values["max_items"]), max_bytes=int(values["max_bytes"])),
             previous_snapshot_id=str(previous_snapshot_id) if previous_snapshot_id else None,
+        )
+    if action == "timeline":
+        from constellation.temporal import entity_timeline
+
+        as_of = values.get("as_of")
+        return entity_timeline(
+            vault,
+            str(values["entity_id"]),
+            as_of=str(as_of) if as_of else None,
+            sensitivity_ceiling=str(values.get("sensitivity", "internal")),
         )
     if action == "snapshot":
         from constellation.watchlists import stage_snapshot
