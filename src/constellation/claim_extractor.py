@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
+import re
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -20,7 +22,7 @@ from typing import Callable
 from .claim import stage_claim
 from .egress import EgressDenied, EgressRequest, require_egress
 from .frontmatter import parse_frontmatter
-from .models import Sensitivity, SourceItem, generate_ulid
+from .models import Claim, ClaimStatus, Sensitivity, SourceItem, generate_ulid
 from .storage import atomic_write_text, safe_relative_path
 from .identity import SubjectResolutionError, resolve_subject
 from .url_safety import UnsafeUrlError, validate_http_url
@@ -33,7 +35,54 @@ class ClaimExtractionError(RuntimeError):
 
 _MAX_MODEL_RESPONSE_BYTES = 1_000_000
 _MAX_MODEL_TOKENS = 4_000
+_MAX_SOURCE_CHUNK_CHARS = 6_000
+_MAX_USAGE_COUNTER = 1_000_000_000_000
 _CONFIDENCE = {"direct_quote": 0.95, "paraphrase": 0.85, "inference": 0.70}
+_USAGE_FIELDS = {
+    "tokens",
+    "input_tokens",
+    "output_tokens",
+    "reasoning_tokens",
+    "cache_read_tokens",
+    "cache_write_tokens",
+    "prompt_tokens",
+    "completion_tokens",
+    "total_tokens",
+    "cached_tokens",
+}
+_LINE_BREAK_RE = re.compile(r"\r\n|[\n\r\v\f\x1c-\x1e\x85\u2028\u2029]")
+_TRAILING_LINE_BREAK_RE = re.compile(r"(?:\r\n|[\n\r\v\f\x1c-\x1e\x85\u2028\u2029])\Z")
+
+
+def _line_break_count(text: str) -> int:
+    return len(_LINE_BREAK_RE.findall(text))
+
+
+def _ends_with_line_break(text: str) -> bool:
+    return _TRAILING_LINE_BREAK_RE.search(text) is not None
+
+
+def _without_trailing_line_break(text: str) -> str:
+    return _TRAILING_LINE_BREAK_RE.sub("", text)
+
+
+def _decode_source_bytes(source_bytes: bytes, *, label: str) -> str:
+    try:
+        source_content = source_bytes.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ClaimExtractionError(f"{label} is not valid UTF-8") from exc
+    if not source_content.strip():
+        raise ClaimExtractionError(f"{label} is empty")
+    return source_content
+
+
+@dataclass(frozen=True, slots=True)
+class _SourceChunk:
+    index: int
+    start_line: int
+    end_line: int
+    text: str
+    sha256: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,14 +116,124 @@ Document:
 Return ONLY the JSON array, nothing else."""
 
 
+def _chunk_source(source_content: str) -> list[_SourceChunk]:
+    """Split exact source text into deterministic paragraph/line chunks."""
+    paragraph_units: list[str] = []
+    paragraph_lines: list[str] = []
+    for line in source_content.splitlines(keepends=True):
+        paragraph_lines.append(line)
+        if not _without_trailing_line_break(line):
+            paragraph_units.append("".join(paragraph_lines))
+            paragraph_lines = []
+    if paragraph_lines:
+        paragraph_units.append("".join(paragraph_lines))
+
+    chunk_texts: list[str] = []
+    pending = ""
+
+    def flush_pending() -> None:
+        nonlocal pending
+        if pending:
+            chunk_texts.append(pending)
+            pending = ""
+
+    for paragraph in paragraph_units:
+        if len(paragraph) <= _MAX_SOURCE_CHUNK_CHARS:
+            if pending and len(pending) + len(paragraph) > _MAX_SOURCE_CHUNK_CHARS:
+                flush_pending()
+            pending += paragraph
+            continue
+
+        flush_pending()
+        for line in paragraph.splitlines(keepends=True):
+            if len(line) > _MAX_SOURCE_CHUNK_CHARS:
+                flush_pending()
+                chunk_texts.append(line)
+            else:
+                if pending and len(pending) + len(line) > _MAX_SOURCE_CHUNK_CHARS:
+                    flush_pending()
+                pending += line
+    flush_pending()
+
+    chunks: list[_SourceChunk] = []
+    start_line = 1
+    for index, text in enumerate(chunk_texts):
+        line_break_count = _line_break_count(text)
+        end_line = start_line + line_break_count - int(_ends_with_line_break(text))
+        chunks.append(
+            _SourceChunk(
+                index=index,
+                start_line=start_line,
+                end_line=end_line,
+                text=text,
+                sha256=hashlib.sha256(text.encode("utf-8")).hexdigest(),
+            )
+        )
+        start_line += line_break_count
+    return chunks
+
+
 def _extraction_input_sha256(source_content: str, source_hash: str) -> str:
     """Stable hash of the extraction input for receipt traceability."""
     packet = json.dumps(
-        {"source_hash": source_hash, "content_sha256": hashlib.sha256(source_content.encode()).hexdigest()},
+        {
+            "source_hash": source_hash,
+            "content_sha256": hashlib.sha256(source_content.encode()).hexdigest(),
+        },
         sort_keys=True,
         separators=(",", ":"),
     )
     return hashlib.sha256(packet.encode()).hexdigest()
+
+
+def _run_preflight_input_sha256(source_hash: str) -> str:
+    packet = json.dumps(
+        {"source_hash": source_hash, "stage": "run_preflight"},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(packet.encode("utf-8")).hexdigest()
+
+
+def _chunk_input_sha256(chunk: _SourceChunk, source_hash: str, prompt: str) -> str:
+    packet = json.dumps(
+        {
+            "source_hash": source_hash,
+            "chunk_sha256": chunk.sha256,
+            "chunk_index": chunk.index,
+            "start_line": chunk.start_line,
+            "end_line": chunk.end_line,
+            "prompt_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(packet.encode("utf-8")).hexdigest()
+
+
+def _bounded_usage(usage: object) -> dict[str, int | float] | None:
+    if not isinstance(usage, dict):
+        return None
+    bounded: dict[str, int | float] = {}
+    for key in sorted(_USAGE_FIELDS):
+        value = usage.get(key)
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, int) and 0 <= value <= _MAX_USAGE_COUNTER:
+            bounded[key] = value
+        elif (
+            isinstance(value, float)
+            and math.isfinite(value)
+            and 0 <= value <= _MAX_USAGE_COUNTER
+        ):
+            bounded[key] = value
+    return bounded or None
+
+
+def _optional_sha256(value: str | None) -> str | None:
+    if value is None:
+        return None
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 def _write_extraction_receipt(
@@ -88,15 +247,28 @@ def _write_extraction_receipt(
     source_hash: str,
     input_sha256: str,
     authorization_id: str | None = None,
-    provider_request_id: str | None = None,
+    provider_request_id_sha256: str | None = None,
     response_sha256: str | None = None,
     usage: object = None,
     staged: int = 0,
     skipped: int = 0,
     claim_ids: list[str] | None = None,
+    chunks: list[dict[str, object]] | None = None,
     error: str | None = None,
 ) -> str:
     relative = Path(".constellation/claim-extractions") / f"{receipt_id}.json"
+    failed_chunk = next(
+        (
+            {
+                "chunk_index": chunk.get("chunk_index"),
+                "start_line": chunk.get("start_line"),
+                "end_line": chunk.get("end_line"),
+            }
+            for chunk in chunks or []
+            if chunk.get("status") in {"failed", "denied"}
+        ),
+        None,
+    )
     payload = {
         "schema_version": "0.1",
         "receipt_id": receipt_id,
@@ -107,12 +279,20 @@ def _write_extraction_receipt(
         "source_hash": source_hash,
         "input_sha256": input_sha256,
         "authorization_id": authorization_id,
-        "provider_request_id": provider_request_id,
+        "provider_request_id_sha256": provider_request_id_sha256,
         "response_sha256": response_sha256,
         "usage": usage,
         "staged": staged,
         "skipped": skipped,
         "claim_ids": claim_ids or [],
+        "chunk_count": len(chunks or []),
+        "chunks": chunks or [],
+        "failed_chunk": failed_chunk,
+        "authorization_ids": [
+            value
+            for chunk in chunks or []
+            if isinstance((value := chunk.get("authorization_id")), str)
+        ],
         "error": error,
         "recorded_at": datetime.now(UTC).isoformat(),
     }
@@ -120,16 +300,18 @@ def _write_extraction_receipt(
     return relative.as_posix()
 
 
-def _exact_line_anchor(source_content: str, excerpt: str) -> str:
+def _exact_line_anchor(source_content: str, excerpt: str, *, first_line: int = 1) -> str:
     start = source_content.find(excerpt)
     if start < 0:
         raise ClaimExtractionError("claim evidence excerpt was not found exactly in the source")
-    start_line = source_content.count("\n", 0, start) + 1
-    end_line = start_line + excerpt.count("\n")
+    start_line = first_line + _line_break_count(source_content[:start])
+    end_line = start_line + _line_break_count(excerpt)
     return f"L{start_line:06d}-L{end_line:06d}"
 
 
-def _parse_claims(raw_content: str, source_content: str) -> list[_ExtractedClaim]:
+def _parse_claims(
+    raw_content: str, source_content: str, *, first_line: int = 1
+) -> list[_ExtractedClaim]:
     try:
         payload = json.loads(raw_content)
     except json.JSONDecodeError as exc:
@@ -163,11 +345,42 @@ def _parse_claims(raw_content: str, source_content: str) -> list[_ExtractedClaim
                 predicate=predicate.strip(),
                 object_literal=object_literal.strip(),
                 evidence_excerpt=evidence,
-                evidence_anchor=_exact_line_anchor(source_content, evidence),
+                evidence_anchor=_exact_line_anchor(
+                    source_content, evidence, first_line=first_line
+                ),
                 confidence=_CONFIDENCE[confidence_name],
             )
         )
     return claims
+
+
+def _validate_extracted_claim(
+    claim: _ExtractedClaim,
+    *,
+    subject_id: str,
+    source_ids: list[str],
+    observed_at: datetime,
+) -> None:
+    try:
+        Claim(
+            type="claim",
+            title=f"claim-{subject_id[:8]}-{claim.predicate}",
+            status="review-required",
+            sensitivity=Sensitivity.INTERNAL,
+            subject_id=subject_id,
+            predicate=claim.predicate,
+            object_literal=claim.object_literal,
+            source_ids=source_ids,
+            evidence_anchor=claim.evidence_anchor,
+            evidence_excerpt=claim.evidence_excerpt,
+            claim_status=ClaimStatus.SOURCE_CLAIMED,
+            confidence=claim.confidence,
+            observed_at=observed_at,
+            created_at=observed_at,
+            updated_at=observed_at,
+        )
+    except ValueError as exc:
+        raise ClaimExtractionError("model claim failed schema validation") from exc
 
 
 def _require_canonical_subject(vault: Path, subject_id: str) -> None:
@@ -319,23 +532,34 @@ def _invoke_model(
     return content, request_id, body.get("usage")
 
 
-def _existing_claim_keys(vault: Path) -> set[tuple[str, str]]:
-    """Build a set of (predicate, object_literal) for dedup."""
+def _existing_claim_keys(vault: Path, subject_id: str) -> set[tuple[str, str]]:
+    """Build dedup keys for one subject from claims and candidates."""
     keys: set[tuple[str, str]] = set()
+
+    def add_key(payload: object) -> None:
+        if not isinstance(payload, dict) or payload.get("subject_id") != subject_id:
+            return
+        predicate = str(payload.get("predicate", "")).strip().casefold()
+        object_literal = str(payload.get("object_literal", "")).strip().casefold()
+        if predicate and object_literal:
+            keys.add((predicate, object_literal))
+
     claims_dir = vault / "claims"
-    if not claims_dir.is_dir():
-        return keys
-    for path in claims_dir.glob("*.md"):
-        try:
-            fm, _ = parse_frontmatter(path.read_text(encoding="utf-8"))
-            if not isinstance(fm, dict):
+    if claims_dir.is_dir():
+        for path in claims_dir.glob("*.md"):
+            try:
+                frontmatter, _ = parse_frontmatter(path.read_text(encoding="utf-8"))
+                add_key(frontmatter)
+            except Exception:
                 continue
-            pred = str(fm.get("predicate", "")).strip().casefold()
-            obj = str(fm.get("object_literal", "")).strip().casefold()
-            if pred and obj:
-                keys.add((pred, obj))
-        except Exception:
-            continue
+
+    candidates_dir = vault / ".constellation/candidates"
+    if candidates_dir.is_dir():
+        for path in candidates_dir.glob("claim-*.json"):
+            try:
+                add_key(json.loads(path.read_text(encoding="utf-8")))
+            except (OSError, json.JSONDecodeError):
+                continue
     return keys
 
 
@@ -372,11 +596,10 @@ def extract_claims_from_source(
     if not src.is_file():
         raise ClaimExtractionError(f"source file not found: {src}")
 
-    source_content = src.read_text(encoding="utf-8")
-    if not source_content.strip():
-        raise ClaimExtractionError("source file is empty")
+    source_bytes = src.read_bytes()
+    source_content = _decode_source_bytes(source_bytes, label="source file")
 
-    source_hash = hashlib.sha256(source_content.encode()).hexdigest()
+    source_hash = hashlib.sha256(source_bytes).hexdigest()
     input_sha256 = _extraction_input_sha256(source_content, source_hash)
     provider_name = (provider or "").strip()
     model_name = (model or "").strip()
@@ -392,7 +615,7 @@ def extract_claims_from_source(
             (item.sensitivity for item in source_items),
             key=sensitivity_order.index,
         )
-    except ClaimExtractionError as exc:
+    except ClaimExtractionError:
         _write_extraction_receipt(
             vault,
             receipt_id,
@@ -402,91 +625,147 @@ def extract_claims_from_source(
             source_ids=source_ids,
             source_hash=source_hash,
             input_sha256=input_sha256,
-            error=str(exc),
+            error="preflight_failed",
         )
         raise
 
-    try:
-        authorization = require_egress(
-            vault,
-            EgressRequest(
+    chunks = _chunk_source(source_content)
+    claims: list[_ExtractedClaim] = []
+    chunk_metadata: list[dict[str, object]] = []
+    last_authorization_id: str | None = None
+    last_provider_request_id_sha256: str | None = None
+    last_response_sha256: str | None = None
+    last_usage: object = None
+    observed_at = datetime.now(UTC)
+
+    for chunk in chunks:
+        prompt = EXTRACTION_PROMPT.format(document=chunk.text)
+        chunk_input_sha256 = _chunk_input_sha256(chunk, source_hash, prompt)
+        metadata: dict[str, object] = {
+            "chunk_index": chunk.index,
+            "start_line": chunk.start_line,
+            "end_line": chunk.end_line,
+            "chunk_sha256": chunk.sha256,
+            "request_input_sha256": chunk_input_sha256,
+        }
+        try:
+            authorization = require_egress(
+                vault,
+                EgressRequest(
+                    provider=provider_name,
+                    model=model_name,
+                    purpose="stage1",
+                    sensitivity=canonical_sensitivity,
+                    source_hashes=(source_hash,),
+                    request_input_sha256=chunk_input_sha256,
+                ),
+            )
+        except EgressDenied as exc:
+            metadata.update(
+                status="denied",
+                authorization_id=exc.decision.authorization_id,
+                request_sha256=exc.decision.request_sha256,
+            )
+            chunk_metadata.append(metadata)
+            _write_extraction_receipt(
+                vault,
+                receipt_id,
+                status="denied",
                 provider=provider_name,
                 model=model_name,
-                purpose="stage1",
-                sensitivity=canonical_sensitivity,
-                source_hashes=(source_hash,),
-                request_input_sha256=input_sha256,
-            ),
-        )
-    except EgressDenied as exc:
-        _write_extraction_receipt(
-            vault,
-            receipt_id,
-            status="denied",
-            provider=provider_name,
-            model=model_name,
-            source_ids=source_ids,
-            source_hash=source_hash,
-            input_sha256=input_sha256,
-            authorization_id=exc.decision.authorization_id,
-            error=exc.decision.reason,
-        )
-        raise
+                source_ids=source_ids,
+                source_hash=source_hash,
+                input_sha256=input_sha256,
+                authorization_id=exc.decision.authorization_id,
+                chunks=chunk_metadata,
+                error=exc.decision.reason,
+            )
+            raise
 
-    prompt = EXTRACTION_PROMPT.format(document=source_content[:30_000])
-    try:
-        raw_content, provider_request_id, usage = _invoke_model(
-            provider=provider_name,
-            model=model_name,
-            prompt=prompt,
-            transport=authorization.transport,
-            model_caller=model_caller,
-            api_key=api_key,
-        )
-    except Exception as exc:
-        error = (
-            exc
-            if isinstance(exc, ClaimExtractionError)
-            else ClaimExtractionError(f"model call failed: {exc}")
-        )
-        _write_extraction_receipt(
-            vault,
-            receipt_id,
-            status="failed",
-            provider=provider_name,
-            model=model_name,
-            source_ids=source_ids,
-            source_hash=source_hash,
-            input_sha256=input_sha256,
-            authorization_id=authorization.authorization_id,
-            error=str(error),
-        )
-        raise error from exc
+        last_authorization_id = authorization.authorization_id
+        metadata["authorization_id"] = authorization.authorization_id
+        metadata["request_sha256"] = authorization.request_sha256
+        try:
+            raw_content, provider_request_id, usage = _invoke_model(
+                provider=provider_name,
+                model=model_name,
+                prompt=prompt,
+                transport=authorization.transport,
+                model_caller=model_caller,
+                api_key=api_key,
+            )
+        except Exception as exc:
+            error = (
+                exc
+                if isinstance(exc, ClaimExtractionError)
+                else ClaimExtractionError(f"model call failed: {exc}")
+            )
+            metadata["status"] = "failed"
+            chunk_metadata.append(metadata)
+            _write_extraction_receipt(
+                vault,
+                receipt_id,
+                status="failed",
+                provider=provider_name,
+                model=model_name,
+                source_ids=source_ids,
+                source_hash=source_hash,
+                input_sha256=input_sha256,
+                authorization_id=authorization.authorization_id,
+                chunks=chunk_metadata,
+                error="model_call_failed",
+            )
+            raise error from exc
 
-    try:
-        claims = _parse_claims(raw_content, source_content)
-    except ClaimExtractionError as exc:
-        _write_extraction_receipt(
-            vault,
-            receipt_id,
-            status="failed",
-            provider=provider_name,
-            model=model_name,
-            source_ids=source_ids,
-            source_hash=source_hash,
-            input_sha256=input_sha256,
-            authorization_id=authorization.authorization_id,
-            provider_request_id=provider_request_id,
-            response_sha256=hashlib.sha256(raw_content.encode()).hexdigest(),
-            usage=usage,
-            error=str(exc),
+        response_sha256 = hashlib.sha256(raw_content.encode("utf-8")).hexdigest()
+        provider_request_id_sha256 = _optional_sha256(provider_request_id)
+        bounded_usage = _bounded_usage(usage)
+        metadata.update(
+            provider_request_id_sha256=provider_request_id_sha256,
+            response_sha256=response_sha256,
+            usage=bounded_usage,
         )
-        raise
+        last_provider_request_id_sha256 = provider_request_id_sha256
+        last_response_sha256 = response_sha256
+        last_usage = bounded_usage
+        try:
+            chunk_claims = _parse_claims(
+                raw_content, chunk.text, first_line=chunk.start_line
+            )
+            for claim in chunk_claims:
+                _validate_extracted_claim(
+                    claim,
+                    subject_id=subject_id,
+                    source_ids=source_ids,
+                    observed_at=observed_at,
+                )
+        except ClaimExtractionError:
+            metadata["status"] = "failed"
+            chunk_metadata.append(metadata)
+            _write_extraction_receipt(
+                vault,
+                receipt_id,
+                status="failed",
+                provider=provider_name,
+                model=model_name,
+                source_ids=source_ids,
+                source_hash=source_hash,
+                input_sha256=input_sha256,
+                authorization_id=authorization.authorization_id,
+                provider_request_id_sha256=provider_request_id_sha256,
+                response_sha256=response_sha256,
+                usage=bounded_usage,
+                chunks=chunk_metadata,
+                error="model_response_invalid",
+            )
+            raise
+        metadata["status"] = "complete"
+        chunk_metadata.append(metadata)
+        claims.extend(chunk_claims)
 
-    existing_keys = _existing_claim_keys(vault)
+    existing_keys = _existing_claim_keys(vault, subject_id)
     staged: list[str] = []
     skipped = 0
-    now = datetime.now(UTC)
     for claim in claims:
         key = (claim.predicate.casefold(), claim.object_literal.casefold())
         if key in existing_keys:
@@ -502,7 +781,7 @@ def extract_claims_from_source(
             evidence_excerpt=claim.evidence_excerpt,
             claim_status="source-claimed",
             confidence=claim.confidence,
-            observed_at=now,
+            observed_at=observed_at,
         )
         staged.append(result["claim_id"])
         existing_keys.add(key)
@@ -516,13 +795,14 @@ def extract_claims_from_source(
         source_ids=source_ids,
         source_hash=source_hash,
         input_sha256=input_sha256,
-        authorization_id=authorization.authorization_id,
-        provider_request_id=provider_request_id,
-        response_sha256=hashlib.sha256(raw_content.encode()).hexdigest(),
-        usage=usage,
+        authorization_id=last_authorization_id,
+        provider_request_id_sha256=last_provider_request_id_sha256,
+        response_sha256=last_response_sha256,
+        usage=last_usage,
         staged=len(staged),
         skipped=skipped,
         claim_ids=staged,
+        chunks=chunk_metadata,
     )
     return {
         "status": "complete" if staged else "no_claims",
@@ -568,19 +848,90 @@ def extract_claims_from_run(
     sources = receipt.get("sources")
     if not isinstance(sources, list):
         raise ClaimExtractionError(f"research run sources are invalid: {run_id}")
-
-    prepared: list[tuple[Path, list[str]]] = []
+    source_hashes: list[str] = []
     for source in sources:
         source_hash = source.get("source_hash") if isinstance(source, dict) else None
         if not isinstance(source_hash, str) or len(source_hash) != 64:
             raise ClaimExtractionError(f"research run source hash is invalid: {run_id}")
+        source_hashes.append(source_hash)
+
+    provider_name = (provider or "").strip()
+    model_name = (model or "").strip()
+    try:
+        if not provider_name or not model_name:
+            raise ClaimExtractionError("provider and model are required for claim extraction")
+        _require_canonical_subject(vault, subject_id)
+    except ClaimExtractionError:
+        for source_hash in source_hashes:
+            try:
+                source_ids = _source_ids_for_hash(vault, source_hash)
+            except ClaimExtractionError:
+                source_ids = []
+            _write_extraction_receipt(
+                vault,
+                generate_ulid(),
+                status="failed",
+                provider=provider_name,
+                model=model_name,
+                source_ids=source_ids,
+                source_hash=source_hash,
+                input_sha256=_run_preflight_input_sha256(source_hash),
+                error="preflight_failed",
+            )
+        raise
+
+    preflight_rows: list[
+        tuple[Path, str, list[str], str, ClaimExtractionError | None]
+    ] = []
+    for source_hash in source_hashes:
         source_file = run_base / f"{source_hash}.md"
-        if not source_file.is_file() or source_file.is_symlink():
-            raise ClaimExtractionError(f"preserved source is missing: {source_hash}")
-        actual_hash = hashlib.sha256(source_file.read_bytes()).hexdigest()
-        if actual_hash != source_hash:
-            raise ClaimExtractionError(f"preserved source hash mismatch: {source_hash}")
-        prepared.append((source_file, _source_ids_for_hash(vault, source_hash)))
+        source_ids: list[str] = []
+        input_sha256 = _run_preflight_input_sha256(source_hash)
+        failure: ClaimExtractionError | None = None
+        try:
+            if not source_file.is_file() or source_file.is_symlink():
+                raise ClaimExtractionError(f"preserved source is missing: {source_hash}")
+            try:
+                source_bytes = source_file.read_bytes()
+            except OSError as exc:
+                raise ClaimExtractionError(
+                    f"preserved source could not be read: {source_hash}"
+                ) from exc
+            actual_hash = hashlib.sha256(source_bytes).hexdigest()
+            if actual_hash != source_hash:
+                raise ClaimExtractionError(f"preserved source hash mismatch: {source_hash}")
+            source_content = _decode_source_bytes(
+                source_bytes, label=f"preserved source {source_hash}"
+            )
+            input_sha256 = _extraction_input_sha256(source_content, source_hash)
+            source_ids = _source_ids_for_hash(vault, source_hash)
+            _require_matching_source_items(vault, source_ids, source_hash)
+        except ClaimExtractionError as exc:
+            failure = exc
+        preflight_rows.append(
+            (source_file, source_hash, source_ids, input_sha256, failure)
+        )
+
+    first_failure = next(
+        (row[4] for row in preflight_rows if row[4] is not None),
+        None,
+    )
+    if first_failure is not None:
+        for _, source_hash, source_ids, input_sha256, failure in preflight_rows:
+            _write_extraction_receipt(
+                vault,
+                generate_ulid(),
+                status="failed",
+                provider=provider_name,
+                model=model_name,
+                source_ids=source_ids,
+                source_hash=source_hash,
+                input_sha256=input_sha256,
+                error="preflight_failed" if failure is not None else "run_preflight_aborted",
+            )
+        raise first_failure
+
+    prepared = [(row[0], row[2]) for row in preflight_rows]
 
     total_staged = 0
     total_skipped = 0
@@ -591,8 +942,8 @@ def extract_claims_from_run(
             source_file,
             subject_id=subject_id,
             source_ids=source_ids,
-            provider=provider,
-            model=model,
+            provider=provider_name,
+            model=model_name,
             model_caller=model_caller,
             api_key=api_key,
         )
