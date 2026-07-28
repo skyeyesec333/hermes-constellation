@@ -137,6 +137,7 @@ def test_reingest_promoted_unchanged_source_is_a_side_effect_free_noop(tmp_path)
 
     assert again["status"] == "already_ingested"
     assert again["source_patch_staged"] == "false"
+    assert again["source_patch_state"] == "unchanged_noop"
     assert source_note_path.read_text(encoding="utf-8") == source_before
     assert manifest_path.read_text(encoding="utf-8") == manifest_before
     assert not list((root / ".constellation/candidates").glob("*.json"))
@@ -171,6 +172,20 @@ def test_reingest_materially_changed_extraction_stages_one_hash_checked_update(t
     assert candidate.expected_base_hash
     assert revised_text in candidate.content
 
+    candidate_path = root / result["candidate_path"]
+    manifest_path = root / result["manifest_path"]
+    candidate_before = candidate_path.read_bytes()
+    manifest_before = manifest_path.read_bytes()
+
+    repeated = ingest_file(root, source, now=NOW + timedelta(minutes=2))
+
+    assert repeated["status"] == "already_ingested"
+    assert repeated["source_patch_state"] == "already_staged"
+    assert repeated["candidate_id"] == result["candidate_id"]
+    assert repeated["candidate_path"] == result["candidate_path"]
+    assert candidate_path.read_bytes() == candidate_before
+    assert manifest_path.read_bytes() == manifest_before
+
 
 def test_reingest_preserves_a_conflicting_existing_upgrade_candidate(tmp_path, monkeypatch):
     root = make_vault(tmp_path)
@@ -200,10 +215,60 @@ def test_reingest_preserves_a_conflicting_existing_upgrade_candidate(tmp_path, m
         encoding="utf-8",
     )
 
-    with pytest.raises(IngestError, match="different source upgrade candidate"):
-        ingest_file(root, source, now=NOW + timedelta(minutes=2))
+    conflict = ingest_file(root, source, now=NOW + timedelta(minutes=2))
 
+    assert conflict["status"] == "pending_upgrade_conflict"
+    assert conflict["source_patch_state"] == "conflict"
+    assert conflict["review_required"] == "true"
+    assert conflict["conflict_reason"] == "expected_base_hash_mismatch"
     assert candidate_path.read_text(encoding="utf-8") == candidate_before
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "reason"),
+    [
+        ("target_path", "source-items/01ARZ3NDEKTSV4RRFFQ69G5FAV.md", "target_path_mismatch"),
+        ("title", "Different pending source update", "candidate_identity_mismatch"),
+        ("content", None, "candidate_content_mismatch"),
+    ],
+)
+def test_reingest_reports_materially_different_pending_candidate_as_conflict(
+    tmp_path, monkeypatch, field, value, reason
+):
+    root = make_vault(tmp_path)
+    source = root / "Inbox/pending-conflict.txt"
+    source.write_text("Original fictional bytes.\n", encoding="utf-8")
+    first = ingest_file(root, source, now=NOW)
+    promote_candidate(root, first["candidate_id"], confirm=True, expected_base_hash=None)
+
+    data = source.read_bytes()
+    revised_text = "Reprocessed fictional extraction.\n"
+    monkeypatch.setattr(
+        "constellation.ingest._read_source",
+        lambda _: ExtractedSource(
+            data=data,
+            text=revised_text,
+            media_type="text/plain",
+            extraction={"source_sha256": sha256_bytes(data), "status": "complete", "units": []},
+        ),
+    )
+    staged = ingest_file(root, source, now=NOW + timedelta(minutes=1))
+    candidate_path = root / staged["candidate_path"]
+    payload = json.loads(candidate_path.read_text(encoding="utf-8"))
+    payload[field] = (
+        payload["content"] + "\nMaterially different review content.\n"
+        if field == "content"
+        else value
+    )
+    candidate_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    candidate_before = candidate_path.read_bytes()
+
+    result = ingest_file(root, source, now=NOW + timedelta(minutes=2))
+
+    assert result["status"] == "pending_upgrade_conflict"
+    assert result["source_patch_state"] == "conflict"
+    assert result["conflict_reason"] == reason
+    assert candidate_path.read_bytes() == candidate_before
 
 
 def test_changed_local_capture_stages_a_new_candidate_without_canonical_rewrite(tmp_path):

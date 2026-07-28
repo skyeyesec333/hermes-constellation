@@ -980,6 +980,24 @@ def _read_source(path: Path) -> ExtractedSource:
     return extracted
 
 
+@dataclass(frozen=True, slots=True)
+class _SourceUpgradeResult:
+    state: str
+    candidate_id: str
+    candidate_path: str
+    conflict_reason: str | None = None
+
+
+def _effective_source_candidate_content(content: str) -> tuple[str, str]:
+    """Normalize non-semantic timestamps before comparing pending source patches."""
+    metadata, body = parse_frontmatter(content)
+    if not isinstance(metadata, dict):
+        raise ValueError("candidate content frontmatter is invalid")
+    metadata = dict(metadata)
+    metadata.pop("updated_at", None)
+    return json.dumps(metadata, sort_keys=True, default=str), body
+
+
 def _stage_source_extraction_upgrade(
     vault: Path,
     manifest: dict[str, Any],
@@ -987,12 +1005,20 @@ def _stage_source_extraction_upgrade(
     extraction: dict[str, Any],
     text: str,
     instant: datetime,
-) -> bool:
-    """Stage a hash-checked source-note update for an already-promoted source."""
+) -> _SourceUpgradeResult:
+    """Classify or stage a hash-checked update for an already-promoted source."""
     source_item_relative = str(manifest["source_item_path"])
     source_item_path = safe_relative_path(vault, source_item_relative)
+    manifest_candidate_path = str(manifest["candidate_path"])
+    manifest_candidate_id = str(
+        manifest.get("candidate_id") or Path(manifest_candidate_path).stem
+    )
     if not source_item_path.is_file() or source_item_path.is_symlink():
-        return False
+        return _SourceUpgradeResult(
+            state="unchanged_noop",
+            candidate_id=manifest_candidate_id,
+            candidate_path=manifest_candidate_path,
+        )
     current_text = source_item_path.read_text(encoding="utf-8")
     metadata, _ = parse_frontmatter(current_text)
     metadata["extraction_manifest_path"] = manifest_relative.as_posix()
@@ -1003,7 +1029,11 @@ def _stage_source_extraction_upgrade(
         f"# {source_item.title}\n\n{text}",
     )
     if unchanged_note == current_text:
-        return False
+        return _SourceUpgradeResult(
+            state="unchanged_noop",
+            candidate_id=manifest_candidate_id,
+            candidate_path=manifest_candidate_path,
+        )
     source_item = source_item.model_copy(update={"updated_at": instant})
     updated_note = render_frontmatter(
         source_item.model_dump(mode="json", exclude_none=True),
@@ -1025,21 +1055,65 @@ def _stage_source_extraction_upgrade(
     candidate_path = vault / candidate_relative
     serialized = candidate.model_dump_json(indent=2) + "\n"
     if candidate_path.exists():
+        if candidate_path.is_symlink() or not candidate_path.is_file():
+            return _SourceUpgradeResult(
+                state="conflict",
+                candidate_id=candidate.id,
+                candidate_path=candidate_relative.as_posix(),
+                conflict_reason="existing_candidate_unsafe",
+            )
         try:
             existing = CandidatePatch.model_validate_json(candidate_path.read_text(encoding="utf-8"))
-        except Exception as exc:
-            raise IngestError("existing source candidate is invalid") from exc
-        if (
-            existing.target_path != source_item_relative
-            or existing.expected_base_hash != candidate.expected_base_hash
-            or not existing.title.startswith("Upgrade extraction record:")
+        except Exception:
+            return _SourceUpgradeResult(
+                state="conflict",
+                candidate_id=candidate.id,
+                candidate_path=candidate_relative.as_posix(),
+                conflict_reason="existing_candidate_invalid",
+            )
+        conflict_reason = None
+        if existing.expected_base_hash != candidate.expected_base_hash:
+            conflict_reason = "expected_base_hash_mismatch"
+        elif existing.target_path != candidate.target_path:
+            conflict_reason = "target_path_mismatch"
+        elif (
+            existing.id != candidate.id
+            or existing.type != candidate.type
+            or existing.title != candidate.title
+            or existing.status != candidate.status
+            or existing.sensitivity != candidate.sensitivity
         ):
-            raise IngestError("a different source upgrade candidate already exists")
+            conflict_reason = "candidate_identity_mismatch"
+        else:
+            try:
+                content_matches = _effective_source_candidate_content(
+                    existing.content
+                ) == _effective_source_candidate_content(candidate.content)
+            except Exception:
+                content_matches = False
+            if not content_matches:
+                conflict_reason = "candidate_content_mismatch"
+        if conflict_reason is not None:
+            return _SourceUpgradeResult(
+                state="conflict",
+                candidate_id=existing.id,
+                candidate_path=candidate_relative.as_posix(),
+                conflict_reason=conflict_reason,
+            )
+        return _SourceUpgradeResult(
+            state="already_staged",
+            candidate_id=existing.id,
+            candidate_path=candidate_relative.as_posix(),
+        )
     else:
         atomic_write_text(vault, candidate_relative, serialized)
     manifest["candidate_id"] = candidate.id
     manifest["candidate_path"] = candidate_relative.as_posix()
-    return True
+    return _SourceUpgradeResult(
+        state="staged",
+        candidate_id=candidate.id,
+        candidate_path=candidate_relative.as_posix(),
+    )
 
 
 def ingest_file(
@@ -1183,7 +1257,7 @@ def ingest_file(
                     "extraction": extraction,
                 }
             )
-        source_patch_staged = _stage_source_extraction_upgrade(
+        source_upgrade = _stage_source_extraction_upgrade(
             vault,
             manifest,
             manifest_relative,
@@ -1191,8 +1265,9 @@ def ingest_file(
             text,
             instant,
         )
-        candidate_path = str(manifest["candidate_path"])
-        if upgraded or source_patch_staged or card_updated or deck_updated or meeting_updated or longform_updated or gmail_updated:
+        candidate_path = source_upgrade.candidate_path
+        source_patch_staged = source_upgrade.state in {"staged", "already_staged"}
+        if upgraded or source_upgrade.state == "staged" or card_updated or deck_updated or meeting_updated or longform_updated or gmail_updated:
             atomic_write_text(
                 vault,
                 manifest_relative,
@@ -1200,17 +1275,28 @@ def ingest_file(
             )
         return {
             "schema_version": "0.1",
-            "status": "already_ingested",
+            "status": (
+                "pending_upgrade_conflict"
+                if source_upgrade.state == "conflict"
+                else "already_ingested"
+            ),
             "source_id": str(manifest["source_id"]),
             "manifest_path": manifest_relative.as_posix(),
             "preserved_path": str(manifest["preserved_path"]),
             "text_path": str(manifest["text_path"]),
             "source_item_path": str(manifest["source_item_path"]),
-            "candidate_id": str(manifest.get("candidate_id") or Path(candidate_path).stem),
+            "candidate_id": source_upgrade.candidate_id,
             "candidate_path": candidate_path,
             "extraction_status": str(manifest.get("extraction", extraction)["status"]),
             "manifest_upgraded": str(upgraded).lower(),
             "source_patch_staged": str(source_patch_staged).lower(),
+            "source_patch_state": source_upgrade.state,
+            "review_required": str(source_upgrade.state == "conflict").lower(),
+            **(
+                {"conflict_reason": str(source_upgrade.conflict_reason)}
+                if source_upgrade.conflict_reason is not None
+                else {}
+            ),
             **(
                 {"business_card_fields": str(len(business_card["fields"]))}
                 if business_card is not None

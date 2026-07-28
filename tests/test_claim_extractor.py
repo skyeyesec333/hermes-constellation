@@ -100,7 +100,8 @@ def _fixture(
         created_at=NOW,
         updated_at=NOW,
     )
-    (vault / "entities" / f"{subject.id}.md").write_text(
+    (vault / "people").mkdir(exist_ok=True)
+    (vault / "people" / "person-alex-example.md").write_text(
         render_frontmatter(subject.model_dump(mode="json", exclude_none=True), "# Alex Example\n"),
         encoding="utf-8",
     )

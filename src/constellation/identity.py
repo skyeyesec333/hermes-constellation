@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import re
 import unicodedata
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
@@ -26,6 +27,90 @@ _ULID_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 
 class IdentityError(RuntimeError):
     """Raised when canonical entities cannot safely be compared."""
+
+
+class SubjectResolutionError(RuntimeError):
+    """Raised when a canonical subject cannot be resolved unambiguously."""
+
+
+@dataclass(frozen=True)
+class ResolvedSubject:
+    """A validated canonical subject and its actual on-disk location."""
+
+    path: Path
+    record: EntityRecord
+    metadata: dict[str, object]
+    body: str
+
+
+def _route_accepts(folder: str, kind: EntityKind) -> bool:
+    if folder == "people":
+        return kind is EntityKind.PERSON
+    if folder == "entities":
+        return kind is not EntityKind.PERSON
+    return False
+
+
+def resolve_subject(root: Path | str, subject_id: str) -> ResolvedSubject:
+    """Resolve one subject ULID across canonical people/ and entities/ routes."""
+    vault = Path(root).absolute()
+    matches: list[ResolvedSubject] = []
+
+    for folder in ("people", "entities"):
+        base = vault / folder
+        if not base.is_dir() or base.is_symlink():
+            continue
+        exact = base / f"{subject_id}.md"
+        if exact.is_symlink():
+            raise SubjectResolutionError(
+                f"canonical subject path is a symlink: {subject_id}"
+            )
+        paths = ([exact] if exact.exists() else []) + [
+            path for path in sorted(base.glob("*.md")) if path != exact
+        ]
+        for path in paths:
+            if not path.is_file() or path.is_symlink():
+                continue
+            try:
+                metadata, body = parse_frontmatter(path.read_text(encoding="utf-8"))
+            except Exception as exc:
+                if path == exact:
+                    raise SubjectResolutionError(
+                        f"canonical subject is invalid: {subject_id}"
+                    ) from exc
+                continue
+            if not isinstance(metadata, dict):
+                if path == exact:
+                    raise SubjectResolutionError(
+                        f"canonical subject is invalid: {subject_id}"
+                    )
+                continue
+            candidate_id = str(metadata.get("id", ""))
+            if candidate_id != subject_id:
+                if path == exact:
+                    raise SubjectResolutionError(
+                        f"canonical subject filename does not match frontmatter id: {subject_id}"
+                    )
+                continue
+            try:
+                record = EntityRecord.model_validate(metadata, strict=False)
+            except Exception as exc:
+                raise SubjectResolutionError(
+                    f"canonical subject is invalid: {subject_id}"
+                ) from exc
+            if not _route_accepts(folder, record.type):
+                raise SubjectResolutionError(
+                    f"canonical subject route does not match type: {subject_id}"
+                )
+            matches.append(
+                ResolvedSubject(path=path, record=record, metadata=metadata, body=body)
+            )
+
+    if not matches:
+        raise SubjectResolutionError(f"canonical subject not found: {subject_id}")
+    if len(matches) != 1:
+        raise SubjectResolutionError(f"canonical subject is ambiguous: {subject_id}")
+    return matches[0]
 
 
 def _candidate_id(left_entity_id: str, right_entity_id: str, entity_kind: EntityKind) -> str:

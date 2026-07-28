@@ -13,6 +13,7 @@ from pathlib import Path
 
 from .frontmatter import parse_frontmatter, render_frontmatter
 from .storage import atomic_write_text, sha256_file
+from .identity import SubjectResolutionError, resolve_subject
 from .vault import is_initialized
 
 
@@ -24,14 +25,11 @@ class CrmError(RuntimeError):
 
 
 def _read_entity(vault: Path, entity_id: str) -> tuple[Path, dict, str]:
-    path = vault / "entities" / f"{entity_id}.md"
-    if not path.is_file() or path.is_symlink():
-        raise CrmError(f"entity not found: {entity_id}")
-    text = path.read_text(encoding="utf-8")
-    metadata, body = parse_frontmatter(text)
-    if not isinstance(metadata, dict):
-        raise CrmError(f"entity frontmatter is invalid: {entity_id}")
-    return path, metadata, body
+    try:
+        resolved = resolve_subject(vault, entity_id)
+    except SubjectResolutionError as exc:
+        raise CrmError(str(exc)) from exc
+    return resolved.path, resolved.metadata, resolved.body
 
 
 def _read_entity_metadata(vault: Path, entity_id: str) -> dict:
@@ -264,7 +262,12 @@ def crm_apply(
             "changes": changes,
         }
 
-    atomic_write_text(vault, Path("entities") / f"{entity_id}.md", new_content, expected_hash=expected_sha256)
+    atomic_write_text(
+        vault,
+        path.relative_to(vault),
+        new_content,
+        expected_hash=expected_sha256,
+    )
 
     return {
         "status": "applied",

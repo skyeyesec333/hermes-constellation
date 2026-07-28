@@ -5,7 +5,7 @@ Reports configured engine/provider state, last-known-good time, transitions
 state under .constellation/state/.  A failed probe means degradation, not
 that external evidence is absent.
 
-Probes: ChromaDB, SearXNG, EXA, Brave API, egress config.
+Probes: canonical validation, ChromaDB, SearXNG, EXA, Brave API, egress config.
 """
 
 from __future__ import annotations
@@ -71,7 +71,35 @@ def probe_research_health(vault: Path | str) -> dict[str, object]:
     probes: dict[str, object] = {}
     degraded = False
 
-    # Probe 1: ChromaDB (for book intelligence / embeddings)
+    # Probe 1: canonical validation. Infrastructure cannot be healthy while
+    # canonical material is invalid, even when every network lane is available.
+    try:
+        from .validation import validate_vault
+
+        validation = validate_vault(vault)
+        invalid_count = validation.get("invalid")
+        valid_count = validation.get("valid")
+        errors_truncated = validation.get("errors_truncated")
+        if not isinstance(invalid_count, int) or not isinstance(valid_count, int):
+            raise ValueError("canonical validation returned invalid counts")
+        if not isinstance(errors_truncated, bool):
+            raise ValueError("canonical validation returned invalid truncation state")
+        probes["canonical_validation"] = {
+            "valid": invalid_count == 0,
+            "valid_count": valid_count,
+            "invalid_count": invalid_count,
+            "errors_truncated": errors_truncated,
+        }
+        if invalid_count:
+            degraded = True
+    except Exception:
+        probes["canonical_validation"] = {
+            "valid": False,
+            "error": "canonical validation failed",
+        }
+        degraded = True
+
+    # Probe 2: ChromaDB (for book intelligence / embeddings)
     try:
         import chromadb
         from .book_intelligence import _get_collection_name
@@ -89,7 +117,7 @@ def probe_research_health(vault: Path | str) -> dict[str, object]:
         probes["chromadb"] = {"available": False, "error": str(exc)}
         degraded = True
 
-    # Probe 2: SearXNG (localhost)
+    # Probe 3: SearXNG (localhost)
     try:
         import urllib.request
 
@@ -105,7 +133,7 @@ def probe_research_health(vault: Path | str) -> dict[str, object]:
         probes["searxng"] = {"available": False, "error": str(exc)}
         degraded = True
 
-    # Probe 3: EXA API key presence
+    # Probe 4: EXA API key presence
     exa_key = os.environ.get("EXA_API_KEY", "")
     probes["exa"] = {
         "configured": bool(exa_key),
@@ -114,7 +142,7 @@ def probe_research_health(vault: Path | str) -> dict[str, object]:
         else "set EXA_API_KEY to enable semantic search",
     }
 
-    # Probe 4: Brave API key presence
+    # Probe 5: Brave API key presence
     brave_key = os.environ.get("BRAVE_API_KEY", "")
     probes["brave_api"] = {
         "configured": bool(brave_key),
@@ -123,7 +151,7 @@ def probe_research_health(vault: Path | str) -> dict[str, object]:
         else "set BRAVE_API_KEY to enable time-sensitive search",
     }
 
-    # Probe 5: Egress config presence
+    # Probe 6: Egress config presence
     try:
         import yaml
         from .vault import CONFIG_RELATIVE
@@ -172,6 +200,9 @@ def probe_research_health(vault: Path | str) -> dict[str, object]:
 
 def _recovery_hints(probes: dict[str, object]) -> list[str]:
     hints: list[str] = []
+    canonical = probes.get("canonical_validation", {})
+    if isinstance(canonical, dict) and not canonical.get("valid"):
+        hints.append("Repair invalid canonical records before trusting health")
     chroma = probes.get("chromadb", {})
     if isinstance(chroma, dict) and not chroma.get("available"):
         hints.append("Install chromadb: pip install chromadb sentence-transformers")

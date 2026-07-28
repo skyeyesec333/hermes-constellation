@@ -13,6 +13,7 @@ from pathlib import Path
 from .frontmatter import parse_frontmatter
 from .models import Analysis, Claim, EntityRecord, generate_ulid
 from .storage import atomic_write_text
+from .identity import SubjectResolutionError, resolve_subject
 from .validation import validate_canonical_text
 from .vault import is_initialized
 
@@ -27,15 +28,12 @@ class FrameworkError(RuntimeError):
 
 
 def _require_entity(vault: Path, entity_id: str) -> EntityRecord:
-    path = vault / "entities" / f"{entity_id}.md"
-    if not path.is_file() or path.is_symlink():
-        raise FrameworkError(f"entity not found: {entity_id}")
     try:
-        metadata, _ = parse_frontmatter(path.read_text(encoding="utf-8"))
-        entity = EntityRecord.model_validate(metadata, strict=False)
-    except Exception as exc:
-        raise FrameworkError(f"entity is invalid: {entity_id}") from exc
-    return entity
+        return resolve_subject(vault, entity_id).record
+    except SubjectResolutionError as exc:
+        if "not found" in str(exc):
+            raise FrameworkError(f"entity not found: {entity_id}") from exc
+        raise FrameworkError(f"entity is invalid: {entity_id}: {exc}") from exc
 
 
 # ── Evidence gathering ─────────────────────────────────────────────────

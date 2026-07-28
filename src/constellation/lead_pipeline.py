@@ -103,6 +103,17 @@ def capture_conference_lead(
         raise LeadPipelineError(str(exc)) from exc
 
     card_source_id = str(card_result["source_id"])
+    source_conflicts: list[dict[str, str]] = []
+    if card_result.get("source_patch_state") == "conflict":
+        source_conflicts.append(
+            {
+                "source": "card",
+                "source_id": card_source_id,
+                "candidate_id": str(card_result.get("candidate_id") or ""),
+                "candidate_path": str(card_result.get("candidate_path") or ""),
+                "reason": str(card_result.get("conflict_reason") or "unknown"),
+            }
+        )
     manifest_path = safe_relative_path(vault, card_result["manifest_path"])
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     business_card = manifest.get("business_card") or {}
@@ -123,6 +134,16 @@ def capture_conference_lead(
                 now=instant,
             )
             notes_source_id = str(note_result["source_id"])
+            if note_result.get("source_patch_state") == "conflict":
+                source_conflicts.append(
+                    {
+                        "source": "note",
+                        "source_id": notes_source_id,
+                        "candidate_id": str(note_result.get("candidate_id") or ""),
+                        "candidate_path": str(note_result.get("candidate_path") or ""),
+                        "reason": str(note_result.get("conflict_reason") or "unknown"),
+                    }
+                )
         except IngestError as exc:
             raise LeadPipelineError(str(exc)) from exc
 
@@ -226,7 +247,7 @@ def capture_conference_lead(
         raise LeadPipelineError(str(exc)) from exc
 
     return {
-        "status": "staged",
+        "status": "staged_with_source_conflict" if source_conflicts else "staged",
         "lead_key": key,
         "card_source_id": card_source_id,
         "notes_source_id": notes_source_id,
@@ -235,6 +256,12 @@ def capture_conference_lead(
         "pm_project": task["project_path"],
         "pm_task": task["task_path"],
         "task_id": task["task_id"],
+        "source_ingest_status": str(card_result["status"]),
+        "source_candidate_id": str(card_result.get("candidate_id") or ""),
+        "source_candidate_path": str(card_result.get("candidate_path") or ""),
+        "source_patch_state": str(card_result.get("source_patch_state") or "not_applicable"),
+        "source_conflicts": source_conflicts,
         "name_review_required": bool(person.get("name_review_required")),
+        "review_required": bool(person.get("name_review_required")) or bool(source_conflicts),
         "send_allowed": False,
     }

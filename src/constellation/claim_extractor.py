@@ -20,8 +20,9 @@ from typing import Callable
 from .claim import stage_claim
 from .egress import EgressDenied, EgressRequest, require_egress
 from .frontmatter import parse_frontmatter
-from .models import EntityRecord, Sensitivity, SourceItem, generate_ulid
+from .models import Sensitivity, SourceItem, generate_ulid
 from .storage import atomic_write_text, safe_relative_path
+from .identity import SubjectResolutionError, resolve_subject
 from .url_safety import UnsafeUrlError, validate_http_url
 from .vault import is_initialized
 
@@ -171,18 +172,9 @@ def _parse_claims(raw_content: str, source_content: str) -> list[_ExtractedClaim
 
 def _require_canonical_subject(vault: Path, subject_id: str) -> None:
     try:
-        path = safe_relative_path(vault, Path("entities") / f"{subject_id}.md")
-    except ValueError as exc:
-        raise ClaimExtractionError(f"canonical subject is invalid: {subject_id}") from exc
-    if not path.is_file() or path.is_symlink():
-        raise ClaimExtractionError(f"canonical subject not found: {subject_id}")
-    try:
-        metadata, _ = parse_frontmatter(path.read_text(encoding="utf-8"))
-        subject = EntityRecord.model_validate(metadata, strict=False)
-    except Exception as exc:
-        raise ClaimExtractionError(f"canonical subject is invalid: {subject_id}") from exc
-    if subject.id != subject_id:
-        raise ClaimExtractionError(f"canonical subject does not match: {subject_id}")
+        resolve_subject(vault, subject_id)
+    except SubjectResolutionError as exc:
+        raise ClaimExtractionError(str(exc)) from exc
 
 
 def _require_matching_source_items(

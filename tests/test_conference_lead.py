@@ -187,6 +187,11 @@ def test_capture_conference_lead_writes_pm_task(tmp_path, monkeypatch):
     assert "InfoComm" in task
     assert "hall 3" in task or "one-pager" in task
     assert "whatsapp" in task.casefold()
+    counts_before_repeat = {
+        "candidates": len(list((vault / ".constellation/candidates").glob("*.json"))),
+        "manifests": len(list((vault / ".constellation/manifests").glob("*.json"))),
+        "tasks": len(list((vault / result["pm_task"]).parent.glob("*.md"))),
+    }
     # idempotent
     again = capture_conference_lead(
         vault,
@@ -202,6 +207,17 @@ def test_capture_conference_lead_writes_pm_task(tmp_path, monkeypatch):
     )
     assert again["pm_task"] == result["pm_task"]
     assert again["lead_key"] == result["lead_key"]
+    assert again["card_source_id"] == result["card_source_id"]
+    assert again["source_candidate_id"] == result["source_candidate_id"]
+    assert again["source_candidate_path"] == result["source_candidate_path"]
+    assert again["source_ingest_status"] == "already_ingested"
+    assert again["source_patch_state"] == "unchanged_noop"
+    assert again["source_conflicts"] == []
+    assert {
+        "candidates": len(list((vault / ".constellation/candidates").glob("*.json"))),
+        "manifests": len(list((vault / ".constellation/manifests").glob("*.json"))),
+        "tasks": len(list((vault / result["pm_task"]).parent.glob("*.md"))),
+    } == counts_before_repeat
     assert len(result["lead_key"]) == 16
     assert (vault / result["encounter_path"]).is_file()
     assert (vault / result["drafts_path"]).is_file()

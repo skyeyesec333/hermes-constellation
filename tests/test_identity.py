@@ -1,14 +1,23 @@
 import json
 from datetime import UTC, datetime
+from pathlib import Path
+
+import pytest
 
 from constellation.cli import main
+from constellation.crm import crm_apply, crm_plan
+from constellation.frameworks import run_framework
 from constellation.frontmatter import render_frontmatter
 from constellation.identity import (
+    SubjectResolutionError,
     normalize_identity_email,
     normalize_identity_phone,
     propose_identity_candidates,
+    resolve_subject,
 )
-from constellation.models import EntityKind, EntityRecord, Sensitivity
+from constellation.models import EntityKind, EntityRecord, Sensitivity, generate_ulid
+from constellation.prep import compile_prep
+from constellation.vault import initialize_vault
 
 
 def invoke(capsys, *args):
@@ -80,3 +89,145 @@ def test_resolve_propose_reads_canonical_entities_without_writing_or_merging(tmp
     assert result["candidates"][0]["left_entity_id"] == left.id
     assert not list((vault / ".constellation/candidates").iterdir())
     assert left.resolution_state == right.resolution_state == "unresolved"
+
+
+RESOLUTION_NOW = datetime(2026, 7, 28, 3, 30, tzinfo=UTC)
+
+
+def _resolution_vault(tmp_path: Path) -> Path:
+    vault = tmp_path / "vault"
+    initialize_vault(vault)
+    (vault / "people").mkdir(exist_ok=True)
+    return vault
+
+
+def _write_subject(
+    vault: Path,
+    folder: str,
+    filename: str,
+    kind: EntityKind,
+    *,
+    subject_id: str | None = None,
+) -> EntityRecord:
+    subject = EntityRecord(
+        id=subject_id or generate_ulid(),
+        type=kind,
+        title="Ada Example" if kind is EntityKind.PERSON else "Example Labs",
+        status="active",
+        sensitivity=Sensitivity.INTERNAL,
+        source_ids=[],
+        created_at=RESOLUTION_NOW,
+        updated_at=RESOLUTION_NOW,
+    )
+    (vault / folder / filename).write_text(
+        render_frontmatter(
+            subject.model_dump(mode="json", exclude_none=True),
+            f"# {subject.title}\n\nCanonical context.\n",
+        ),
+        encoding="utf-8",
+    )
+    return subject
+
+
+def test_resolves_slug_named_person_by_frontmatter_id(tmp_path: Path) -> None:
+    vault = _resolution_vault(tmp_path)
+    person = _write_subject(vault, "people", "person-ada-example.md", EntityKind.PERSON)
+
+    resolved = resolve_subject(vault, person.id)
+
+    assert resolved.path.relative_to(vault).as_posix() == "people/person-ada-example.md"
+    assert resolved.record == person
+    assert resolved.body == "# Ada Example\n\nCanonical context.\n"
+
+
+def test_prep_uses_resolver_for_slug_named_person(tmp_path: Path) -> None:
+    vault = _resolution_vault(tmp_path)
+    person = _write_subject(vault, "people", "person-ada-example.md", EntityKind.PERSON)
+
+    brief = compile_prep(vault, person.id)
+
+    assert "# Prep Brief: Ada Example" in brief
+    assert "**Kind:** person" in brief
+
+
+def test_framework_uses_resolver_for_slug_named_company(tmp_path: Path) -> None:
+    vault = _resolution_vault(tmp_path)
+    company = _write_subject(vault, "entities", "company-example-labs.md", EntityKind.COMPANY)
+
+    result = run_framework(vault, company.id, "swot")
+
+    assert result["status"] == "staged"
+    assert result["entity_id"] == company.id
+
+
+def test_crm_reads_and_updates_resolved_slug_path(tmp_path: Path) -> None:
+    vault = _resolution_vault(tmp_path)
+    company = _write_subject(vault, "entities", "company-example-labs.md", EntityKind.COMPANY)
+
+    proposal = crm_plan(vault, entity_id=company.id)[0]
+    changes = proposal["proposed"]
+    assert isinstance(changes, dict)
+    result = crm_apply(
+        vault,
+        company.id,
+        expected_sha256=str(proposal["expected_sha256"]),
+        changes=changes,
+    )
+
+    assert result["status"] == "applied"
+    assert proposal["entity_path"] == "entities/company-example-labs.md"
+    assert not (vault / "entities" / f"{company.id}.md").exists()
+
+
+def test_rejects_subject_in_wrong_canonical_route(tmp_path: Path) -> None:
+    vault = _resolution_vault(tmp_path)
+    person = _write_subject(vault, "entities", "person-ada-example.md", EntityKind.PERSON)
+
+    with pytest.raises(SubjectResolutionError, match="route does not match type"):
+        resolve_subject(vault, person.id)
+
+
+def test_rejects_duplicate_subject_id_across_routes(tmp_path: Path) -> None:
+    vault = _resolution_vault(tmp_path)
+    subject_id = generate_ulid()
+    _write_subject(
+        vault,
+        "people",
+        "person-ada-example.md",
+        EntityKind.PERSON,
+        subject_id=subject_id,
+    )
+    _write_subject(
+        vault,
+        "entities",
+        "company-example-labs.md",
+        EntityKind.COMPANY,
+        subject_id=subject_id,
+    )
+
+    with pytest.raises(SubjectResolutionError, match="ambiguous"):
+        resolve_subject(vault, subject_id)
+
+
+def test_rejects_exact_filename_with_different_frontmatter_id(tmp_path: Path) -> None:
+    vault = _resolution_vault(tmp_path)
+    requested_id = generate_ulid()
+    _write_subject(
+        vault,
+        "entities",
+        f"{requested_id}.md",
+        EntityKind.COMPANY,
+    )
+
+    with pytest.raises(SubjectResolutionError, match="filename does not match"):
+        resolve_subject(vault, requested_id)
+
+
+def test_rejects_symlink_subject_path(tmp_path: Path) -> None:
+    vault = _resolution_vault(tmp_path)
+    company = _write_subject(vault, "entities", "company-example-labs.md", EntityKind.COMPANY)
+    link = vault / "entities" / f"{company.id}.md"
+    link.symlink_to(vault / "entities" / "company-example-labs.md")
+
+    with pytest.raises(SubjectResolutionError, match="symlink"):
+        resolve_subject(vault, company.id)

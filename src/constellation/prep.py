@@ -10,6 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .frontmatter import parse_frontmatter
+from .identity import SubjectResolutionError, resolve_subject
 from .vault import is_initialized
 
 
@@ -18,33 +19,17 @@ class PrepError(RuntimeError):
 
 
 def _entity_snapshot(vault: Path, entity_id: str) -> dict[str, object] | None:
-    """Read the canonical entity record, searching by filename then frontmatter id."""
-    # Try direct filename match first
-    path = vault / "entities" / f"{entity_id}.md"
-    if not path.is_file():
-        # Search all entities by frontmatter id field
-        for candidate in sorted((vault / "entities").glob("*.md")):
-            try:
-                fm, body = parse_frontmatter(candidate.read_text(encoding="utf-8"))
-                if isinstance(fm, dict) and str(fm.get("id", "")) == entity_id:
-                    path = candidate
-                    break
-            except Exception:
-                continue
-    if not path.is_file():
-        return None
+    """Read one canonical subject through the shared type-aware resolver."""
     try:
-        fm, body = parse_frontmatter(path.read_text(encoding="utf-8"))
-        if not isinstance(fm, dict):
-            return None
-    except Exception:
+        resolved = resolve_subject(vault, entity_id)
+    except SubjectResolutionError:
         return None
     return {
-        "id": str(fm.get("id", "")),
-        "title": str(fm.get("title", "")),
-        "kind": str(fm.get("type", "unknown")),
-        "status": str(fm.get("status", "unknown")),
-        "body": str(body).strip(),
+        "id": resolved.record.id,
+        "title": resolved.record.title,
+        "kind": resolved.record.type.value,
+        "status": resolved.record.status,
+        "body": resolved.body.strip(),
     }
 
 
@@ -98,14 +83,9 @@ def _linked_records(
 
 def _crm_context(vault: Path, entity_id: str) -> dict[str, str]:
     """Extract CRM metadata from an entity's body (Dataview inline fields)."""
-    path = vault / "entities" / f"{entity_id}.md"
-    if not path.is_file():
-        return {}
     try:
-        _, body = parse_frontmatter(path.read_text(encoding="utf-8"))
-        if not isinstance(body, str):
-            return {}
-    except Exception:
+        body = resolve_subject(vault, entity_id).body
+    except SubjectResolutionError:
         return {}
     crm: dict[str, str] = {}
     for line in body.splitlines():
