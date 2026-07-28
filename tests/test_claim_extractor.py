@@ -361,7 +361,7 @@ def test_default_transport_uses_generic_endpoint_and_credentials(
 
     def urlopen(request, timeout):
         requests.append(request)
-        assert timeout == 60
+        assert timeout == 180
         return Response()
 
     monkeypatch.setattr("constellation.claim_extractor.urllib.request.urlopen", urlopen)

@@ -33,6 +33,7 @@ class ClaimExtractionError(RuntimeError):
 
 _MAX_MODEL_RESPONSE_BYTES = 1_000_000
 _MAX_MODEL_TOKENS = 8_192
+_MODEL_TIMEOUT_SECONDS = 180
 _CONFIDENCE = {"direct_quote": 0.95, "paraphrase": 0.85, "inference": 0.70}
 
 
@@ -275,7 +276,7 @@ def _invoke_model(
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=60) as response:
+        with urllib.request.urlopen(request, timeout=_MODEL_TIMEOUT_SECONDS) as response:
             response_bytes = response.read(_MAX_MODEL_RESPONSE_BYTES + 1)
         if len(response_bytes) > _MAX_MODEL_RESPONSE_BYTES:
             raise ClaimExtractionError("model response exceeds 1000000 bytes")
