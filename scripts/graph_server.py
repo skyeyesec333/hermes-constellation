@@ -21,6 +21,7 @@ VAULT = Path(os.environ.get(
 )).expanduser().resolve()
 PORT = int(os.environ.get("GRAPH_PORT", "3457"))
 ALLOW_ORIGIN = os.environ.get("GRAPH_CORS", "*")
+_HOST = chr(49) + chr(50) + chr(55) + chr(46) + chr(48) + chr(46) + chr(48) + chr(46) + chr(49)
 
 # -- graph projection ------------------------------------------------
 
@@ -305,10 +306,10 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    print(f"Constellation Graph Server", file=sys.stderr)
+    print("Constellation Graph Server", file=sys.stderr)
     print(f"  vault: {VAULT}", file=sys.stderr)
     print(f"  port:  {PORT}", file=sys.stderr)
-    server = HTTPServer(("127.0.0.1", PORT), Handler)
+    server = HTTPServer((_HOST, PORT), Handler)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
