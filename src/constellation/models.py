@@ -126,6 +126,14 @@ class EntityRecord(BaseRecord):
     confidence: Annotated[float, Field(ge=0.0, le=1.0)] | None = None
     merged_into: Ulid | None = None
 
+    # Optional CRM annotations written by `constellation crm apply`. These
+    # mirror the opportunity-stage vocabulary and ISO date/datetime strings;
+    # keeping them schema-valid is required for CRM writes to survive
+    # canonical validation.
+    stage: Annotated[str, Field(min_length=1, max_length=64)] | None = None
+    next_action: Annotated[str, Field(min_length=1, max_length=500)] | None = None
+    last_touch: Annotated[str, Field(min_length=1, max_length=64)] | None = None
+
     @field_validator("aliases")
     @classmethod
     def normalized_unique_aliases(cls, values: list[str]) -> list[str]:

@@ -56,6 +56,24 @@ def _add_interaction(vault: Path, entity_id: str) -> str:
     return interaction.id
 
 
+def test_entity_with_crm_frontmatter_fields_passes_canonical_validation(tmp_path: Path) -> None:
+    """CRM apply writes stage/next_action/last_touch into entity frontmatter;
+    the canonical schema must accept them or every real apply breaks validation."""
+    from constellation.validation import validate_vault
+
+    vault, entity_id = _setup_vault(tmp_path)
+    path = vault / "entities" / f"{entity_id}.md"
+    text = path.read_text(encoding="utf-8").replace(
+        "---\n# TestCo\n",
+        "stage: qualifying\nnext_action: Follow up\nlast_touch: '2026-07-18'\n---\n# TestCo\n",
+        1,
+    )
+    path.write_text(text, encoding="utf-8")
+
+    result = validate_vault(vault)
+    assert result["invalid"] == 0, result.get("errors")
+
+
 def test_plan_derives_stage_from_interactions(tmp_path: Path) -> None:
     vault, entity_id = _setup_vault(tmp_path)
     _add_interaction(vault, entity_id)

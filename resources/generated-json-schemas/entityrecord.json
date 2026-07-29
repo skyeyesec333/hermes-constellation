@@ -77,6 +77,20 @@
       "title": "Id",
       "type": "string"
     },
+    "last_touch": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Last Touch"
+    },
     "merged_into": {
       "anyOf": [
         {
@@ -89,6 +103,20 @@
       ],
       "default": null,
       "title": "Merged Into"
+    },
+    "next_action": {
+      "anyOf": [
+        {
+          "maxLength": 500,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Next Action"
     },
     "resolution_state": {
       "$ref": "#/$defs/EntityResolutionState",
@@ -110,6 +138,20 @@
       },
       "title": "Source Ids",
       "type": "array"
+    },
+    "stage": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Stage"
     },
     "status": {
       "maxLength": 100,
