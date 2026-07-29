@@ -78,6 +78,13 @@ _CONFIGURED_VAULT_ACTIONS = frozenset(
         "event",
         "cockpit",
         "trail",
+        "lint",
+        "timeline",
+        "timeline-surface",
+        "graph-surface",
+        "source-review",
+        "dossier",
+        "watch-collect",
         "migrate-plan",
         "migrate-rehearse",
         "migrate-prepare",
@@ -85,6 +92,10 @@ _CONFIGURED_VAULT_ACTIONS = frozenset(
         "migrate-entities",
     }
 )
+
+# Commands whose grammar is `<command> <action> <vault>` — the configured
+# vault is injected AFTER the action, not in position 1.
+_ACTION_FIRST_ACTIONS = frozenset({"semantic", "cockpit", "crm", "pm-sync"})
 
 
 def _looks_like_explicit_vault(value: str) -> bool:
@@ -99,7 +110,16 @@ def _handle_slash(raw_args: str) -> str:
             "<init|doctor|ingest|validate|index|search|review|research|prep|decay|patterns|trail> ..."
         )
     argv = shlex.split(raw_args)
-    if argv[0] in _CONFIGURED_VAULT_ACTIONS:
+    if argv[0] in _ACTION_FIRST_ACTIONS:
+        # Grammar: <command> <action> <vault> — inject after the action when
+        # the vault position (argv[2]) is not already an explicit path.
+        has_explicit_vault = len(argv) > 2 and _looks_like_explicit_vault(argv[2])
+        if not has_explicit_vault:
+            vault = _configured_vault()
+            if vault is None:
+                return _missing_vault()
+            argv.insert(2, vault)
+    elif argv[0] in _CONFIGURED_VAULT_ACTIONS:
         has_explicit_vault = len(argv) > 1 and _looks_like_explicit_vault(argv[1])
         if not has_explicit_vault:
             vault = _configured_vault()

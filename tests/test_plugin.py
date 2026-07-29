@@ -104,6 +104,42 @@ def test_root_slash_preserves_explicit_vault(monkeypatch, tmp_path):
     assert calls == [["validate", str(explicit)]]
 
 
+def test_root_slash_injects_vault_for_new_surface_commands(monkeypatch, tmp_path):
+    monkeypatch.setenv("CONSTELLATION_VAULT", str(tmp_path))
+    calls = []
+    monkeypatch.setattr(plugin, "_run_cli_args", lambda argv: calls.append(argv) or "ok")
+
+    assert plugin._handle_slash("lint") == "ok"
+    assert plugin._handle_slash("timeline 01ABC") == "ok"
+    assert plugin._handle_slash("dossier 01ABC") == "ok"
+    assert plugin._handle_slash("graph-surface --output /tmp/g.html") == "ok"
+    assert plugin._handle_slash("watch-collect --watchlist-id W --fixture-dir /tmp/f") == "ok"
+    assert calls == [
+        ["lint", str(tmp_path)],
+        ["timeline", str(tmp_path), "01ABC"],
+        ["dossier", str(tmp_path), "01ABC"],
+        ["graph-surface", str(tmp_path), "--output", "/tmp/g.html"],
+        ["watch-collect", str(tmp_path), "--watchlist-id", "W", "--fixture-dir", "/tmp/f"],
+    ]
+
+
+def test_root_slash_injects_vault_after_action_for_action_first_commands(monkeypatch, tmp_path):
+    monkeypatch.setenv("CONSTELLATION_VAULT", str(tmp_path))
+    calls = []
+    monkeypatch.setattr(plugin, "_run_cli_args", lambda argv: calls.append(argv) or "ok")
+
+    assert plugin._handle_slash("semantic status") == "ok"
+    assert plugin._handle_slash("cockpit apply") == "ok"
+    assert plugin._handle_slash("crm plan") == "ok"
+    assert plugin._handle_slash("pm-sync plan") == "ok"
+    assert calls == [
+        ["semantic", "status", str(tmp_path)],
+        ["cockpit", "apply", str(tmp_path)],
+        ["crm", "plan", str(tmp_path)],
+        ["pm-sync", "plan", str(tmp_path)],
+    ]
+
+
 def test_root_slash_fails_closed_when_vault_is_implicit_but_unconfigured(monkeypatch):
     monkeypatch.delenv("CONSTELLATION_VAULT", raising=False)
 
