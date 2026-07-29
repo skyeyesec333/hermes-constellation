@@ -452,6 +452,12 @@ def build_parser() -> argparse.ArgumentParser:
     source_review.add_argument("source_id")
     source_review.add_argument("--output", type=Path, required=True)
 
+    dossier = sub.add_parser("dossier", help="Generate a rebuildable entity dossier view")
+    dossier.add_argument("vault", type=Path)
+    dossier.add_argument("entity_id")
+    dossier.add_argument("--output", type=Path, help="default views/<entity_id>.md")
+    dossier.add_argument("--sensitivity", default="internal")
+
     snapshot = sub.add_parser("snapshot", help="Stage a point-in-time snapshot")
     snapshot.add_argument("vault", type=Path)
     snapshot.add_argument("--watchlist-id", required=True)
@@ -1229,6 +1235,24 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
         from constellation.record_lint import lint_records
 
         return lint_records(vault)
+    if action == "dossier":
+        from constellation.storage import atomic_write_text
+        from constellation.wiki_views import build_entity_dossier, render_dossier_markdown
+
+        entity_id = str(values["entity_id"])
+        view = render_dossier_markdown(build_entity_dossier(
+            vault, entity_id,
+            sensitivity_ceiling=str(values.get("sensitivity", "internal")),
+        ))
+        out = values.get("output")
+        relative = Path(out) if out else Path("views") / f"{entity_id}.md"
+        atomic_write_text(vault, relative, view)
+        absolute = vault / relative
+        return {
+            "status": "written",
+            "output_path": str(absolute),
+            "bytes_written": absolute.stat().st_size,
+        }
     if action == "source-review":
         from constellation.review_workspace import build_review_workspace, render_review_workspace
 

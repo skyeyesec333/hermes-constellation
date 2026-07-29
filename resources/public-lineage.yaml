@@ -245,6 +245,8 @@ files:
     lineage: handwritten-generic
   src/constellation/review_workspace.py:
     lineage: handwritten-generic
+  src/constellation/wiki_views.py:
+    lineage: handwritten-generic
   src/constellation/cli.py:
     lineage: handwritten-generic
   src/constellation/conference.py:
@@ -354,6 +356,8 @@ files:
   tests/test_cockpit.py:
     lineage: handwritten-generic
   tests/test_review_workspace.py:
+    lineage: handwritten-generic
+  tests/test_wiki_views.py:
     lineage: handwritten-generic
   tests/test_claim_extractor.py:
     lineage: handwritten-generic
