@@ -447,6 +447,11 @@ def build_parser() -> argparse.ArgumentParser:
     lint = sub.add_parser("lint", help="Read-only record-health findings")
     lint.add_argument("vault", type=Path)
 
+    source_review = sub.add_parser("source-review", help="Render the offline source review workspace")
+    source_review.add_argument("vault", type=Path)
+    source_review.add_argument("source_id")
+    source_review.add_argument("--output", type=Path, required=True)
+
     snapshot = sub.add_parser("snapshot", help="Stage a point-in-time snapshot")
     snapshot.add_argument("vault", type=Path)
     snapshot.add_argument("--watchlist-id", required=True)
@@ -1224,6 +1229,19 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
         from constellation.record_lint import lint_records
 
         return lint_records(vault)
+    if action == "source-review":
+        from constellation.review_workspace import build_review_workspace, render_review_workspace
+
+        workspace = build_review_workspace(vault, str(values["source_id"]))
+        output = Path(values["output"]).expanduser().absolute()
+        output.write_text(render_review_workspace(workspace), encoding="utf-8")
+        return {
+            "status": "written",
+            "output_path": str(output),
+            "bytes_written": output.stat().st_size,
+            "anchors": len(workspace["anchors"]),
+            "related_candidates": len(workspace["related_candidates"]),
+        }
     if action == "timeline-surface":
         from constellation.temporal import entity_timeline
         from constellation.timeline_surface import render_timeline_surface
