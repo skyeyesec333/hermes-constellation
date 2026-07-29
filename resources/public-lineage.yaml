@@ -257,6 +257,8 @@ files:
     lineage: handwritten-generic
   src/constellation/http_connector.py:
     lineage: handwritten-generic
+  src/constellation/rss_connector.py:
+    lineage: handwritten-generic
   src/constellation/cli.py:
     lineage: handwritten-generic
   src/constellation/conference.py:
@@ -370,6 +372,8 @@ files:
   tests/test_wiki_views.py:
     lineage: handwritten-generic
   tests/test_http_connector.py:
+    lineage: handwritten-generic
+  tests/test_rss_connector.py:
     lineage: handwritten-generic
   tests/test_claim_extractor.py:
     lineage: handwritten-generic

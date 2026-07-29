@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
     from .http_connector import HttpConnector
+    from .rss_connector import RssConnector
 
 from .frontmatter import parse_frontmatter
 from .models import (
@@ -143,6 +144,44 @@ def make_http_connector(
             raise WatchlistError(f"egress denied for {provider} watch fetch: {decision.reason}")
 
     return HttpConnector(urls, fetcher=fetcher or _default_http_fetcher, authorize=authorize)
+
+
+def make_rss_connector(
+    vault: Path | str,
+    urls: list[str],
+    *,
+    provider: str,
+    model: str,
+    sensitivity: Sensitivity,
+    fetcher: Callable[[str, int], bytes] | None = None,
+) -> RssConnector:
+    """Build an RssConnector authorized through the vault egress policy.
+
+    Identical authorization path to make_http_connector: evaluated (and
+    ledgered) per URL BEFORE any network attempt; an undeclared provider or
+    disallowed purpose fails closed with WatchlistError and zero network
+    traffic. The connector emits one ConnectorItem per feed entry.
+    """
+    from .egress import EgressRequest, authorize_egress
+    from .rss_connector import RssConnector
+
+    vault = Path(vault).absolute()
+
+    def authorize(url: str) -> None:
+        decision = authorize_egress(
+            vault,
+            EgressRequest(
+                provider=provider,
+                model=model,
+                purpose="research",
+                sensitivity=sensitivity,
+                request_input_sha256=hashlib.sha256(url.encode()).hexdigest(),
+            ),
+        )
+        if not decision.allowed:
+            raise WatchlistError(f"egress denied for {provider} watch fetch: {decision.reason}")
+
+    return RssConnector(urls, fetcher=fetcher or _default_http_fetcher, authorize=authorize)
 
 
 def _write_failed_receipt(

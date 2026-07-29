@@ -441,8 +441,9 @@ def build_parser() -> argparse.ArgumentParser:
     watch_collect.add_argument("--watchlist-id", required=True)
     watch_collect.add_argument("--fixture-dir", type=Path)
     watch_collect.add_argument("--url", nargs="+", help="HTTP(S) URLs fetched via the egress-gated connector")
-    watch_collect.add_argument("--provider", help="declared egress provider for --url fetches")
-    watch_collect.add_argument("--model", help="egress model label for --url fetches (default: <provider>-live-api)")
+    watch_collect.add_argument("--feed-url", nargs="+", help="RSS/Atom feed URLs fetched via the egress-gated connector (one item per entry)")
+    watch_collect.add_argument("--provider", help="declared egress provider for --url/--feed-url fetches")
+    watch_collect.add_argument("--model", help="egress model label for --url/--feed-url fetches (default: <provider>-live-api)")
     watch_collect.add_argument("--max-items", type=int, default=50)
     watch_collect.add_argument("--max-bytes", type=int, default=5_000_000)
     watch_collect.add_argument("--previous-snapshot-id")
@@ -1291,30 +1292,41 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
             LocalFixtureConnector,
             RunCaps,
             make_http_connector,
+            make_rss_connector,
             run_watchlist,
         )
 
         watchlist_id = str(values["watchlist_id"])
         urls = values.get("url") or []
+        feed_urls = values.get("feed_url") or []
         fixture_dir = values.get("fixture_dir")
-        if urls:
+        if urls or feed_urls:
             from constellation.watchlists import _require_canonical_watchlist
 
             provider = values.get("provider")
             if not provider:
-                raise SystemExit("--provider is required with --url")
+                raise SystemExit("--provider is required with --url/--feed-url")
             sensitivity = _require_canonical_watchlist(vault, watchlist_id).sensitivity
-            connector = make_http_connector(
-                vault,
-                [str(u) for u in urls],
-                provider=str(provider),
-                model=str(values.get("model") or f"{provider}-live-api"),
-                sensitivity=sensitivity,
-            )
+            if feed_urls:
+                connector = make_rss_connector(
+                    vault,
+                    [str(u) for u in feed_urls],
+                    provider=str(provider),
+                    model=str(values.get("model") or f"{provider}-live-api"),
+                    sensitivity=sensitivity,
+                )
+            else:
+                connector = make_http_connector(
+                    vault,
+                    [str(u) for u in urls],
+                    provider=str(provider),
+                    model=str(values.get("model") or f"{provider}-live-api"),
+                    sensitivity=sensitivity,
+                )
         elif fixture_dir:
             connector = LocalFixtureConnector(Path(fixture_dir))
         else:
-            raise SystemExit("watch-collect requires --fixture-dir or --url")
+            raise SystemExit("watch-collect requires --fixture-dir, --url, or --feed-url")
         previous_snapshot_id = values.get("previous_snapshot_id")
         return run_watchlist(
             vault,
