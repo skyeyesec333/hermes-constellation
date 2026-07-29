@@ -111,6 +111,57 @@ def test_hybrid_search_returns_fused_results(tmp_path: Path) -> None:
     assert result["degraded"] is False
 
 
+def test_hybrid_search_real_lexical_lane_contributes(tmp_path: Path) -> None:
+    """Regression: hybrid must consume the real retrieval.search packet API.
+
+    The lexical lane silently died when retrieval.search switched to
+    evidence-packet dicts (3bcbc15): enumerate() iterated packet keys and
+    every entry was dropped, leaving hybrid semantic-only. The mocked test
+    below locked in the stale list contract, so nothing caught it. This test
+    uses the real FTS5 index end-to-end.
+    """
+    vault = tmp_path / "vault"
+    initialize_vault(vault)
+    claims = vault / "claims"
+    claims.mkdir(parents=True, exist_ok=True)
+    from datetime import UTC, datetime
+
+    from constellation.frontmatter import render_frontmatter
+
+    (claims / "fastpass.md").write_text(
+        render_frontmatter(
+            {
+                "schema_version": "0.1",
+                "id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+                "type": "claim",
+                "title": "FastPass incentive guidance",
+                "status": "active",
+                "sensitivity": "internal",
+                "created_at": datetime(2026, 1, 1, tzinfo=UTC).isoformat(),
+                "updated_at": datetime(2026, 1, 1, tzinfo=UTC).isoformat(),
+                "subject_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                "predicate": "mentions",
+                "object_literal": "BOI FastPass incentive program",
+                "source_ids": ["01ARZ3NDEKTSV4RRFFQ69G5FAV"],
+            },
+            "# FastPass incentive guidance\n\nBOI published updated FastPass incentive guidance for Thailand.\n",
+        ),
+        encoding="utf-8",
+    )
+
+    from constellation.retrieval import build_index
+
+    build_index(vault)
+
+    result = hybrid_search(vault, "FastPass", n_results=5, embed_fn=_identity_embedding)
+
+    assert result["lexical_count"] >= 1, "real FTS5 hit must reach the lexical lane"
+    lexical_ranks = [r.get("lexical_rank") for r in result["results"]]
+    assert any(rank is not None for rank in lexical_ranks), (
+        f"no fused result carries a lexical rank: {result['results']}"
+    )
+
+
 def test_hybrid_search_without_provider_degrades_to_cited_fts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     vault = tmp_path / "vault"
     initialize_vault(vault)

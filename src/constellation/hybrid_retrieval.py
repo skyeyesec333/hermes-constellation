@@ -39,10 +39,17 @@ def hybrid_search(
     if not is_initialized(vault):
         raise HybridRetrievalError("vault is not initialized")
 
-    # Lexical (authoritative)
-    lexical_results = lexical_search(
+    # Lexical (authoritative). retrieval.search returns an evidence packet
+    # dict (packet_version 2) — unwrap it; tolerate legacy list returns.
+    lexical_packet = lexical_search(
         vault, query, limit=max(n_results * 2, 20), sensitivity_ceiling=sensitivity_ceiling
     )
+    if isinstance(lexical_packet, dict):
+        lexical_results = [
+            item for item in lexical_packet.get("evidence", []) if isinstance(item, dict)
+        ]
+    else:
+        lexical_results = list(lexical_packet)
 
     # Semantic (degradable)
     semantic_results: list[dict] = []
@@ -113,7 +120,7 @@ def hybrid_search(
             "semantic_rank": entry.get("semantic_rank"),
         }
         # Include canonical fields from lexical or semantic item
-        for key in ("id", "title", "snippet", "source_hash", "sensitivity"):
+        for key in ("id", "note_id", "title", "snippet", "anchor", "source_hash", "sensitivity"):
             lex_item = entry.get("lexical_item")
             if isinstance(lex_item, dict) and key in lex_item:
                 result[key] = lex_item[key]
