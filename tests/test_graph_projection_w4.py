@@ -207,3 +207,32 @@ def test_render_distinguishes_candidates_and_stays_offline(tmp_path: Path) -> No
     assert "0.4" in page or "confidence" in page
     assert "<script" not in page
     assert 'src="http' not in page and 'href="http' not in page
+
+
+def test_layout_projection_positions_all_nodes_deterministically(tmp_path: Path) -> None:
+    from constellation.graph_surface import layout_projection
+
+    vault, _, _ = _full_vault(tmp_path)
+    projection = build_graph_projection(vault)
+
+    positions = layout_projection(projection)
+    positioned_node_ids = {n["id"] for n in projection["nodes"]}
+    assert set(positions) == positioned_node_ids
+    for x, y in positions.values():
+        # circular layout, centre 450,450 radius 340
+        assert 100 <= x <= 800 and 100 <= y <= 800
+
+    again = layout_projection(projection)
+    assert again == positions
+
+
+def test_render_uses_layout_projection_positions(tmp_path: Path) -> None:
+    """The HTML render and the API layout must be the same geometry."""
+    from constellation.graph_surface import layout_projection
+
+    vault, _, _ = _full_vault(tmp_path)
+    projection = build_graph_projection(vault)
+    page = render_graph_surface(projection)
+
+    x, y = layout_projection(projection)[projection["nodes"][0]["id"]]
+    assert f'cx="{x:.1f}" cy="{y:.1f}"' in page

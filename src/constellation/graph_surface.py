@@ -366,6 +366,30 @@ def _node_color(node_type: str) -> str:
     return _NODE_COLORS.get(node_type, "#1f6feb")
 
 
+_LAYOUT_WIDTH = _LAYOUT_HEIGHT = 900
+_LAYOUT_RADIUS = 340
+
+
+def layout_projection(projection: dict[str, Any]) -> dict[str, tuple[float, float]]:
+    """Deterministic circular layout for a projection.
+
+    Shared geometry between the offline HTML render and API consumers (the
+    Hermes dashboard plugin), so every surface draws the same graph. Nodes
+    are placed in projection order (already id-sorted), so identical
+    projections always produce identical coordinates.
+    """
+    nodes: list[dict[str, Any]] = projection["nodes"]
+    cx, cy = _LAYOUT_WIDTH / 2, _LAYOUT_HEIGHT / 2
+    positions: dict[str, tuple[float, float]] = {}
+    for index, node in enumerate(nodes):
+        angle = 2 * math.pi * index / max(len(nodes), 1) - math.pi / 2
+        positions[str(node["id"])] = (
+            cx + _LAYOUT_RADIUS * math.cos(angle),
+            cy + _LAYOUT_RADIUS * math.sin(angle),
+        )
+    return positions
+
+
 def render_graph_surface(projection: dict[str, Any]) -> str:
     """Render the projection as a self-contained offline HTML page.
 
@@ -376,15 +400,8 @@ def render_graph_surface(projection: dict[str, Any]) -> str:
     nodes: list[dict[str, Any]] = projection["nodes"]
     edges: list[dict[str, Any]] = projection["edges"]
 
-    width = height = 900
-    cx, cy, radius = width / 2, height / 2, 340
-    positions: dict[str, tuple[float, float]] = {}
-    for index, node in enumerate(nodes):
-        angle = 2 * math.pi * index / max(len(nodes), 1) - math.pi / 2
-        positions[str(node["id"])] = (
-            cx + radius * math.cos(angle),
-            cy + radius * math.sin(angle),
-        )
+    width = height = _LAYOUT_WIDTH
+    positions = layout_projection(projection)
 
     parts: list[str] = []
     parts.append(f'<svg viewBox="0 0 {width} {height}" '
