@@ -349,6 +349,8 @@ files:
     lineage: handwritten-generic
   tests/test_research_profiles.py:
     lineage: handwritten-generic
+  tests/test_cockpit.py:
+    lineage: handwritten-generic
   tests/test_claim_extractor.py:
     lineage: handwritten-generic
   tests/test_classification.py:
