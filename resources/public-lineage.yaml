@@ -237,6 +237,8 @@ files:
     lineage: handwritten-generic
   src/constellation/graph_surface.py:
     lineage: handwritten-generic
+  src/constellation/graph_api.py:
+    lineage: handwritten-generic
   src/constellation/timeline_surface.py:
     lineage: handwritten-generic
   src/constellation/record_lint.py:
@@ -374,6 +376,8 @@ files:
   tests/test_watchlist_engine_w32.py:
     lineage: handwritten-generic
   tests/test_graph_projection_w4.py:
+    lineage: handwritten-generic
+  tests/test_graph_api_w4.py:
     lineage: handwritten-generic
   tests/test_hybrid_retrieval.py:
     lineage: handwritten-generic

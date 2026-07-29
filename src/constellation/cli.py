@@ -55,6 +55,15 @@ def build_parser() -> argparse.ArgumentParser:
     graph.add_argument("--from", dest="start_entity")
     graph.add_argument("--to", dest="end_entity")
     graph.add_argument("--max-hops", type=int, default=4)
+    graph.add_argument("--typed", action="store_true",
+                       help="traverse the full typed projection (claims, citations, record edges)")
+    graph.add_argument("--kinds", nargs="*",
+                       help="edge kinds to include (typed mode): relationship claim decision observation event opportunity citation")
+    graph.add_argument("--include-candidates", action="store_true", default=None,
+                       help="include review-required candidate edges (typed mode)")
+    graph.add_argument("--no-candidates", action="store_true",
+                       help="exclude candidate edges (typed neighbors; included by default)")
+    graph.add_argument("--sensitivity", default="internal")
 
     resolve = sub.add_parser("resolve", help="Propose review-only identity matches")
     resolve.add_argument("vault", type=Path)
@@ -611,6 +620,32 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
             raise ValueError("strategy packet result must contain an object")
         return stage_strategy_candidate(vault, packet, Path(input_path).expanduser())
     if action == "graph":
+        if values.get("typed"):
+            from constellation.graph_api import graph_neighbors, graph_path
+
+            kinds = set(values["kinds"]) if values.get("kinds") else None
+            ceiling = str(values.get("sensitivity", "internal"))
+            if values["graph_action"] == "neighbors":
+                entity_id = values.get("entity")
+                if not entity_id:
+                    raise ValueError("graph neighbors requires --entity")
+                include = not values.get("no_candidates", False)
+                if values.get("include_candidates"):
+                    include = True
+                return graph_neighbors(
+                    vault, str(entity_id), kinds=kinds,
+                    include_candidates=include, sensitivity_ceiling=ceiling,
+                )
+            start_entity = values.get("start_entity")
+            end_entity = values.get("end_entity")
+            if not start_entity or not end_entity:
+                raise ValueError("graph path requires --from and --to")
+            return graph_path(
+                vault, str(start_entity), str(end_entity),
+                max_hops=int(values["max_hops"]), kinds=kinds,
+                include_candidates=bool(values.get("include_candidates")),
+                sensitivity_ceiling=ceiling,
+            )
         from constellation.graph import neighbors, path
 
         if values["graph_action"] == "neighbors":

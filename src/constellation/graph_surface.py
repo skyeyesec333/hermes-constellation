@@ -41,6 +41,7 @@ _NODE_COLORS = {
     "organization": "#1f6feb",
     "person": "#a371f7",
     "source_item": "#6e7681",
+    "source-item": "#6e7681",
     "decision": "#d29922",
     "observation": "#8957e5",
     "event": "#3fb950",
