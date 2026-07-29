@@ -345,6 +345,7 @@ def run_inquiry(
     *,
     sensitivity: Sensitivity = Sensitivity.INTERNAL,
     max_pages: int = 5,
+    profile: str = "standard",
 ) -> dict[str, object]:
     """Execute a bounded web research inquiry.
 
@@ -372,8 +373,13 @@ def run_inquiry(
         query=inquiry.question,
     )
 
+    # Resolve the operator-selected research profile BEFORE any budget,
+    # adapter, or network work. "off" raises here; unknown names fail closed.
+    from .research_profiles import resolve_profile
+
+    budget = resolve_profile(profile)
+
     # Create the research ledger with budget tracking
-    budget = _default_budget()
     ledger = ResearchLedger(
         budget,
         workflow=f"inquiry:{inquiry.id}",

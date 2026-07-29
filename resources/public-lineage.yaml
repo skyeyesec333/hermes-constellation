@@ -241,6 +241,8 @@ files:
     lineage: handwritten-generic
   src/constellation/record_lint.py:
     lineage: handwritten-generic
+  src/constellation/research_profiles.py:
+    lineage: handwritten-generic
   src/constellation/cli.py:
     lineage: handwritten-generic
   src/constellation/conference.py:
@@ -344,6 +346,8 @@ files:
   tests/test_graph_surface.py:
     lineage: handwritten-generic
   tests/test_record_lint.py:
+    lineage: handwritten-generic
+  tests/test_research_profiles.py:
     lineage: handwritten-generic
   tests/test_claim_extractor.py:
     lineage: handwritten-generic

@@ -218,6 +218,8 @@ def build_parser() -> argparse.ArgumentParser:
     inquiry.add_argument("--max-sources", type=int, default=10, help="Max unique sources")
     inquiry.add_argument("--max-model-calls", type=int, default=3, help="Max LLM calls")
     inquiry.add_argument("--synthesis-reserve", type=int, default=25, help="Reserve percent for synthesis (0-50)")
+    inquiry.add_argument("--profile", default="low", choices=["off", "low", "standard", "deep"],
+                         help="Research profile: off=read-only, low=default targeted, standard, deep=explicit escalation")
     inquiry.add_argument("--stop-conditions", nargs="+", help="When to stop")
     inquiry.add_argument("--sensitivity", default="internal",
                          choices=["public", "internal", "confidential", "restricted"])
@@ -812,7 +814,8 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
                 created_at=dt.now().astimezone(),
                 updated_at=dt.now().astimezone(),
             )
-            return _run(vault, inquiry, sensitivity=sensitivity)
+            return _run(vault, inquiry, sensitivity=sensitivity,
+                        profile=str(values.get("profile", "low")))
         question = values.get("question")
         if not question:
             raise ValueError("--question is required for inquiry stage")
