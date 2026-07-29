@@ -65,6 +65,13 @@
       "title": "Snapshot Id",
       "type": "string"
     },
+    "source_candidate_paths": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Source Candidate Paths",
+      "type": "array"
+    },
     "source_ids": {
       "items": {
         "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",

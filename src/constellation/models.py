@@ -487,6 +487,7 @@ class Observation(BaseRecord):
     change_summary: Annotated[str, Field(min_length=1, max_length=5000)]
     entity_ids: list[Ulid] = Field(default_factory=list)
     source_ids: list[Ulid] = Field(default_factory=list)
+    source_candidate_paths: list[str] = Field(default_factory=list)
     version: int = 1
 
 

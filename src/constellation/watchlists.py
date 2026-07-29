@@ -9,10 +9,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    from .http_connector import HttpConnector
 
 from .frontmatter import parse_frontmatter
 from .models import (
@@ -92,6 +96,141 @@ class LocalFixtureConnector:
         return items, truncated
 
 
+# ── HTTP connector wiring (W3.2) ─────────────────────────────────────────
+
+
+def _default_http_fetcher(url: str, timeout: int) -> bytes:
+    """Production fetcher for HttpConnector; monkeypatched in tests."""
+    import urllib.request
+
+    request = urllib.request.Request(url, headers={"User-Agent": "constellation-watch/0.1"})
+    with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
+        return response.read()
+
+
+def make_http_connector(
+    vault: Path | str,
+    urls: list[str],
+    *,
+    provider: str,
+    model: str,
+    sensitivity: Sensitivity,
+    fetcher: Callable[[str, int], bytes] | None = None,
+) -> HttpConnector:
+    """Build an HttpConnector authorized through the vault egress policy.
+
+    Authorization is evaluated (and ledgered) per URL BEFORE any network
+    attempt; an undeclared provider or disallowed purpose fails closed with
+    WatchlistError and zero network traffic.
+    """
+    from .egress import EgressRequest, authorize_egress
+    from .http_connector import HttpConnector
+
+    vault = Path(vault).absolute()
+
+    def authorize(url: str) -> None:
+        decision = authorize_egress(
+            vault,
+            EgressRequest(
+                provider=provider,
+                model=model,
+                purpose="research",
+                sensitivity=sensitivity,
+                request_input_sha256=hashlib.sha256(url.encode()).hexdigest(),
+            ),
+        )
+        if not decision.allowed:
+            raise WatchlistError(f"egress denied for {provider} watch fetch: {decision.reason}")
+
+    return HttpConnector(urls, fetcher=fetcher or _default_http_fetcher, authorize=authorize)
+
+
+def _write_failed_receipt(
+    vault: Path,
+    *,
+    watchlist_id: str,
+    connector_name: str,
+    error_type: str,
+    caps: RunCaps,
+) -> str:
+    receipt_id = generate_ulid()
+    receipt_rel = Path(".constellation/watchlist-runs") / f"failed-{receipt_id}.json"
+    atomic_write_text(
+        vault,
+        receipt_rel,
+        json.dumps(
+            {
+                "schema_version": "0.1",
+                "status": "failed",
+                "watchlist_id": watchlist_id,
+                "connector": connector_name,
+                "error": error_type,
+                "caps": {"max_items": caps.max_items, "max_bytes": caps.max_bytes},
+                "recorded_at": datetime.now(UTC).isoformat(),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+    )
+    return receipt_rel.as_posix()
+
+
+_COMPARABLE_STATUSES = {"ok", "partial", "duplicate_change"}
+
+
+def _scan_run_receipts(
+    vault: Path, watchlist_id: str
+) -> tuple[list[tuple[str, dict[str, object]]], list[str]]:
+    """Return (valid receipts for the watchlist, skipped corrupt filenames)."""
+    runs_dir = vault / ".constellation/watchlist-runs"
+    valid: list[tuple[str, dict[str, object]]] = []
+    skipped: list[str] = []
+    if not runs_dir.is_dir():
+        return valid, skipped
+    for path in sorted(runs_dir.glob("*.json")):
+        if path.is_symlink():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            skipped.append(path.name)
+            continue
+        if not isinstance(data, dict):
+            skipped.append(path.name)
+            continue
+        if data.get("watchlist_id") != watchlist_id:
+            continue
+        valid.append((path.name, data))
+    return valid, skipped
+
+
+def _resolve_latest_receipt(
+    vault: Path, watchlist_id: str
+) -> tuple[str | None, dict[str, object] | None, list[str]]:
+    """Resolve the newest comparable prior run for automatic comparison.
+
+    Deterministic: max by (recorded_at, snapshot_id). Corrupt receipts are
+    skipped and reported so the run can flag itself degraded instead of
+    silently comparing against nothing.
+    """
+    valid, skipped = _scan_run_receipts(vault, watchlist_id)
+    comparable = [
+        (name, data)
+        for name, data in valid
+        if data.get("status") in _COMPARABLE_STATUSES
+        and data.get("snapshot_id")
+        and data.get("normalized_content_sha256")
+    ]
+    if not comparable:
+        return None, None, skipped
+    name, receipt = max(
+        comparable,
+        key=lambda item: (str(item[1].get("recorded_at", "")), str(item[1].get("snapshot_id", ""))),
+    )
+    return str(receipt["snapshot_id"]), receipt, skipped
+
+
 def run_watchlist(
     vault: Path | str,
     *,
@@ -121,6 +260,13 @@ def run_watchlist(
     except WatchlistError:
         raise
     except Exception as exc:
+        _write_failed_receipt(
+            vault,
+            watchlist_id=watchlist_id,
+            connector_name=connector.name(),
+            error_type=type(exc).__name__,
+            caps=caps,
+        )
         raise WatchlistError(f"connector fetch failed: {connector.name()}") from exc
 
     if not items:
@@ -167,7 +313,15 @@ def run_watchlist(
         raise WatchlistError("snapshot content is empty after normalization")
     content_hash = hashlib.sha256(normalized.encode()).hexdigest()
 
-    previous_receipt = _load_previous_receipt(vault, watchlist_id, previous_snapshot_id)
+    skipped_receipts: list[str] = []
+    if previous_snapshot_id:
+        previous_receipt = _load_previous_receipt(vault, watchlist_id, previous_snapshot_id)
+    else:
+        resolved_id, previous_receipt, skipped_receipts = _resolve_latest_receipt(
+            vault, watchlist_id
+        )
+        previous_snapshot_id = resolved_id
+    degraded = bool(skipped_receipts)
 
     snapshot = stage_snapshot(
         vault,
@@ -185,6 +339,7 @@ def run_watchlist(
         previous_receipt=previous_receipt,
         content_hash=content_hash,
         source_ids=[],
+        source_candidate_paths=source_candidate_paths,
     )
     material_change = bool(change["material_change"])
     duplicate_change = bool(change["duplicate_change"])
@@ -210,6 +365,8 @@ def run_watchlist(
         "duplicate_change": duplicate_change,
         "change_key": change["change_key"],
         "observation_candidate_path": change["observation_candidate_path"],
+        "degraded": degraded,
+        "skipped_receipts": skipped_receipts,
         "recorded_at": datetime.now(UTC).isoformat(),
     }
     atomic_write_text(vault, receipt_rel, json.dumps(receipt, indent=2, sort_keys=True) + "\n")
@@ -221,10 +378,12 @@ def run_watchlist(
         "receipt_path": receipt_rel.as_posix(),
         "items_fetched": len(items),
         "truncated": truncated,
+        "connector": connector.name(),
         "source_state": "candidate",
         "source_candidate_paths": source_candidate_paths,
         "material_change": material_change,
         "duplicate_change": duplicate_change,
+        "degraded": degraded,
         "observation_candidate_path": change["observation_candidate_path"],
     }
 
@@ -319,6 +478,7 @@ def _resolve_material_change(
     previous_receipt: dict[str, object] | None,
     content_hash: str,
     source_ids: list[str],
+    source_candidate_paths: list[str] | None = None,
 ) -> dict[str, object]:
     """Stage (or dedup) the review-only Observation for a changed snapshot."""
     result: dict[str, object] = {
@@ -338,6 +498,12 @@ def _resolve_material_change(
     if not isinstance(previous_source_ids, list):
         raise WatchlistError(f"previous snapshot receipt is invalid: {previous_snapshot_id}")
     evidence_source_ids = sorted({*source_ids, *[str(item) for item in previous_source_ids]})
+    previous_candidates = previous_receipt.get("source_candidate_paths", [])
+    if not isinstance(previous_candidates, list):
+        previous_candidates = []
+    evidence_candidate_paths: list[str] = sorted(
+        {*(source_candidate_paths or []), *[str(item) for item in previous_candidates]}
+    )
     change_key = hashlib.sha256(
         f"{watchlist_id}\0{previous_hash}\0{content_hash}".encode()
     ).hexdigest()
@@ -381,6 +547,7 @@ def _resolve_material_change(
             f"{previous_hash[:12]} to {content_hash[:12]}"
         ),
         source_ids=evidence_source_ids,
+        source_candidate_paths=evidence_candidate_paths,
     )
     observation_candidate_path = str(observation["candidate_path"])
     complete_payload = {
@@ -559,6 +726,7 @@ def stage_observation(
     previous_snapshot_id: str | None = None,
     entity_ids: list[str] | None = None,
     source_ids: list[str] | None = None,
+    source_candidate_paths: list[str] | None = None,
 ) -> dict[str, object]:
     vault = Path(vault).absolute()
     if not is_initialized(vault):
@@ -578,10 +746,89 @@ def stage_observation(
         change_summary=change_summary,
         entity_ids=entity_ids or [],
         source_ids=source_ids or [],
+        source_candidate_paths=source_candidate_paths or [],
     )
     candidate_rel = Path(".constellation/candidates") / f"observation-{obs.id}.json"
     atomic_write_text(vault, candidate_rel, obs.model_dump_json(indent=2) + "\n")
     return {"status": "staged", "observation_id": obs.id, "candidate_path": candidate_rel.as_posix()}
+
+
+# ── Watch-status reporting (W3.2) ────────────────────────────────────────
+
+
+def watch_status(
+    vault: Path | str,
+    *,
+    watchlist_id: str | None = None,
+    stale_after_hours: float = 24.0,
+) -> dict[str, object]:
+    """Report per-watchlist run state: no_runs / fresh / stale / degraded.
+
+    Read-only. A corrupt run receipt degrades every entry because automatic
+    previous-snapshot resolution can no longer be trusted vault-wide.
+    """
+    vault = Path(vault).absolute()
+    if not is_initialized(vault):
+        raise WatchlistError("vault is not initialized")
+
+    watchlists_dir = vault / "watchlists"
+    records: list[Watchlist] = []
+    if watchlists_dir.is_dir():
+        for path in sorted(watchlists_dir.glob("*.md")):
+            if path.is_symlink():
+                continue
+            try:
+                metadata, _ = parse_frontmatter(path.read_text(encoding="utf-8"))
+                record = Watchlist.model_validate(metadata, strict=False)
+            except Exception:
+                continue
+            if watchlist_id and record.id != watchlist_id:
+                continue
+            records.append(record)
+
+    now = datetime.now(UTC)
+    entries: list[dict[str, object]] = []
+    for record in records:
+        valid, skipped = _scan_run_receipts(vault, record.id)
+        comparable = [
+            data
+            for _, data in valid
+            if data.get("status") in _COMPARABLE_STATUSES and data.get("snapshot_id")
+        ]
+        latest: dict[str, object] | None = None
+        if comparable:
+            latest = max(
+                comparable,
+                key=lambda d: (str(d.get("recorded_at", "")), str(d.get("snapshot_id", ""))),
+            )
+        entry: dict[str, object] = {
+            "watchlist_id": record.id,
+            "title": record.title,
+            "schedule": record.schedule,
+            "last_snapshot_id": str(latest["snapshot_id"]) if latest else None,
+            "last_recorded_at": str(latest.get("recorded_at")) if latest else None,
+            "last_status": str(latest.get("status")) if latest else None,
+            "skipped_receipts": skipped,
+        }
+        if skipped:
+            entry["state"] = "degraded"
+        elif latest is None:
+            entry["state"] = "no_runs"
+        else:
+            try:
+                recorded = datetime.fromisoformat(str(latest["recorded_at"]))
+                age_hours = (now - recorded).total_seconds() / 3600.0
+            except (ValueError, TypeError):
+                age_hours = float("inf")
+            entry["age_hours"] = round(age_hours, 3) if age_hours != float("inf") else None
+            entry["state"] = "fresh" if age_hours <= stale_after_hours else "stale"
+        entries.append(entry)
+
+    return {
+        "status": "ok",
+        "stale_after_hours": stale_after_hours,
+        "watchlists": entries,
+    }
 
 
 # ── Event ────────────────────────────────────────────────────────────────

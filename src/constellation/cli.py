@@ -420,10 +420,18 @@ def build_parser() -> argparse.ArgumentParser:
     watch_collect = sub.add_parser("watch-collect", help="Run a watchlist through a bounded connector")
     watch_collect.add_argument("vault", type=Path)
     watch_collect.add_argument("--watchlist-id", required=True)
-    watch_collect.add_argument("--fixture-dir", type=Path, required=True)
+    watch_collect.add_argument("--fixture-dir", type=Path)
+    watch_collect.add_argument("--url", nargs="+", help="HTTP(S) URLs fetched via the egress-gated connector")
+    watch_collect.add_argument("--provider", help="declared egress provider for --url fetches")
+    watch_collect.add_argument("--model", help="egress model label for --url fetches (default: <provider>-live-api)")
     watch_collect.add_argument("--max-items", type=int, default=50)
     watch_collect.add_argument("--max-bytes", type=int, default=5_000_000)
     watch_collect.add_argument("--previous-snapshot-id")
+
+    watch_status_p = sub.add_parser("watch-status", help="Report watchlist run states (fresh/stale/degraded)")
+    watch_status_p.add_argument("vault", type=Path)
+    watch_status_p.add_argument("--watchlist-id")
+    watch_status_p.add_argument("--stale-after-hours", type=float, default=24.0)
 
     timeline = sub.add_parser("timeline", help="Cited as-of entity timeline")
     timeline.add_argument("vault", type=Path)
@@ -1211,15 +1219,50 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
             previous_snapshot_id=str(previous_snapshot_id) if previous_snapshot_id else None,
         )
     if action == "watch-collect":
-        from constellation.watchlists import LocalFixtureConnector, RunCaps, run_watchlist
+        from constellation.watchlists import (
+            LocalFixtureConnector,
+            RunCaps,
+            make_http_connector,
+            run_watchlist,
+        )
 
+        watchlist_id = str(values["watchlist_id"])
+        urls = values.get("url") or []
+        fixture_dir = values.get("fixture_dir")
+        if urls:
+            from constellation.watchlists import _require_canonical_watchlist
+
+            provider = values.get("provider")
+            if not provider:
+                raise SystemExit("--provider is required with --url")
+            sensitivity = _require_canonical_watchlist(vault, watchlist_id).sensitivity
+            connector = make_http_connector(
+                vault,
+                [str(u) for u in urls],
+                provider=str(provider),
+                model=str(values.get("model") or f"{provider}-live-api"),
+                sensitivity=sensitivity,
+            )
+        elif fixture_dir:
+            connector = LocalFixtureConnector(Path(fixture_dir))
+        else:
+            raise SystemExit("watch-collect requires --fixture-dir or --url")
         previous_snapshot_id = values.get("previous_snapshot_id")
         return run_watchlist(
             vault,
-            watchlist_id=str(values["watchlist_id"]),
-            connector=LocalFixtureConnector(Path(values["fixture_dir"])),
+            watchlist_id=watchlist_id,
+            connector=connector,
             caps=RunCaps(max_items=int(values["max_items"]), max_bytes=int(values["max_bytes"])),
             previous_snapshot_id=str(previous_snapshot_id) if previous_snapshot_id else None,
+        )
+    if action == "watch-status":
+        from constellation.watchlists import watch_status
+
+        watchlist_id = values.get("watchlist_id")
+        return watch_status(
+            vault,
+            watchlist_id=str(watchlist_id) if watchlist_id else None,
+            stale_after_hours=float(values.get("stale_after_hours", 24.0)),
         )
     if action == "timeline":
         from constellation.temporal import entity_timeline
