@@ -181,6 +181,8 @@ files:
     lineage: handwritten-generic
   scripts/build_release.py:
     lineage: handwritten-generic
+  scripts/dashboard_journey.py:
+    lineage: handwritten-generic
   scripts/privacy_audit.py:
     lineage: handwritten-generic
   scripts/graph_server.py:
@@ -388,6 +390,8 @@ files:
   tests/test_dependency_hygiene_w4.py:
     lineage: handwritten-generic
   tests/test_cli_error_envelope_w5.py:
+    lineage: handwritten-generic
+  tests/test_dashboard_journey_w5.py:
     lineage: handwritten-generic
   tests/test_operator_journey_w5.py:
     lineage: handwritten-generic
