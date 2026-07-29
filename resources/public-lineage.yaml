@@ -383,6 +383,8 @@ files:
     lineage: handwritten-generic
   tests/test_briefing_w4.py:
     lineage: handwritten-generic
+  tests/test_dependency_hygiene_w4.py:
+    lineage: handwritten-generic
   tests/test_hybrid_retrieval.py:
     lineage: handwritten-generic
   tests/test_research_health.py:
