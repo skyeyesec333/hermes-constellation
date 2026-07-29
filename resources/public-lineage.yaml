@@ -185,6 +185,8 @@ files:
     lineage: handwritten-generic
   scripts/graph_server.py:
     lineage: handwritten-generic
+  scripts/operator_journey.py:
+    lineage: handwritten-generic
   scripts/verify_fast.sh:
     lineage: handwritten-generic
   scripts/verify_release.sh:
@@ -384,6 +386,10 @@ files:
   tests/test_briefing_w4.py:
     lineage: handwritten-generic
   tests/test_dependency_hygiene_w4.py:
+    lineage: handwritten-generic
+  tests/test_cli_error_envelope_w5.py:
+    lineage: handwritten-generic
+  tests/test_operator_journey_w5.py:
     lineage: handwritten-generic
   tests/test_hybrid_retrieval.py:
     lineage: handwritten-generic

@@ -1474,7 +1474,15 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
 def main(argv: Sequence[str] | None = None) -> int:
     args = vars(build_parser().parse_args(argv))
     action = args.pop("command")
-    result = run_action(action, args)
+    try:
+        result = run_action(action, args)
+    except Exception as exc:
+        # operator surface: errors are JSON envelopes, never raw tracebacks
+        print(json.dumps(
+            {"version": 1, "ok": False, "error": f"{type(exc).__name__}: {exc}"},
+            indent=2, default=str,
+        ))
+        return 1
     print(json.dumps({"version": 1, "ok": True, "result": result}, indent=2, default=str))
     return 0
 

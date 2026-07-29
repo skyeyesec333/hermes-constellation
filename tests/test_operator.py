@@ -131,8 +131,13 @@ def test_operator_delete_requires_confirmation_and_removes_the_local_profile(
     profile.write_text(yaml.safe_dump({"roles": ["Fictional CEO"]}), encoding="utf-8")
     invoke(capsys, "operator", str(vault), "stage", "--input", str(profile))
 
-    with pytest.raises(OperatorContextError, match="explicit confirmation"):
-        invoke(capsys, "operator", str(vault), "delete")
+    # CLI boundary converts the confirmation error into a JSON envelope
+    capsys.readouterr()
+    rc = main(["operator", str(vault), "delete"])
+    assert rc == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    assert "explicit confirmation" in payload["error"]
 
     result = invoke(capsys, "operator", str(vault), "delete", "--confirm")
 
