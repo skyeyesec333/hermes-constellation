@@ -598,6 +598,85 @@ _COLLECTORS: dict[str, Callable[..., FeederResult]] = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Circuit breaker — consecutive-failure protection per feeder lane
+# ---------------------------------------------------------------------------
+
+_CIRCUIT_THRESHOLD = 3
+
+
+def _circuit_state_path(vault: Path) -> Path:
+    return Path(".constellation/feeder-health.json")
+
+
+def _load_circuit_state(vault: Path) -> dict:
+    path = vault / _circuit_state_path(vault)
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _save_circuit_state(vault: Path, state: dict) -> None:
+    atomic_write_text(
+        vault,
+        _circuit_state_path(vault),
+        json.dumps(state, indent=2, sort_keys=True) + "\n",
+    )
+
+
+def _record_feeder_outcome(vault: Path, source: str, status: str) -> None:
+    """Track consecutive failures per lane. `denied` reflects configuration,
+    not source health, and never counts toward the circuit."""
+    if status == "denied":
+        return
+    state = _load_circuit_state(vault)
+    lane = state.get(source, {})
+    if status == "failed":
+        lane["consecutive_failures"] = int(lane.get("consecutive_failures", 0)) + 1
+        lane["last_failure_at"] = datetime.now(UTC).isoformat()
+    else:
+        lane["consecutive_failures"] = 0
+    lane["last_status"] = status
+    state[source] = lane
+    _save_circuit_state(vault, state)
+
+
+def reset_feeder_circuit(vault: Path | str, source: str) -> dict:
+    """Manually reopen a feeder lane after its circuit has opened."""
+    vault = Path(vault).absolute()
+    if not is_initialized(vault):
+        raise FeederError("vault is not initialized")
+    state = _load_circuit_state(vault)
+    lane = state.get(source, {})
+    lane["consecutive_failures"] = 0
+    lane.pop("last_failure_at", None)
+    lane["last_status"] = "reset"
+    state[source] = lane
+    _save_circuit_state(vault, state)
+    return {"status": "reset", "source": source}
+
+
+def feeder_circuit_status(vault: Path | str) -> dict:
+    """Report per-lane circuit state for operator visibility."""
+    vault = Path(vault).absolute()
+    if not is_initialized(vault):
+        raise FeederError("vault is not initialized")
+    state = _load_circuit_state(vault)
+    lanes = {
+        source: {
+            "consecutive_failures": int(lane.get("consecutive_failures", 0)),
+            "circuit_open": int(lane.get("consecutive_failures", 0)) >= _CIRCUIT_THRESHOLD,
+            "last_status": lane.get("last_status"),
+        }
+        for source, lane in sorted(state.items())
+    }
+    return {"threshold": _CIRCUIT_THRESHOLD, "lanes": lanes}
+
+
 def collect_from_feeder(vault: Path | str, request: FeederRequest) -> FeederResult:
     """Query an external API and preserve exact bytes as a source candidate.
 
@@ -611,7 +690,30 @@ def collect_from_feeder(vault: Path | str, request: FeederRequest) -> FeederResu
     collector = _COLLECTORS.get(request.source)
     if collector is None:
         raise FeederError(f"unsupported source: {request.source}")
-    return collector(vault, request, subject=subject)
+
+    lane = _load_circuit_state(vault).get(request.source, {})
+    failures = int(lane.get("consecutive_failures", 0))
+    if failures >= _CIRCUIT_THRESHOLD:
+        error = (
+            f"feeder circuit open for {request.source}: "
+            f"{failures} consecutive failures; reset explicitly to retry"
+        )
+        receipt_path = _write_feeder_receipt(
+            vault,
+            generate_ulid(),
+            status="circuit_open",
+            source=request.source,
+            provider=request.provider,
+            model=request.model,
+            query=request.query,
+            subject_id=request.subject_id,
+            error=error,
+        )
+        return FeederResult(status="circuit_open", receipt_path=receipt_path, error=error)
+
+    result = collector(vault, request, subject=subject)
+    _record_feeder_outcome(vault, request.source, result.status)
+    return result
 
 
 def extract_from_feeder_source(

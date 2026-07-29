@@ -112,6 +112,96 @@ def _single_receipt(vault: Path) -> dict:
     return json.loads(paths[0].read_text(encoding="utf-8"))
 
 
+# ── Circuit breaker ───────────────────────────────────────────────────
+
+from constellation.feeders import FeederResult  # noqa: E402
+
+
+def _fake_collector(status: str, calls: list[str]):
+    def _collect(vault, request, *, subject):
+        calls.append(request.source)
+        return FeederResult(status=status, receipt_path="")
+    return _collect
+
+
+def test_circuit_opens_after_consecutive_failures(tmp_path: Path, monkeypatch) -> None:
+    import constellation.feeders as feeders
+
+    vault, subject_id = _setup_vault(tmp_path)
+    calls: list[str] = []
+    monkeypatch.setitem(feeders._COLLECTORS, "gdelt", _fake_collector("failed", calls))
+
+    for _ in range(3):
+        result = collect_from_feeder(vault, _make_request(vault, subject_id))
+        assert result.status == "failed"
+
+    result = collect_from_feeder(vault, _make_request(vault, subject_id))
+    assert result.status == "circuit_open"
+    assert len(calls) == 3  # 4th attempt never reached the collector
+    assert result.error and "circuit" in result.error.lower()
+
+
+def test_circuit_open_writes_truthful_receipt(tmp_path: Path, monkeypatch) -> None:
+    import constellation.feeders as feeders
+
+    vault, subject_id = _setup_vault(tmp_path)
+    monkeypatch.setitem(feeders._COLLECTORS, "gdelt", _fake_collector("failed", []))
+
+    for _ in range(3):
+        collect_from_feeder(vault, _make_request(vault, subject_id))
+    collect_from_feeder(vault, _make_request(vault, subject_id))
+
+    receipts = sorted((vault / ".constellation/feeder-receipts").glob("*.json"))
+    last = json.loads(receipts[-1].read_text(encoding="utf-8"))
+    assert last["status"] == "circuit_open"
+    assert last["source"] == "gdelt"
+
+
+def test_success_resets_circuit(tmp_path: Path, monkeypatch) -> None:
+    import constellation.feeders as feeders
+
+    vault, subject_id = _setup_vault(tmp_path)
+    calls: list[str] = []
+    monkeypatch.setitem(feeders._COLLECTORS, "gdelt", _fake_collector("failed", calls))
+    for _ in range(2):
+        collect_from_feeder(vault, _make_request(vault, subject_id))
+
+    monkeypatch.setitem(feeders._COLLECTORS, "gdelt", _fake_collector("ok", calls))
+    collect_from_feeder(vault, _make_request(vault, subject_id))
+
+    monkeypatch.setitem(feeders._COLLECTORS, "gdelt", _fake_collector("failed", calls))
+    for _ in range(2):
+        result = collect_from_feeder(vault, _make_request(vault, subject_id))
+    assert result.status == "failed"  # counter restarted after success
+
+
+def test_denied_does_not_count_toward_circuit(tmp_path: Path, monkeypatch) -> None:
+    import constellation.feeders as feeders
+
+    vault, subject_id = _setup_vault(tmp_path)
+    calls: list[str] = []
+    monkeypatch.setitem(feeders._COLLECTORS, "gdelt", _fake_collector("denied", calls))
+    for _ in range(4):
+        result = collect_from_feeder(vault, _make_request(vault, subject_id))
+        assert result.status == "denied"
+    assert len(calls) == 4  # never short-circuited
+
+
+def test_manual_reset_reopens_lane(tmp_path: Path, monkeypatch) -> None:
+    import constellation.feeders as feeders
+
+    vault, subject_id = _setup_vault(tmp_path)
+    calls: list[str] = []
+    monkeypatch.setitem(feeders._COLLECTORS, "gdelt", _fake_collector("failed", calls))
+    for _ in range(3):
+        collect_from_feeder(vault, _make_request(vault, subject_id))
+
+    feeders.reset_feeder_circuit(vault, "gdelt")
+    result = collect_from_feeder(vault, _make_request(vault, subject_id))
+    assert result.status == "failed"  # lane callable again
+    assert len(calls) == 4
+
+
 # ── Denied egress ───────────────────────────────────────────────────────
 
 def test_denied_egress_produces_denial_result_no_network_call(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
