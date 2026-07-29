@@ -132,6 +132,22 @@ Deliver read-heavy local views before workflow builders:
 
 React Flow may support workflow editing later. ComfyUI is an optional processing integration, not the primary product shell.
 
+## Stage 7 — Knowledge lifecycle
+
+Deepen the evidence-first answer to the "LLM wiki" pattern: knowledge that ages, strengthens, and resolves under explicit rules instead of silently rotting. Approved direction 2026-07-29; full plan in the private maintenance docs.
+
+Deliver:
+
+- first-class `supersedes` links between claims: typed, timestamped, old version preserved and marked stale, queryable ("what changed about X");
+- confidence as a living value: decays with time, strengthens with each confirming source, feeds retrieval ranking and briefing confidence;
+- contradiction detection with resolution proposals (recency + source authority + support count) staged as review-only candidates — the human overrides, never the model;
+- crystallization: completed work sessions distilled into structured digests that enter the candidate pipeline through the normal review gate;
+- self-healing lint `--fix` for mechanical repairs (orphan links, broken references), journaled and reversible, with non-mechanical findings still reported only;
+- ingest-time secret/PII screening before source material enters the vault;
+- multi-writer merge semantics for concurrent agents/profiles: expected-hash writes, timestamp resolution, conflicts surfaced for review.
+
+Exit gate: every lifecycle transition is journaled, reversible, and review-gated; no canonical record changes without an auditable trail; synthetic vault demonstrates supersession, decay, contradiction resolution, and crystallization end-to-end.
+
 ## Explicitly deferred
 
 Do not introduce these before their stage has a measured need:
