@@ -24,6 +24,7 @@ _TIMELINE_SOURCES: tuple[tuple[str, str, tuple[str, ...], tuple[str, ...]], ...]
     ("observations", "observation", ("created_at",), ("entity_ids",)),
     ("decisions", "decision", ("decided_at", "created_at"), ("subject_id",)),
     ("opportunities", "opportunity", ("created_at",), ("subject_ids",)),
+    ("interactions", "interaction", ("occurred_at", "created_at"), ("subject_ids",)),
 )
 
 

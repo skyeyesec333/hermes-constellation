@@ -260,3 +260,50 @@ def test_timeline_surface_cli_writes_file_with_confirmation(tmp_path: Path) -> N
     assert result["status"] == "written"
     assert result["bytes_written"] == output.stat().st_size
     assert "CLI surface claim" in output.read_text(encoding="utf-8")
+
+def test_entity_timeline_includes_interactions_by_subject(tmp_path: Path) -> None:
+    """W3.3: an interaction whose subject_ids reference the entity must appear."""
+    from constellation.models import Interaction
+
+    vault, entity_id, source_id = _vault_with_entity(tmp_path)
+    claim = Claim(
+        id=generate_ulid(), title="Early claim", status="active",
+        sensitivity=Sensitivity.INTERNAL, subject_id=entity_id,
+        predicate="competes_in", object_literal="logistics",
+        source_ids=[source_id], created_at=datetime(2026, 1, 10, tzinfo=timezone.utc), updated_at=NOW,
+    )
+    meeting = Interaction(
+        id=generate_ulid(), title="Working session", status="active",
+        sensitivity=Sensitivity.INTERNAL, subject_ids=[entity_id],
+        summary="SEZ working session", created_at=datetime(2026, 4, 20, tzinfo=timezone.utc), updated_at=NOW,
+    )
+    other_meeting = Interaction(
+        id=generate_ulid(), title="Unrelated session", status="active",
+        sensitivity=Sensitivity.INTERNAL, subject_ids=[source_id],
+        summary="Different entity", created_at=NOW, updated_at=NOW,
+    )
+    _write(vault, "claims", claim)
+    _write(vault, "interactions", meeting)
+    _write(vault, "interactions", other_meeting)
+
+    timeline = entity_timeline(vault, entity_id)
+
+    assert [entry["type"] for entry in timeline["entries"]] == ["claim", "interaction"]
+    assert timeline["entries"][1]["id"] == meeting.id
+
+
+def test_entity_timeline_interaction_respects_sensitivity_ceiling(tmp_path: Path) -> None:
+    from constellation.models import Interaction
+
+    vault, entity_id, _ = _vault_with_entity(tmp_path)
+    meeting = Interaction(
+        id=generate_ulid(), title="Confidential session", status="active",
+        sensitivity=Sensitivity.CONFIDENTIAL, subject_ids=[entity_id],
+        summary="Restricted meeting", created_at=NOW, updated_at=NOW,
+    )
+    _write(vault, "interactions", meeting)
+
+    timeline = entity_timeline(vault, entity_id, sensitivity_ceiling="internal")
+
+    assert timeline["entries"] == []
+    assert timeline["excluded_by_sensitivity"] == 1
