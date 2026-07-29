@@ -442,6 +442,9 @@ def build_parser() -> argparse.ArgumentParser:
     timeline_surface.add_argument("--as-of", help="ISO-8601 with timezone")
     timeline_surface.add_argument("--sensitivity", default="internal")
 
+    lint = sub.add_parser("lint", help="Read-only record-health findings")
+    lint.add_argument("vault", type=Path)
+
     snapshot = sub.add_parser("snapshot", help="Stage a point-in-time snapshot")
     snapshot.add_argument("vault", type=Path)
     snapshot.add_argument("--watchlist-id", required=True)
@@ -1214,6 +1217,10 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
             as_of=str(as_of) if as_of else None,
             sensitivity_ceiling=str(values.get("sensitivity", "internal")),
         )
+    if action == "lint":
+        from constellation.record_lint import lint_records
+
+        return lint_records(vault)
     if action == "timeline-surface":
         from constellation.temporal import entity_timeline
         from constellation.timeline_surface import render_timeline_surface
