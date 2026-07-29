@@ -104,6 +104,7 @@ def _edge(
         "edge_kind": edge_kind,
         "edge_source": edge_source,
         "record_id": str(record["id"]),
+        "title": str(record.get("title", "")),
         "subject_id": subject_id,
         "object_id": object_id,
         "predicate": predicate,

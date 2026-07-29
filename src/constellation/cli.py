@@ -284,6 +284,16 @@ def build_parser() -> argparse.ArgumentParser:
     prep.add_argument("vault", type=Path)
     prep.add_argument("entity_id", help="Canonical entity ULID")
 
+    briefing = sub.add_parser(
+        "briefing", help="Render a cited evidence briefing (markdown or offline HTML)"
+    )
+    briefing.add_argument("vault", type=Path)
+    briefing.add_argument("entity_id", help="Canonical entity ULID")
+    briefing.add_argument("--format", choices=["markdown", "html"], default="markdown")
+    briefing.add_argument("--out", type=Path, required=True, help="Output file path")
+    briefing.add_argument("--sensitivity", default="internal",
+                          choices=["public", "internal", "confidential", "restricted"])
+
     decay = sub.add_parser("decay", help="Detect aging contacts needing follow-up")
     decay.add_argument("vault", type=Path)
     decay.add_argument("--threshold", type=int, default=14, help="Stale threshold in days")
@@ -1021,6 +1031,29 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
         from constellation.prep import compile_prep
 
         return compile_prep(vault, str(values["entity_id"]))
+    if action == "briefing":
+        from constellation.briefing import (
+            build_entity_briefing,
+            render_briefing_html,
+            render_briefing_markdown,
+        )
+
+        model = build_entity_briefing(
+            vault, str(values["entity_id"]),
+            sensitivity_ceiling=str(values.get("sensitivity", "internal")),
+        )
+        fmt = str(values.get("format", "markdown"))
+        rendered = render_briefing_html(model) if fmt == "html" else render_briefing_markdown(model)
+        out = Path(values["out"]).expanduser()
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(rendered, encoding="utf-8")
+        return {
+            "status": "briefing_written",
+            "format": fmt,
+            "out": str(out),
+            "claims": len(model["claims"]),
+            "candidates": len(model["candidates"]),
+        }
     if action == "decay":
         from constellation.decay import detect_decay
 
