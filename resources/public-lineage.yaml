@@ -265,6 +265,8 @@ files:
     lineage: handwritten-generic
   src/constellation/confidence.py:
     lineage: handwritten-generic
+  src/constellation/contradictions.py:
+    lineage: handwritten-generic
   src/constellation/cli.py:
     lineage: handwritten-generic
   src/constellation/conference.py:
@@ -386,6 +388,8 @@ files:
   tests/test_supersedes.py:
     lineage: handwritten-generic
   tests/test_confidence.py:
+    lineage: handwritten-generic
+  tests/test_contradictions.py:
     lineage: handwritten-generic
   tests/test_claim_extractor.py:
     lineage: handwritten-generic

@@ -172,13 +172,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     claim = sub.add_parser("claim", help="Stage or list review-only claims")
     claim.add_argument("vault", type=Path)
-    claim.add_argument("action", choices=["stage", "list", "supersede", "chain"])
+    claim.add_argument("action", choices=["stage", "list", "supersede", "chain", "contradictions"])
     claim.add_argument("--new-claim-id", help="ULID of the superseding (new) claim")
     claim.add_argument("--old-claim-id", help="ULID of the claim being superseded")
     claim.add_argument("--claim-id", help="ULID of any claim in a chain (for chain)")
     claim.add_argument("--actor", help="who asserts the supersede (required for supersede)")
     claim.add_argument("--basis", nargs="+", help="source ULIDs or review id justifying the supersede")
     claim.add_argument("--force", action="store_true", help="supersede an already-stale claim via a staged review candidate (never a direct write)")
+    claim.add_argument("--stage", action="store_true", help="with contradictions: stage a review-only resolution candidate for --subject-id/--predicate")
     claim.add_argument("--subject-id", help="ULID of the subject entity (required for stage)")
     claim.add_argument("--predicate", help="Relationship predicate, e.g. works_at (required for stage)")
     claim.add_argument("--object-id", help="ULID of the object entity")
@@ -779,6 +780,24 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
             if not claim_id:
                 raise ValueError("--claim-id is required for claim chain")
             return supersede_chain(vault, str(claim_id))
+        if values.get("action") == "contradictions":
+            from constellation.contradictions import (
+                detect_contradictions,
+                stage_contradiction_candidate,
+            )
+
+            subject_id = values.get("subject_id")
+            predicate = values.get("predicate")
+            if values.get("stage"):
+                if not subject_id or not predicate:
+                    raise ValueError("--subject-id and --predicate are required to stage a contradiction candidate")
+                actor = values.get("actor")
+                if not actor:
+                    raise ValueError("--actor is required to stage a contradiction candidate")
+                return stage_contradiction_candidate(
+                    vault, str(subject_id), str(predicate), actor=str(actor)
+                )
+            return {"proposals": detect_contradictions(vault)}
         subject_id = values.get("subject_id")
         predicate = values.get("predicate")
         source_ids = values.get("source_ids") or []

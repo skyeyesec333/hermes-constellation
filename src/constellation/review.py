@@ -224,6 +224,77 @@ def _promote_inquiry_candidate(
     )
 
 
+def _contradiction_candidate_summary(path: Path, payload: dict[str, object]) -> dict[str, object]:
+    if path.stem != f"contradiction-{payload.get('id')}":
+        raise PromotionError("contradiction candidate filename does not match packet id")
+    if not payload.get("winner_id") or not payload.get("loser_ids"):
+        raise PromotionError("contradiction candidate packet is incomplete")
+    return {
+        "id": path.stem,
+        "kind": "contradiction_candidate",
+        "title": f"Resolve contradiction: {payload.get('predicate')} on {payload.get('subject_id')}",
+        "target_path": f"claims/{payload['winner_id']}.md",
+        "expected_base_hash": None,
+        "promotable": True,
+    }
+
+
+def _promote_contradiction_candidate(
+    root: Path,
+    candidate_path: Path,
+    payload: dict[str, object],
+    expected_base_hash: str | None,
+) -> dict[str, str]:
+    summary = _contradiction_candidate_summary(candidate_path, payload)
+    if expected_base_hash is not None:
+        raise PromotionError("contradiction candidate carries no base hash")
+    winner_id = str(payload["winner_id"])
+    raw_losers = payload.get("loser_ids")
+    loser_ids = [str(item) for item in raw_losers] if isinstance(raw_losers, list) else []
+    if not loser_ids:
+        raise PromotionError("contradiction candidate packet is incomplete")
+
+    # preflight: every claim must exist before ANY edge is applied
+    for claim_id in [winner_id, *loser_ids]:
+        target = root / "claims" / f"{claim_id}.md"
+        if target.is_symlink() or not target.is_file():
+            raise PromotionError(f"contradiction resolution failed: claim missing {claim_id}")
+
+    from .supersedes import SupersedesError, supersede_claim
+
+    for loser_id in loser_ids:
+        try:
+            supersede_claim(
+                root, winner_id, loser_id,
+                actor=f"review:{candidate_path.stem}",
+                basis=[candidate_path.stem],
+            )
+        except SupersedesError as exc:
+            raise PromotionError(f"contradiction resolution failed: {exc}") from exc
+
+    _append_action(
+        root,
+        {
+            "schema_version": "0.1",
+            "action": "candidate_promoted",
+            "candidate_id": candidate_path.stem,
+            "target_path": str(summary["target_path"]),
+            "timestamp": datetime.now(UTC).isoformat(),
+            "result_hash": sha256_file(root / "claims" / f"{winner_id}.md"),
+        },
+    )
+    candidate_path.unlink()
+    return _rebuild_index_after_write(
+        root,
+        {
+            "schema_version": "0.1",
+            "status": "promoted",
+            "target_path": str(summary["target_path"]),
+            "superseded": ",".join(loser_ids),
+        },
+    )
+
+
 def _opportunity_candidate_summary(path: Path, payload: dict[str, object]) -> dict[str, object]:
     try:
         opportunity = Opportunity.model_validate_json(json.dumps(payload))
@@ -404,6 +475,9 @@ def list_candidates(root: Path | str) -> list[dict[str, object]]:
                 continue
             if payload.get("kind") == "analysis_candidate":
                 results.append(_analysis_candidate_summary(path, payload))
+                continue
+            if payload.get("kind") == "contradiction_candidate":
+                results.append(_contradiction_candidate_summary(path, payload))
                 continue
             if payload.get("type") == "analysis":
                 results.append(_analysis_candidate_summary(path, payload))
@@ -656,6 +730,8 @@ def promote_candidate(
         return _promote_classification_candidate(vault, candidate_path, payload, expected_base_hash)
     if isinstance(payload, dict) and payload.get("kind") == "analysis_candidate":
         return _promote_analysis_candidate(vault, candidate_path, payload, expected_base_hash)
+    if isinstance(payload, dict) and payload.get("kind") == "contradiction_candidate":
+        return _promote_contradiction_candidate(vault, candidate_path, payload, expected_base_hash)
     if isinstance(payload, dict) and payload.get("type") == "analysis":
         return _promote_analysis_candidate(vault, candidate_path, payload, expected_base_hash)
     if isinstance(payload, dict) and payload.get("type") in ("watchlist", "snapshot", "observation", "event"):
