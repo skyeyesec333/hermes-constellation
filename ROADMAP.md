@@ -143,7 +143,7 @@ Deliver:
 - contradiction detection with resolution proposals (recency + source authority + support count) staged as review-only candidates — the human overrides, never the model — **DELIVERED 2026-07-30** (`claim contradictions [--stage]`; promotion applies 7.1 supersedes edges);
 - crystallization: completed work sessions distilled into structured digests that enter the candidate pipeline through the normal review gate;
 - self-healing lint `--fix` for mechanical repairs (orphan links, broken references), journaled and reversible, with non-mechanical findings still reported only;
-- ingest-time secret/PII screening before source material enters the vault;
+- ingest-time secret/PII screening before source material enters the vault — **DELIVERED 2026-07-30** (`screening.py`; strict blocks secrets pre-preservation, PII warns, quarantine/off profiles, never silent strip);
 - multi-writer merge semantics for concurrent agents/profiles: expected-hash writes, timestamp resolution, conflicts surfaced for review.
 
 Exit gate: every lifecycle transition is journaled, reversible, and review-gated; no canonical record changes without an auditable trail; synthetic vault demonstrates supersession, decay, contradiction resolution, and crystallization end-to-end.
