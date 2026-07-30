@@ -76,6 +76,19 @@ def _source_registration_mode(vault: Path) -> str:
     return mode
 
 
+def _ingest_screening_policy(vault: Path) -> str:
+    """7.6 screening profile: strict (default) | quarantine | off. Fail closed."""
+    config_path = safe_relative_path(vault, CONFIG_RELATIVE)
+    try:
+        config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as exc:
+        raise IngestError("vault configuration is unreadable") from exc
+    policy = config.get("ingest_screening", "strict") if isinstance(config, dict) else None
+    if policy not in {"strict", "quarantine", "off"}:
+        raise IngestError("ingest_screening must be strict, quarantine, or off")
+    return policy
+
+
 def _validated_source_url(source_url: str | None) -> str | None:
     if source_url is None:
         return None
@@ -1126,7 +1139,7 @@ def ingest_file(
     kind: str = "generic",
     phone_region: str | None = None,
     meeting_format: str | None = None,
-) -> dict[str, str]:
+) -> dict[str, Any]:
     """Ingest one local file; an optional URL is provenance, never fetched evidence."""
     if kind not in {
         "generic",
@@ -1162,6 +1175,34 @@ def ingest_file(
     digest = sha256_bytes(data)
     if extracted.extraction["source_sha256"] != digest:
         raise IngestError("extraction source hash does not match preserved bytes")
+    # 7.6 pre-ingest secret/PII screening: local, deterministic, zero-egress.
+    # Secret-class findings block BEFORE preservation under strict (default);
+    # PII findings never block (a contact-intelligence vault legitimately
+    # holds emails/phones) but always surface a warning. quarantine proceeds
+    # with a warning for both classes. Content is never stripped or altered.
+    screening_policy = _ingest_screening_policy(vault)
+    screening_findings: list[dict[str, Any]] = []
+    if screening_policy != "off":
+        from .screening import screen_text
+
+        screening_findings = screen_text(text)
+        secret_findings = [f for f in screening_findings if f["severity"] == "secret"]
+        if secret_findings and screening_policy == "strict":
+            first = secret_findings[0]
+            raise IngestError(
+                f"ingest blocked by secret/PII screening "
+                f"({first['rule']}, secret; {len(secret_findings)} secret finding(s))"
+            )
+    screening_note = (
+        {
+            "policy": screening_policy,
+            "findings": len(screening_findings),
+            "rules": sorted({f["rule"] for f in screening_findings}),
+            "blocked": False,
+        }
+        if screening_findings and screening_policy != "off"
+        else None
+    )
     source_id = _id_from_hash(digest)
     business_card = (
         extract_business_card_fields(
@@ -1292,6 +1333,7 @@ def ingest_file(
             "source_patch_staged": str(source_patch_staged).lower(),
             "source_patch_state": source_upgrade.state,
             "review_required": str(source_upgrade.state == "conflict").lower(),
+            **({"screening": screening_note} if screening_note else {}),
             **(
                 {"conflict_reason": str(source_upgrade.conflict_reason)}
                 if source_upgrade.conflict_reason is not None
@@ -1444,4 +1486,6 @@ def ingest_file(
         result["index_generation"] = promotion["index_generation"]
     result["manifest_path"] = manifest_relative.as_posix()
     result["extraction_status"] = str(extraction["status"])
+    if screening_note:
+        result["screening"] = screening_note
     return result
