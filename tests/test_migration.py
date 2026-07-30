@@ -343,7 +343,7 @@ def test_mapping_plan_applies_privacy_safe_defaults_and_deterministic_ids(tmp_pa
 
     assert first == second
     assert mappings["people/alex.md"]["disposition"] == "candidate_entity"
-    assert mappings["people/alex.md"]["target_path"] == "entities/person-alex.md"
+    assert mappings["people/alex.md"]["target_path"] == "people/person-alex.md"
     assert mappings["people/alex.md"]["proposed_metadata"]["sensitivity"] == "internal"
     assert mappings["companies/acme.md"]["proposed_metadata"]["sensitivity"] == "confidential"
     assert mappings["patterns/repeated.md"]["disposition"] == "preserve_legacy"
@@ -403,8 +403,8 @@ def test_rehearsal_writes_only_to_disposable_destination_and_preserves_every_inp
     assert (destination / "candidate-vault/sources/Attachments/brief.txt").read_text(
         encoding="utf-8"
     ) == "source bytes"
-    candidate = destination / "candidate-vault/entities/person-alex.md"
-    validate_canonical_text(candidate.read_text(encoding="utf-8"), "entities/person-alex.md")
+    candidate = destination / "candidate-vault/people/person-alex.md"
+    validate_canonical_text(candidate.read_text(encoding="utf-8"), "people/person-alex.md")
     assert not (destination / "candidate-vault/external-link").exists()
     assert (destination / "migration-plan.private.json").is_file()
     assert (destination / "migration-journal.private.json").is_file()

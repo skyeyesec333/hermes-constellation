@@ -17,22 +17,25 @@ from constellation.vault import initialize_vault
 NOW = datetime(2026, 2, 3, tzinfo=UTC)
 
 
-def _entity_text(rid, title):
-    return render_frontmatter(
-        {
+def _entity_text(rid, title, *, status="active", resolution_state="unresolved", merged_into=None):
+    metadata = {
             "schema_version": "0.1",
             "id": rid,
             "type": "person",
             "title": title,
-            "status": "active",
+            "status": status,
             "sensitivity": "internal",
             "created_at": NOW.isoformat(),
             "updated_at": NOW.isoformat(),
             "aliases": [],
             "source_ids": [],
             "external_ids": {},
-            "resolution_state": "unresolved",
-        },
+            "resolution_state": resolution_state,
+        }
+    if merged_into is not None:
+        metadata["merged_into"] = merged_into
+    return render_frontmatter(
+        metadata,
         f"# {title}\n",
     )
 
@@ -69,13 +72,16 @@ def vault(tmp_path):
     _make_patch(
         root, "01JAAAAAAAAAAAAAAAAAAAAAA1", "people/keeper.md",
         _entity_text("01ARZ3NDEKTSV4RRFFQ69G5FAV", "Keeper Person"),
-        "Merge duplicate person entities: keeper gets clean title + aliases",
+        "ZZZ semantic keeper (title deliberately sorts last)",
         expected_base_hash=keeper_hash,
     )
     _make_patch(
         root, "01JAAAAAAAAAAAAAAAAAAAAAA2", "people/stub.md",
-        _entity_text("01ARZ3NDEKTSV4RRFFQ69G5FAW", "Stub Person"),
-        "Merge duplicate person entities: stub marked stale, points at keeper",
+        _entity_text(
+            "01ARZ3NDEKTSV4RRFFQ69G5FAW", "Stub Person", status="stale",
+            resolution_state="merged", merged_into="01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        ),
+        "AAA semantic stub (title deliberately sorts first)",
         expected_base_hash=None,
     )
     # an ingest candidate via the real ingest path
@@ -96,12 +102,12 @@ def _ingest_id(vault):
     )
 
 
-def test_plan_orders_ingests_before_merges_and_keeper_before_stub(vault):
+def test_plan_orders_ingests_before_merges_and_semantic_keeper_before_stub(vault):
     plan = plan_bulk_promotion(vault)
     ids = [str(i["id"]) for i in plan]
     assert ids == [
         _ingest_id(vault),  # source-items ingest first
-        "01JAAAAAAAAAAAAAAAAAAAAAA1",  # keeper before stub (title sort)
+        "01JAAAAAAAAAAAAAAAAAAAAAA1",  # keeper before stub despite reversed titles
         "01JAAAAAAAAAAAAAAAAAAAAAA2",
     ]
 
@@ -139,7 +145,7 @@ def test_bulk_continues_on_conflict_and_reports_failure(vault):
         _entity_text("01ARZ3NDEKTSV4RRFFQ69G5FAV", "Changed"), encoding="utf-8"
     )
     result = promote_candidates_bulk(vault, confirm=True)
-    assert result["status"] == "completed"
+    assert result["status"] == "completed_with_failures"
     assert result["promoted"] == 2  # ingest + stub still land
     assert len(result["failed"]) == 1
     assert result["failed"][0]["id"] == "01JAAAAAAAAAAAAAAAAAAAAAA1"
@@ -187,12 +193,23 @@ def _stage_legacy_ingest_packet(vault):
 
 def test_plan_groups_legacy_ingest_candidate_first(vault):
     legacy_id = _stage_legacy_ingest_packet(vault)
+    from constellation.claim import stage_claim
+
+    staged = stage_claim(
+        vault,
+        subject_id="01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        predicate="cites_legacy_source",
+        object_literal="Fictional dependent claim",
+        source_ids=["01ARZ3NDEKTSV4RRFFQ69G5FAZ"],
+        evidence_excerpt="legacy body",
+    )
+    claim_id = f"claim-{staged['claim_id']}"
     plan = plan_bulk_promotion(vault)
     kinds = {str(i["id"]): str(i["kind"]) for i in plan}
     assert legacy_id in kinds
     assert kinds[legacy_id] == "ingest_candidate"
-    # ingest group (0) precedes merges (2) regardless of title sort
-    assert [str(i["id"]) for i in plan][0] == legacy_id
+    ids = [str(i["id"]) for i in plan]
+    assert ids.index(legacy_id) < ids.index(claim_id)
 
 
 def test_plan_rejects_nonpositive_limit(vault):
@@ -217,11 +234,60 @@ def test_bulk_isolates_non_promotion_errors(vault, monkeypatch):
 
     monkeypatch.setattr(review_module, "promote_candidate", flaky)
     result = promote_candidates_bulk(vault, confirm=True)
-    assert result["status"] == "completed"
+    assert result["status"] == "completed_with_failures"
     assert result["promoted"] == 2
     assert len(result["failed"]) == 1
     assert result["failed"][0]["id"] == poisoned
     assert "TypeError" in result["failed"][0]["error"]
+
+
+def _write_malformed_claim_candidate(vault):
+    malformed = vault / ".constellation/candidates/broken-packet.json"
+    malformed.write_text('{"type": "claim", "not": "a valid claim"}\n', encoding="utf-8")
+    return malformed
+
+
+def test_list_candidates_surfaces_malformed_packet(vault):
+    _write_malformed_claim_candidate(vault)
+
+    listed = list_candidates(vault)
+    broken = next(item for item in listed if item["id"] == "broken-packet")
+
+    assert broken["kind"] == "invalid_candidate"
+    assert broken["promotable"] is False
+    assert "error" in broken
+
+
+def test_bulk_dry_run_reports_malformed_packet(vault):
+    _write_malformed_claim_candidate(vault)
+
+    dry_run = promote_candidates_bulk(vault, confirm=False)
+
+    assert dry_run["status"] == "dry_run_with_failures"
+    invalid = dry_run["invalid"]
+    assert isinstance(invalid, list)
+    assert invalid[0]["id"] == "broken-packet"
+
+
+def test_scoped_bulk_excludes_out_of_scope_malformed_packet(vault):
+    _write_malformed_claim_candidate(vault)
+
+    scoped = promote_candidates_bulk(vault, kinds={"candidate_patch"}, confirm=False)
+
+    assert scoped["status"] == "dry_run"
+    assert scoped["invalid"] == []
+
+
+def test_confirmed_bulk_keeps_and_reports_malformed_packet(vault):
+    malformed = _write_malformed_claim_candidate(vault)
+
+    result = promote_candidates_bulk(vault, confirm=True)
+
+    assert result["status"] == "completed_with_failures"
+    failed = result["failed"]
+    assert isinstance(failed, list)
+    assert any(item["id"] == "broken-packet" for item in failed)
+    assert malformed.is_file()
 
 
 def test_single_promote_rebuilds_index_by_default(vault):
@@ -268,3 +334,59 @@ def test_bulk_rebuilds_index_exactly_once(vault, monkeypatch):
     assert result["promoted"] == 3
     assert len(calls) == 1
     assert "index_generation" in result
+
+
+def test_deferred_rebuild_does_not_suppress_concurrent_single_promotion(vault, monkeypatch):
+    import threading
+
+    import constellation.retrieval as retrieval_module
+    import constellation.review as review_module
+
+    deferred_entered = threading.Event()
+    single_finished = threading.Event()
+    release_deferred = threading.Event()
+    builds: list[str] = []
+    results: dict[str, dict] = {}
+
+    def fake_build(_root):
+        builds.append(threading.current_thread().name)
+        return {"generation": "01ARZ3NDEKTSV4RRFFQ69G5FAY"}
+
+    def fake_dispatch(root, _path, _payload, _cid, _base):
+        if threading.current_thread().name == "deferred":
+            deferred_entered.set()
+            assert release_deferred.wait(timeout=5)
+        result = review_module._rebuild_index_after_write(root, {"status": "promoted"})
+        if threading.current_thread().name == "single":
+            single_finished.set()
+        return result
+
+    monkeypatch.setattr(retrieval_module, "build_index", fake_build)
+    monkeypatch.setattr(review_module, "_dispatch_promotion", fake_dispatch)
+
+    candidate = "01JAAAAAAAAAAAAAAAAAAAAAA1"
+    deferred = threading.Thread(
+        name="deferred",
+        target=lambda: results.setdefault(
+            "deferred",
+            promote_candidate(vault, candidate, confirm=True, expected_base_hash=None, defer_index=True),
+        ),
+    )
+    single = threading.Thread(
+        name="single",
+        target=lambda: results.setdefault(
+            "single",
+            promote_candidate(vault, candidate, confirm=True, expected_base_hash=None),
+        ),
+    )
+    deferred.start()
+    assert deferred_entered.wait(timeout=5)
+    single.start()
+    assert single_finished.wait(timeout=5)
+    release_deferred.set()
+    deferred.join(timeout=5)
+    single.join(timeout=5)
+
+    assert builds == ["single"]
+    assert "index_generation" in results["single"]
+    assert "index_generation" not in results["deferred"]

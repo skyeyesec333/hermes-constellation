@@ -167,7 +167,11 @@ def test_analysis_envelope_requires_evidence_status(tmp_path: Path) -> None:
     packet.pop("evidence_status")
     candidate_path.write_text(json.dumps(packet), encoding="utf-8")
 
-    assert list_candidates(vault) == []
+    listed = list_candidates(vault)
+    assert len(listed) == 1
+    assert listed[0]["id"] == f"analysis-{staged['analysis_id']}"
+    assert listed[0]["kind"] == "invalid_candidate"
+    assert listed[0]["promotable"] is False
     with pytest.raises(PromotionError, match="evidence status"):
         promote_candidate(vault, f"analysis-{staged['analysis_id']}", confirm=True, expected_base_hash=None)
 

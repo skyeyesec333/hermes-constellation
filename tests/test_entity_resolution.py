@@ -15,7 +15,9 @@ import pytest
 from constellation.cli import main
 from constellation.entity_resolution import (
     EntityResolutionError,
+    entity_pair_id,
     normalize_entity_title,
+    record_distinct_decision,
     scan_entity_duplicates,
     scan_source_family_duplicates,
     stage_merge_proposal,
@@ -207,6 +209,24 @@ def test_scan_flags_external_id_overlap(tmp_path):
     assert any(signal.kind == "external_id" for signal in duplicates[0].signals)
 
 
+def test_scan_flags_exact_body_match_when_titles_are_unrelated(tmp_path):
+    vault = _vault(tmp_path)
+    shared_body = "# Fictional Executive\n\n" + "The same evidence-grade dossier. " * 12
+    _write_entity(
+        vault, entity_id=KEEPER_ID, title="person-headline-fragment", body=shared_body,
+        kind=EntityKind.PERSON, folder="people",
+    )
+    _write_entity(
+        vault, entity_id=STUB_ID, title="Ada Example", body=shared_body,
+        kind=EntityKind.PERSON, folder="people",
+    )
+
+    duplicates = scan_entity_duplicates(vault)
+
+    assert len(duplicates) == 1
+    assert any(signal.kind == "body_exact" for signal in duplicates[0].signals)
+
+
 def test_scan_skips_stale_and_merged_records(tmp_path):
     vault = _vault(tmp_path)
     _coreweave_pair(vault)
@@ -238,11 +258,76 @@ def test_scan_ignores_kind_mismatch_and_unrelated_entities(tmp_path):
     assert scan_entity_duplicates(vault) == []
 
 
+def test_scan_skips_retired_records(tmp_path):
+    vault = _vault(tmp_path)
+    shared_body = "Retired extraction artifact. " * 20
+    _write_entity(
+        vault, entity_id=KEEPER_ID, title="artifact-one", body=shared_body,
+        status="retired",
+    )
+    _write_entity(
+        vault, entity_id=STUB_ID, title="artifact-two", body=shared_body,
+        status="retired",
+    )
+
+    assert scan_entity_duplicates(vault) == []
+
+
 def test_scan_is_deterministic(tmp_path):
     vault = _vault(tmp_path)
     _coreweave_pair(vault)
 
     assert scan_entity_duplicates(vault) == scan_entity_duplicates(vault)
+
+
+def _distinct_fund_pair(vault):
+    _write_entity(
+        vault, entity_id=KEEPER_ID, title="Mid Cap Value Fund",
+        body="# Generic fund category\n" + "x" * 200,
+    )
+    _write_entity(
+        vault, entity_id=STUB_ID, title="PGIM Mid Cap Value Fund",
+        body="# Named PGIM product\n" + "y" * 200,
+    )
+
+
+def _review_distinct_fund_pair(vault):
+    return record_distinct_decision(
+        vault,
+        left_id=KEEPER_ID,
+        right_id=STUB_ID,
+        reason="Named PGIM product is distinct from the generic category record.",
+        reviewed_by="owner-remediation",
+        reviewed_at=NOW,
+    )
+
+
+def test_entity_pair_id_is_direction_independent():
+    assert entity_pair_id(KEEPER_ID, STUB_ID) == entity_pair_id(STUB_ID, KEEPER_ID)
+
+
+def test_distinct_decision_is_attached_to_scanned_pair(tmp_path):
+    vault = _vault(tmp_path)
+    _distinct_fund_pair(vault)
+    _review_distinct_fund_pair(vault)
+
+    duplicate = scan_entity_duplicates(vault)[0]
+
+    assert duplicate.pair_id == entity_pair_id(KEEPER_ID, STUB_ID)
+    assert duplicate.review is not None
+    assert duplicate.review.decision == "distinct"
+
+
+def test_cli_scan_separates_reviewed_distinct_pair(tmp_path, capsys):
+    vault = _vault(tmp_path)
+    _distinct_fund_pair(vault)
+    _review_distinct_fund_pair(vault)
+
+    result = invoke(capsys, "resolve", str(vault), "scan")
+
+    assert result["duplicates"] == []
+    assert len(result["reviewed_distinct"]) == 1
+    assert result["untriaged_count"] == 0
 
 
 def test_scan_requires_initialized_vault(tmp_path):
@@ -297,6 +382,24 @@ def test_source_family_scan_reports_nothing_for_unique_sources(tmp_path):
     assert scan_source_family_duplicates(vault) == []
 
 
+def test_source_family_scan_skips_superseded_items(tmp_path):
+    vault = _vault(tmp_path)
+    _write_source_item(
+        vault, item_id=KEEPER_ID, source_hash="a" * 64,
+        source_url="https://fictional.example/report",
+    )
+    _write_source_item(
+        vault, item_id=STUB_ID, source_hash="a" * 64,
+        source_url="https://fictional.example/report",
+    )
+    path = vault / "source-items" / f"{STUB_ID}.md"
+    metadata, body = parse_frontmatter(path.read_text(encoding="utf-8"))
+    metadata["status"] = "superseded"
+    path.write_text(render_frontmatter(metadata, body), encoding="utf-8")
+
+    assert scan_source_family_duplicates(vault) == []
+
+
 # --- review-gated merge staging ------------------------------------------
 
 
@@ -322,8 +425,39 @@ def test_stage_merge_proposal_writes_two_review_candidates(tmp_path):
     stub_content = json.loads(stub_patch.read_text(encoding="utf-8"))
     stub_meta, stub_body = parse_frontmatter(stub_content["content"])
     assert stub_meta["status"] == "stale"
+    assert stub_meta["resolution_state"] == "merged"
+    assert stub_meta["merged_into"] == KEEPER_ID
     assert f"duplicate of [[{KEEPER_ID}]]" in stub_body
     assert "retained for provenance" in stub_body
+
+
+def test_stage_merge_proposal_preserves_stub_title_and_legacy_path_alias(tmp_path):
+    vault = _vault(tmp_path)
+    _write_entity(
+        vault, entity_id=KEEPER_ID, title="Apoorva Mehta",
+        body="# Apoorva Mehta\n\n" + "Evidence-grade dossier. " * 20,
+        kind=EntityKind.PERSON, folder="people",
+    )
+    _write_entity(
+        vault, entity_id=STUB_ID, title="Instacart call-shots executive",
+        body="# Stub\n",
+        kind=EntityKind.PERSON, folder="people",
+    )
+    stub_path = vault / "people" / f"{STUB_ID}.md"
+    legacy_stub_path = vault / "people" / "person-call-shots-instacart.md"
+    stub_path.rename(legacy_stub_path)
+
+    receipt = stage_merge_proposal(vault, keeper_id=KEEPER_ID, stub_id=STUB_ID)
+
+    keeper_packet = json.loads(
+        (vault / ".constellation/candidates" / f"{receipt['keeper_candidate_id']}.json")
+        .read_text(encoding="utf-8")
+    )
+    metadata, _ = parse_frontmatter(keeper_packet["content"])
+    aliases = metadata["aliases"]
+    assert isinstance(aliases, list)
+    assert "Instacart call-shots executive" in aliases
+    assert "call shots instacart" in aliases
 
 
 def test_stage_merge_proposal_validates_pair(tmp_path):

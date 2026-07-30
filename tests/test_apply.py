@@ -65,7 +65,7 @@ def test_build_cutover_preserves_working_paths_and_isolates_invalid_canonical_no
     assert result["source_writes_performed"] is False
     assert result["candidate_validation"] == {"valid": 2, "invalid": 0}
     assert tree_sha256(source) == expected_hash
-    assert (destination / "entities/person-alex.md").is_file()
+    assert (destination / "people/person-alex.md").is_file()
     assert (destination / "source-items/evidence.md").is_file()
     assert (destination / "sources/legacy-source-items/evidence.md").read_text() == source_item
     # people/ is canonical now: the migrated record's legacy original moves to

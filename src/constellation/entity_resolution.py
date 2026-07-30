@@ -11,6 +11,7 @@ Detection signals (same-kind pairs only; stale/merged records excluded):
   artifact pair "billion fictional weave" vs "fictional weave"), Jaccard >= 0.5
 - alias: a normalized alias equals the other record's normalized title/alias
 - external_id: an identical (key, value) external identity pair
+- body_exact: byte-equivalent normalized dossier bodies (minimum 128 chars)
 
 Normalization folds in the slug-artifact bug class ("company-billion-
 company-..." discovery titles): leading kind tokens and trailing legal
@@ -23,8 +24,10 @@ earliest-created record as keeper. No mutation path — owner dispositions.
 
 from __future__ import annotations
 
+import json
 import re
 import unicodedata
+from hashlib import sha256
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -40,7 +43,7 @@ from .models import (
     generate_ulid,
 )
 from .review import write_candidate
-from .storage import sha256_file
+from .storage import atomic_write_text, safe_relative_path, sha256_file
 from .vault import is_initialized
 
 
@@ -94,6 +97,115 @@ class EntityDuplicate:
     keeper_path: str
     stub_path: str
     signals: tuple[DuplicateSignal, ...] = field(compare=True)
+    pair_id: str = ""
+    review: "ResolutionReview | None" = None
+
+
+@dataclass(frozen=True)
+class ResolutionReview:
+    decision: str
+    reason: str
+    reviewed_by: str
+    reviewed_at: str
+
+
+_DECISION_LEDGER = Path(".constellation/entity-resolution-decisions.json")
+
+
+def entity_pair_id(left_id: str, right_id: str) -> str:
+    """Return a deterministic, direction-independent entity-pair identifier."""
+    left, right = sorted((left_id, right_id))
+    return "entity-pair-" + sha256(f"{left}:{right}".encode("utf-8")).hexdigest()[:24]
+
+
+def _load_distinct_decisions(vault: Path) -> dict[str, ResolutionReview]:
+    path = safe_relative_path(vault, _DECISION_LEDGER)
+    if not path.exists():
+        return {}
+    if path.is_symlink() or not path.is_file():
+        raise EntityResolutionError("entity resolution decision ledger is unsafe")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise EntityResolutionError("entity resolution decision ledger is invalid") from exc
+    if not isinstance(payload, dict) or payload.get("schema_version") != "0.1":
+        raise EntityResolutionError("entity resolution decision ledger is invalid")
+    raw_decisions = payload.get("decisions")
+    if not isinstance(raw_decisions, list):
+        raise EntityResolutionError("entity resolution decision ledger is invalid")
+    decisions: dict[str, ResolutionReview] = {}
+    for item in raw_decisions:
+        if not isinstance(item, dict):
+            raise EntityResolutionError("entity resolution decision ledger is invalid")
+        left_id = item.get("left_id")
+        right_id = item.get("right_id")
+        pair_id = item.get("pair_id")
+        if (
+            not isinstance(left_id, str)
+            or not isinstance(right_id, str)
+            or not isinstance(pair_id, str)
+            or pair_id != entity_pair_id(left_id, right_id)
+            or item.get("decision") != "distinct"
+            or not isinstance(item.get("reason"), str)
+            or not item["reason"].strip()
+            or not isinstance(item.get("reviewed_by"), str)
+            or not item["reviewed_by"].strip()
+            or not isinstance(item.get("reviewed_at"), str)
+        ):
+            raise EntityResolutionError("entity resolution decision ledger is invalid")
+        decisions[pair_id] = ResolutionReview(
+            decision="distinct",
+            reason=item["reason"].strip(),
+            reviewed_by=item["reviewed_by"].strip(),
+            reviewed_at=item["reviewed_at"],
+        )
+    return decisions
+
+
+def record_distinct_decision(
+    root: Path | str,
+    *,
+    left_id: str,
+    right_id: str,
+    reason: str,
+    reviewed_by: str,
+    reviewed_at: datetime,
+) -> dict[str, str]:
+    """Atomically upsert a reviewed-distinct decision in private runtime state."""
+    vault = _require_vault(root)
+    if left_id == right_id or not reason.strip() or not reviewed_by.strip():
+        raise EntityResolutionError("distinct decision metadata is incomplete")
+    if reviewed_at.tzinfo is None or reviewed_at.utcoffset() is None:
+        raise EntityResolutionError("reviewed_at must include a timezone")
+    left, right = sorted((left_id, right_id))
+    pair_id = entity_pair_id(left, right)
+    path = safe_relative_path(vault, _DECISION_LEDGER)
+    existing: list[dict[str, str]] = []
+    if path.exists():
+        _load_distinct_decisions(vault)
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        existing = [item for item in payload["decisions"] if item.get("pair_id") != pair_id]
+    decision = {
+        "pair_id": pair_id,
+        "left_id": left,
+        "right_id": right,
+        "decision": "distinct",
+        "reason": reason.strip(),
+        "reviewed_by": reviewed_by.strip(),
+        "reviewed_at": reviewed_at.isoformat(),
+    }
+    existing.append(decision)
+    existing.sort(key=lambda item: item["pair_id"])
+    atomic_write_text(
+        vault,
+        _DECISION_LEDGER,
+        json.dumps(
+            {"schema_version": "0.1", "decisions": existing},
+            indent=2,
+            sort_keys=True,
+        ) + "\n",
+    )
+    return decision
 
 
 @dataclass(frozen=True)
@@ -114,6 +226,7 @@ class _EntityEntry:
     external_ids: dict[str, str]
     path: str
     richness: tuple[int, int, int]
+    body_hash: str = ""
 
 
 def _require_vault(root: Path | str) -> Path:
@@ -148,7 +261,7 @@ def _load_live_entities(vault: Path) -> list[_EntityEntry]:
                 record = EntityRecord.model_validate(metadata, strict=False)
             except Exception:
                 continue
-            if record.status == "stale":
+            if record.status in {"stale", "retired"}:
                 continue
             if record.resolution_state.value == "merged":
                 continue
@@ -169,12 +282,22 @@ def _load_live_entities(vault: Path) -> list[_EntityEntry]:
                     len(record.aliases) + len(record.source_ids) + len(record.external_ids),
                     1 if record.resolution_state.value == "verified" else 0,
                 ),
+                body_hash=(
+                    sha256(body.strip().encode("utf-8")).hexdigest()
+                    if len(body.strip()) >= 128
+                    else ""
+                ),
             ))
     return entries
 
 
 def _pair_signals(left: _EntityEntry, right: _EntityEntry) -> list[DuplicateSignal]:
     signals: list[DuplicateSignal] = []
+    if left.body_hash and left.body_hash == right.body_hash:
+        signals.append(DuplicateSignal(
+            kind="body_exact",
+            detail=f"normalized dossier bodies have identical sha256: {left.body_hash}",
+        ))
     if left.normalized and left.normalized == right.normalized:
         signals.append(DuplicateSignal(
             kind="title_exact",
@@ -239,6 +362,7 @@ def _proposed_title(keeper: _EntityEntry, stub: _EntityEntry) -> str:
 def scan_entity_duplicates(root: Path | str) -> list[EntityDuplicate]:
     """Read-only scan for duplicate canonical entities. Never writes."""
     vault = _require_vault(root)
+    decisions = _load_distinct_decisions(vault)
     entries = sorted(_load_live_entities(vault), key=lambda entry: entry.entity_id)
     duplicates: list[EntityDuplicate] = []
     for index, left in enumerate(entries):
@@ -249,6 +373,7 @@ def scan_entity_duplicates(root: Path | str) -> list[EntityDuplicate]:
             if not signals:
                 continue
             keeper, stub = _pick_keeper(left, right)
+            pair_id = entity_pair_id(keeper.entity_id, stub.entity_id)
             duplicates.append(EntityDuplicate(
                 keeper_id=keeper.entity_id,
                 stub_id=stub.entity_id,
@@ -257,9 +382,11 @@ def scan_entity_duplicates(root: Path | str) -> list[EntityDuplicate]:
                 keeper_path=keeper.path,
                 stub_path=stub.path,
                 signals=tuple(signals),
+                pair_id=pair_id,
+                review=decisions.get(pair_id),
             ))
     # Strongest evidence first for review triage; ids keep it deterministic.
-    rank = {"title_exact": 0, "external_id": 1, "alias": 2, "title_subset": 3}
+    rank = {"body_exact": 0, "title_exact": 1, "external_id": 2, "alias": 3, "title_subset": 4}
     duplicates.sort(key=lambda dup: (
         min(rank.get(signal.kind, 9) for signal in dup.signals),
         dup.keeper_id,
@@ -282,7 +409,7 @@ def scan_source_family_duplicates(root: Path | str) -> list[SourceFamilyDuplicat
     by_url: dict[str, list[tuple[str, str]]] = {}
     by_hash: dict[str, list[tuple[str, str]]] = {}
     for path, metadata, _body in _iter_folder_records(vault, "source-items"):
-        if metadata.get("status") == "stale":
+        if metadata.get("status") in {"stale", "superseded"}:
             continue
         rel = path.relative_to(vault).as_posix()
         created = str(metadata.get("created_at", ""))
@@ -317,6 +444,15 @@ def _dedup_aliases(values: list[str]) -> list[str]:
             seen.add(cleaned.casefold())
             result.append(cleaned)
     return result
+
+
+def _legacy_path_alias(path: Path, kind: EntityKind) -> str | None:
+    """Recover a useful alias from a deterministic kind-prefixed legacy slug."""
+    tokens = [token for token in re.split(r"[-_]+", path.stem.casefold()) if token]
+    if len(tokens) < 3 or tokens[0] != kind.value:
+        return None
+    alias = " ".join(tokens[1:]).strip()
+    return alias or None
 
 
 def _merged_stub_body(body: str, *, keeper_id: str, keeper_title: str, marker: str) -> str:
@@ -369,10 +505,12 @@ def stage_merge_proposal(
 
     keeper_meta = dict(keeper.metadata)
     keeper_meta["title"] = title
+    legacy_path_alias = _legacy_path_alias(stub.path, stub.record.type)
     keeper_meta["aliases"] = _dedup_aliases([
         *keeper.record.aliases,
         *( [keeper.record.title] if keeper.record.title != title else [] ),
         *( [stub.record.title] if stub.record.title != title else [] ),
+        *( [legacy_path_alias] if legacy_path_alias else [] ),
         *extra_aliases,
     ])
     keeper_patch = CandidatePatch(
@@ -390,6 +528,8 @@ def stage_merge_proposal(
 
     stub_meta = dict(stub.metadata)
     stub_meta["status"] = "stale"
+    stub_meta["resolution_state"] = "merged"
+    stub_meta["merged_into"] = keeper_id
     stub_patch = CandidatePatch(
         id=generate_ulid(),
         type="candidate-patch",

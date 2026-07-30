@@ -8,12 +8,13 @@ import io
 import json
 import mimetypes
 import platform
+import re
 import zipfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any, cast
-from urllib.parse import parse_qsl, urlsplit
+from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
 import yaml
 
@@ -114,6 +115,91 @@ def _validated_source_url(source_url: str | None) -> str | None:
     ):
         raise IngestError("source URL must not contain credentials")
     return source_url
+
+
+_SOURCE_ACCESSION = re.compile(r"(?<!\d)(?:\d{10}-\d{2}-\d{6}|\d{3}-\d{6})(?!\d)")
+
+
+def _normalized_source_url(value: object) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    parsed = urlsplit(value.strip())
+    if not parsed.hostname:
+        return None
+    return urlunsplit((
+        parsed.scheme.casefold(),
+        parsed.netloc.casefold(),
+        parsed.path.rstrip("/"),
+        parsed.query,
+        "",
+    ))
+
+
+def _source_accession(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    match = _SOURCE_ACCESSION.search(value)
+    return match.group(0) if match else None
+
+
+def _duplicate_source(
+    vault: Path,
+    *,
+    digest: str,
+    source_url: str | None,
+    source_name: str,
+) -> dict[str, str] | None:
+    """Find a canonical or pending source with the same stable identity."""
+    wanted_url = _normalized_source_url(source_url)
+    wanted_accession = _source_accession(source_name)
+
+    def match(metadata: dict[str, object]) -> str | None:
+        if metadata.get("status") in {"stale", "superseded"}:
+            return None
+        if metadata.get("source_hash") == digest:
+            return "source_hash"
+        if wanted_url and _normalized_source_url(metadata.get("source_url")) == wanted_url:
+            return "source_url"
+        existing_accession = _source_accession(metadata.get("title")) or _source_accession(
+            metadata.get("original_path")
+        )
+        if wanted_accession and existing_accession == wanted_accession:
+            return "accession"
+        return None
+
+    for path in sorted((vault / "source-items").glob("*.md")):
+        try:
+            metadata, _ = parse_frontmatter(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        basis = match(metadata)
+        existing_id = metadata.get("id")
+        if basis and isinstance(existing_id, str):
+            return {
+                "source_id": existing_id,
+                "duplicate_basis": basis,
+                "duplicate_location": "canonical",
+            }
+
+    candidate_dir = vault / ".constellation/candidates"
+    for path in sorted(candidate_dir.glob("*.json")):
+        try:
+            candidate = CandidatePatch.model_validate_json(path.read_text(encoding="utf-8"))
+            if not candidate.target_path.startswith("source-items/"):
+                continue
+            metadata, _ = parse_frontmatter(candidate.content)
+        except Exception:
+            continue
+        basis = match(metadata)
+        existing_id = metadata.get("id")
+        if basis and isinstance(existing_id, str):
+            return {
+                "source_id": existing_id,
+                "candidate_id": str(candidate.id),
+                "duplicate_basis": basis,
+                "duplicate_location": "pending",
+            }
+    return None
 
 
 @dataclass(frozen=True)
@@ -1204,6 +1290,22 @@ def ingest_file(
         else None
     )
     source_id = _id_from_hash(digest)
+    manifest_relative = Path(".constellation/manifests") / f"{digest}.json"
+    manifest_path = vault / manifest_relative
+    if not manifest_path.exists():
+        duplicate = _duplicate_source(
+            vault,
+            digest=digest,
+            source_url=source_url,
+            source_name=source_path.name,
+        )
+        if duplicate is not None:
+            return {
+                "schema_version": "0.1",
+                "status": "already_ingested",
+                **duplicate,
+                "review_required": "false",
+            }
     business_card = (
         extract_business_card_fields(
             source_id=source_id,
@@ -1261,8 +1363,6 @@ def ingest_file(
             gmail = validate_gmail_capture(payload)
         except GmailCaptureError as exc:
             raise IngestError(str(exc)) from exc
-    manifest_relative = Path(".constellation/manifests") / f"{digest}.json"
-    manifest_path = vault / manifest_relative
     instant = now or datetime.now(UTC)
     if instant.tzinfo is None or instant.utcoffset() is None:
         raise IngestError("ingest timestamp must include a timezone")
@@ -1482,7 +1582,7 @@ def ingest_file(
             else {}
         ),
     }
-    if promotion:
+    if promotion and promotion.get("index_generation") is not None:
         result["index_generation"] = promotion["index_generation"]
     result["manifest_path"] = manifest_relative.as_posix()
     result["extraction_status"] = str(extraction["status"])

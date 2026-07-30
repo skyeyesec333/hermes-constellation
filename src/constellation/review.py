@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from contextvars import ContextVar
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -12,12 +13,17 @@ from pydantic import ValidationError
 from .frontmatter import parse_frontmatter, render_frontmatter
 from .models import Analysis, CandidatePatch, Claim, Classification, Decision, Inquiry, Interaction, Opportunity
 from .storage import ConflictError, atomic_write_text, safe_relative_path, sha256_file
-from .validation import CanonicalValidationError, validate_canonical_text
+from .validation import CanonicalValidationError, validate_canonical_text, validate_claim_evidence
 from .vault import is_initialized
 
 
 class PromotionError(RuntimeError):
     pass
+
+
+_INDEX_REBUILD_DEFERRED: ContextVar[bool] = ContextVar(
+    "constellation_index_rebuild_deferred", default=False
+)
 
 
 def write_candidate(root: Path | str, candidate: CandidatePatch) -> Path:
@@ -448,10 +454,11 @@ def list_candidates(root: Path | str) -> list[dict[str, object]]:
     vault = Path(root).absolute()
     results: list[dict[str, object]] = []
     for path in _candidate_files(vault):
+        payload: object = None
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
             if not isinstance(payload, dict):
-                continue
+                raise PromotionError("candidate packet must be a JSON object")
             if payload.get("kind") == "ingest_candidate":
                 results.append(_ingest_candidate_summary(vault, path, payload))
                 continue
@@ -495,7 +502,30 @@ def list_candidates(root: Path | str) -> list[dict[str, object]]:
                 results.append(_generic_candidate_summary(path, payload, _canonical_folder_for_type("event")))
                 continue
             candidate = CandidatePatch.model_validate_json(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError, ValidationError, ValueError, PromotionError):
+        except (OSError, json.JSONDecodeError, ValidationError, ValueError, PromotionError) as exc:
+            results.append(
+                {
+                    "id": path.stem,
+                    "kind": "invalid_candidate",
+                    "title": f"Invalid candidate: {path.name}",
+                    "target_path": None,
+                    "expected_base_hash": None,
+                    "promotable": False,
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "declared_kind": (
+                        "ingest_candidate"
+                        if isinstance(payload, dict) and payload.get("kind") == "ingest_candidate"
+                        else (
+                            f"{payload.get('type')}_candidate"
+                            if isinstance(payload, dict) and isinstance(payload.get("type"), str)
+                            else None
+                        )
+                    ),
+                    "declared_target_path": (
+                        payload.get("target_path") if isinstance(payload, dict) else None
+                    ),
+                }
+            )
             continue
         results.append(
             {
@@ -533,6 +563,8 @@ def _append_action(root: Path, event: dict[str, object]) -> None:
 
 
 def _rebuild_index_after_write(root: Path, result: dict[str, str]) -> dict[str, str]:
+    if _INDEX_REBUILD_DEFERRED.get():
+        return result
     from .retrieval import build_index
 
     report = build_index(root)
@@ -592,6 +624,7 @@ def _promote_claim_candidate(
     content = _claim_candidate_content(claim)
     try:
         validate_canonical_text(content, target_path)
+        validate_claim_evidence(root, claim)
         atomic_write_text(root, target_path, content)
     except (CanonicalValidationError, ConflictError) as exc:
         raise PromotionError("claim candidate promotion failed") from exc
@@ -715,22 +748,13 @@ def promote_candidate(
         payload = json.loads(candidate_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise PromotionError("candidate packet is invalid") from exc
-    if defer_index:
-        original = _rebuild_index_after_write
-        try:
-            globals()["_rebuild_index_after_write"] = _identity_index_result
-            return _dispatch_promotion(
-                vault, candidate_path, payload, candidate_id, expected_base_hash
-            )
-        finally:
-            globals()["_rebuild_index_after_write"] = original
-    return _dispatch_promotion(
-        vault, candidate_path, payload, candidate_id, expected_base_hash
-    )
-
-
-def _identity_index_result(root: Path, result: dict[str, str]) -> dict[str, str]:
-    return result
+    token = _INDEX_REBUILD_DEFERRED.set(defer_index)
+    try:
+        return _dispatch_promotion(
+            vault, candidate_path, payload, candidate_id, expected_base_hash
+        )
+    finally:
+        _INDEX_REBUILD_DEFERRED.reset(token)
 
 
 def _dispatch_promotion(
@@ -772,7 +796,8 @@ def _dispatch_promotion(
     if candidate.expected_base_hash != expected_base_hash:
         raise PromotionError("expected base hash does not match candidate review")
     try:
-        validate_canonical_text(candidate.content, candidate.target_path)
+        record = validate_canonical_text(candidate.content, candidate.target_path)
+        validate_claim_evidence(vault, record)
         target = safe_relative_path(vault, candidate.target_path)
     except (CanonicalValidationError, Exception) as exc:
         if isinstance(exc, PromotionError):
@@ -990,6 +1015,27 @@ def _bulk_group(summary: dict[str, object]) -> int:
     return 3
 
 
+def _bulk_semantic_rank(root: Path, summary: dict[str, object]) -> int:
+    """Order merge keepers before merged stubs from candidate content semantics."""
+    if summary.get("kind") != "candidate_patch":
+        return 0
+    target = str(summary.get("target_path") or "")
+    if not target.startswith(("entities/", "people/")):
+        return 0
+    try:
+        candidate, _ = _load_candidate(root, str(summary.get("id") or ""))
+        metadata, _ = parse_frontmatter(candidate.content)
+    except Exception:
+        return 0
+    if (
+        metadata.get("status") == "stale"
+        and metadata.get("resolution_state") == "merged"
+        and metadata.get("merged_into")
+    ):
+        return 2
+    return 1
+
+
 def plan_bulk_promotion(
     root: Path | str,
     *,
@@ -1001,16 +1047,22 @@ def plan_bulk_promotion(
 
     Deterministic order: ingest candidates (source-items/) first so claim
     citations can resolve, then claim candidates, then merge candidate
-    patches (title sort puts "keeper ..." before "stub ..." within a pair),
+    patches (canonical merge semantics put keepers before merged stubs),
     then everything else. Filters are conjunctive. Read-only.
     """
-    items = list_candidates(root)
+    vault = Path(root).absolute()
+    items = list_candidates(vault)
     if kinds is not None:
         items = [i for i in items if str(i.get("kind") or "") in kinds]
     if target_prefix is not None:
         items = [i for i in items if str(i.get("target_path") or "").startswith(target_prefix)]
     items = [i for i in items if i.get("promotable")]
-    items.sort(key=lambda i: (_bulk_group(i), str(i.get("title") or ""), str(i.get("id") or "")))
+    items.sort(key=lambda i: (
+        _bulk_group(i),
+        _bulk_semantic_rank(vault, i),
+        str(i.get("title") or ""),
+        str(i.get("id") or ""),
+    ))
     if limit is not None:
         if limit < 1:
             raise ValueError("limit must be >= 1")
@@ -1033,13 +1085,25 @@ def promote_candidates_bulk(
     iteration, never a bypass. Continues past individual failures and
     reports them; failed candidates stay queued.
     """
+    invalid = [item for item in list_candidates(root) if not item.get("promotable")]
+    if kinds is not None:
+        invalid = [item for item in invalid if item.get("declared_kind") in kinds]
+    if target_prefix is not None:
+        invalid = [
+            item for item in invalid
+            if str(item.get("declared_target_path") or "").startswith(target_prefix)
+        ]
     plan = plan_bulk_promotion(
         root, kinds=kinds, target_prefix=target_prefix, limit=limit
     )
     if not confirm:
         return {
-            "status": "dry_run",
+            "status": "dry_run_with_failures" if invalid else "dry_run",
             "planned": len(plan),
+            "invalid": [
+                {"id": str(item.get("id")), "error": str(item.get("error"))}
+                for item in invalid
+            ],
             "candidates": [
                 {
                     "id": str(i.get("id")),
@@ -1050,7 +1114,14 @@ def promote_candidates_bulk(
                 for i in plan
             ],
         }
-    results: list[dict[str, str]] = []
+    results: list[dict[str, str]] = [
+        {
+            "id": str(item.get("id")),
+            "status": "failed",
+            "error": str(item.get("error") or "invalid candidate packet"),
+        }
+        for item in invalid
+    ]
     for item in plan:
         cid = str(item.get("id"))
         base = item.get("expected_base_hash")
@@ -1068,7 +1139,7 @@ def promote_candidates_bulk(
     promoted = sum(1 for r in results if r["status"] == "promoted")
     failed = [r for r in results if r["status"] == "failed"]
     summary: dict[str, object] = {
-        "status": "completed",
+        "status": "completed_with_failures" if failed else "completed",
         "promoted": promoted,
         "failed": failed,
         "results": results,

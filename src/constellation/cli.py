@@ -709,9 +709,17 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
 
             duplicates = scan_entity_duplicates(vault)
             families = scan_source_family_duplicates(vault)
+            untriaged = [duplicate for duplicate in duplicates if duplicate.review is None]
+            reviewed = [duplicate for duplicate in duplicates if duplicate.review is not None]
             return {
-                "status": "duplicates_found" if duplicates or families else "no_duplicates",
-                "duplicates": [asdict(duplicate) for duplicate in duplicates],
+                "status": (
+                    "duplicates_found"
+                    if untriaged or families
+                    else "no_untriaged_duplicates"
+                ),
+                "duplicates": [asdict(duplicate) for duplicate in untriaged],
+                "reviewed_distinct": [asdict(duplicate) for duplicate in reviewed],
+                "untriaged_count": len(untriaged),
                 "source_families": [asdict(family) for family in families],
             }
         if values["action"] == "stage":

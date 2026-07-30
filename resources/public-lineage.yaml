@@ -186,6 +186,8 @@ files:
     lineage: handwritten-generic
   scripts/dashboard_journey.py:
     lineage: handwritten-generic
+  scripts/stage_claims_json.py:
+    lineage: handwritten-generic
   scripts/privacy_audit.py:
     lineage: handwritten-generic
   scripts/graph_server.py:
@@ -219,6 +221,10 @@ files:
   src/constellation/card_ingest.py:
     lineage: handwritten-generic
   src/constellation/claim.py:
+    lineage: handwritten-generic
+  src/constellation/claim_batch.py:
+    lineage: handwritten-generic
+  src/constellation/backfill_state.py:
     lineage: handwritten-generic
   src/constellation/crm.py:
     lineage: handwritten-generic
@@ -427,6 +433,10 @@ files:
   tests/test_polymarket_connector.py:
     lineage: handwritten-generic
   tests/test_claim_extractor.py:
+    lineage: handwritten-generic
+  tests/test_claim_batch.py:
+    lineage: handwritten-generic
+  tests/test_backfill_state.py:
     lineage: handwritten-generic
   tests/test_classification.py:
     lineage: handwritten-generic

@@ -363,7 +363,8 @@ def _entity_target(relative: str, record_type: str) -> str:
     stem = re.sub(r"[^a-z0-9]+", "-", stem).strip("-") or "untitled"
     if not stem.startswith(f"{record_type}-"):
         stem = f"{record_type}-{stem}"
-    return f"entities/{stem}.md"
+    folder = "people" if record_type == "person" else "entities"
+    return f"{folder}/{stem}.md"
 
 
 def build_mapping_plan(root: Path | str, *, max_files: int = 100_000) -> dict[str, Any]:

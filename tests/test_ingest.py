@@ -7,7 +7,13 @@ import pytest
 import yaml
 
 from constellation.frontmatter import FrontmatterError, parse_frontmatter, render_frontmatter
-from constellation.ingest import CapabilityError, ExtractedSource, IngestError, ingest_file
+from constellation.ingest import (
+    CapabilityError,
+    ExtractedSource,
+    IngestError,
+    _normalized_source_url,
+    ingest_file,
+)
 from constellation.models import CandidatePatch
 from constellation.retrieval import build_index, exact_lookup
 from constellation.review import promote_candidate
@@ -108,6 +114,28 @@ def test_explicit_automatic_registration_promotes_only_the_source_record(tmp_pat
     assert manifest["registration"] == {"mode": "automatic", "status": "canonical"}
 
 
+def test_automatic_registration_handles_promotion_without_index_generation(
+    tmp_path, monkeypatch
+):
+    root = make_vault(tmp_path)
+    config_path = root / ".constellation/config.yaml"
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    config["source_registration"] = "automatic"
+    config_path.write_text(yaml.safe_dump(config, sort_keys=True), encoding="utf-8")
+    source = root / "Inbox/deferred-index.txt"
+    source.write_text("Fictional deferred index evidence.\n", encoding="utf-8")
+
+    def promote_without_generation(*_args, **_kwargs):
+        return {"schema_version": "0.1", "status": "promoted"}
+
+    monkeypatch.setattr("constellation.review.promote_candidate", promote_without_generation)
+
+    result = ingest_file(root, source, now=NOW)
+
+    assert result["status"] == "registered"
+    assert "index_generation" not in result
+
+
 def test_ingest_is_hash_idempotent(tmp_path):
     root = make_vault(tmp_path)
     source = root / "Inbox/example.md"
@@ -119,6 +147,54 @@ def test_ingest_is_hash_idempotent(tmp_path):
     assert first["candidate_id"] == second["candidate_id"]
     assert not list((root / "source-items").glob("*.md"))
     assert len(list((root / ".constellation/candidates").glob("*.json"))) == 1
+
+
+def test_ingest_deduplicates_url_against_canonical_source(tmp_path):
+    root = make_vault(tmp_path)
+    first_source = root / "Inbox/first.txt"
+    first_source.write_text("First captured state.\n", encoding="utf-8")
+    first = ingest_file(
+        root, first_source, now=NOW, source_url="https://example.test/stable-report"
+    )
+    promote_candidate(root, first["candidate_id"], confirm=True, expected_base_hash=None)
+    second_source = root / "Inbox/second.txt"
+    second_source.write_text("Later duplicate capture.\n", encoding="utf-8")
+
+    result = ingest_file(
+        root, second_source, now=NOW, source_url="https://example.test/stable-report/"
+    )
+
+    assert result["status"] == "already_ingested"
+    assert result["duplicate_basis"] == "source_url"
+    assert result["source_id"] == first["source_id"]
+
+
+def test_source_url_identity_preserves_port_and_query() -> None:
+    assert _normalized_source_url("HTTPS://Example.Test:8443/report/?edition=1") == (
+        "https://example.test:8443/report?edition=1"
+    )
+    assert _normalized_source_url("https://example.test/report?edition=2") == (
+        "https://example.test/report?edition=2"
+    )
+
+
+def test_ingest_deduplicates_accession_against_pending_source(tmp_path):
+    root = make_vault(tmp_path)
+    first_dir = root / "Inbox/first"
+    second_dir = root / "Inbox/second"
+    first_dir.mkdir()
+    second_dir.mkdir()
+    first_source = first_dir / "014-653788.txt"
+    second_source = second_dir / "014-653788.txt"
+    first_source.write_text("First market capture.\n", encoding="utf-8")
+    second_source.write_text("Second market capture.\n", encoding="utf-8")
+    first = ingest_file(root, first_source, now=NOW)
+
+    result = ingest_file(root, second_source, now=NOW)
+
+    assert result["status"] == "already_ingested"
+    assert result["duplicate_basis"] == "accession"
+    assert result["source_id"] == first["source_id"]
 
 
 def test_reingest_promoted_unchanged_source_is_a_side_effect_free_noop(tmp_path):
@@ -276,9 +352,9 @@ def test_changed_local_capture_stages_a_new_candidate_without_canonical_rewrite(
     source = root / "Inbox/watch.txt"
     source.write_text("Initial fictional capture.\n", encoding="utf-8")
 
-    first = ingest_file(root, "Inbox/watch.txt", now=NOW, source_url="https://example.test/watch")
+    first = ingest_file(root, "Inbox/watch.txt", now=NOW)
     source.write_text("Changed fictional capture.\n", encoding="utf-8")
-    changed = ingest_file(root, "Inbox/watch.txt", now=NOW, source_url="https://example.test/watch")
+    changed = ingest_file(root, "Inbox/watch.txt", now=NOW)
 
     assert changed["status"] == "staged"
     assert changed["source_id"] != first["source_id"]

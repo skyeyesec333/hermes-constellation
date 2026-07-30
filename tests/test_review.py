@@ -113,6 +113,45 @@ def test_staged_claim_is_visible_to_generic_review_and_promotes(tmp_path):
     assert not (root / ".constellation/candidates" / f"{candidate_id}.json").exists()
 
 
+def test_inferred_claim_promotion_rejects_nonverbatim_evidence_excerpt(tmp_path):
+    root = tmp_path / "vault"
+    initialize_vault(root)
+    source = render_frontmatter(
+        {
+            "schema_version": "0.1",
+            "id": SOURCE_ID,
+            "type": "source-item",
+            "title": "Fictional source",
+            "status": "active",
+            "sensitivity": "internal",
+            "created_at": NOW.isoformat(),
+            "updated_at": NOW.isoformat(),
+            "source_hash": "1" * 64,
+            "original_path": "Inbox/Files/source.md",
+            "media_type": "text/markdown",
+        },
+        "Fictional Weave reached a $43B valuation.\n",
+    )
+    (root / "source-items" / f"{SOURCE_ID}.md").write_text(source, encoding="utf-8")
+    staged = stage_claim(
+        root,
+        subject_id=SOURCE_ID,
+        predicate="valuation",
+        object_literal="$43B",
+        source_ids=[SOURCE_ID],
+        evidence_excerpt="Fictional Weave reached a 3B valuation.",
+        claim_status="inferred",
+        confidence=0.7,
+    )
+    candidate_id = f"claim-{staged['claim_id']}"
+
+    with pytest.raises(PromotionError, match="claim candidate promotion failed"):
+        promote_candidate(root, candidate_id, confirm=True, expected_base_hash=None)
+
+    assert (root / ".constellation/candidates" / f"{candidate_id}.json").is_file()
+    assert not (root / "claims" / f"{staged['claim_id']}.md").exists()
+
+
 def test_staged_interaction_is_visible_to_generic_review_and_promotes(tmp_path):
     root = tmp_path / "vault"
     initialize_vault(root)
