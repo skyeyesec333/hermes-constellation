@@ -172,7 +172,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     claim = sub.add_parser("claim", help="Stage or list review-only claims")
     claim.add_argument("vault", type=Path)
-    claim.add_argument("action", choices=["stage", "list"])
+    claim.add_argument("action", choices=["stage", "list", "supersede", "chain"])
+    claim.add_argument("--new-claim-id", help="ULID of the superseding (new) claim")
+    claim.add_argument("--old-claim-id", help="ULID of the claim being superseded")
+    claim.add_argument("--claim-id", help="ULID of any claim in a chain (for chain)")
+    claim.add_argument("--actor", help="who asserts the supersede (required for supersede)")
+    claim.add_argument("--basis", nargs="+", help="source ULIDs or review id justifying the supersede")
+    claim.add_argument("--force", action="store_true", help="supersede an already-stale claim via a staged review candidate (never a direct write)")
     claim.add_argument("--subject-id", help="ULID of the subject entity (required for stage)")
     claim.add_argument("--predicate", help="Relationship predicate, e.g. works_at (required for stage)")
     claim.add_argument("--object-id", help="ULID of the object entity")
@@ -749,6 +755,30 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
 
         if values.get("action") == "list":
             return list_staged_claims(vault, limit=int(values.get("limit", 50)))
+        if values.get("action") == "supersede":
+            from constellation.supersedes import supersede_claim
+
+            new_claim_id = values.get("new_claim_id")
+            old_claim_id = values.get("old_claim_id")
+            actor = values.get("actor")
+            basis = values.get("basis") or []
+            if not new_claim_id or not old_claim_id or not actor or not basis:
+                raise ValueError("--new-claim-id, --old-claim-id, --actor, and --basis are required for claim supersede")
+            return supersede_claim(
+                vault,
+                str(new_claim_id),
+                str(old_claim_id),
+                actor=str(actor),
+                basis=[str(b) for b in basis],
+                force=bool(values.get("force", False)),
+            )
+        if values.get("action") == "chain":
+            from constellation.supersedes import supersede_chain
+
+            claim_id = values.get("claim_id") or values.get("old_claim_id") or values.get("new_claim_id")
+            if not claim_id:
+                raise ValueError("--claim-id is required for claim chain")
+            return supersede_chain(vault, str(claim_id))
         subject_id = values.get("subject_id")
         predicate = values.get("predicate")
         source_ids = values.get("source_ids") or []
