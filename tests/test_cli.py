@@ -231,3 +231,12 @@ def test_synthesize_cli_accepts_task_plan_args():
     assert values["task"] == "book"
     assert values["source_bytes"] == 1000
     assert values["pages"] == 20
+
+
+def test_watchlist_cli_accepts_rss_and_http_sources() -> None:
+    # RSS/HTTP connectors exist for watch-collect but the watchlist CLI
+    # sources enum lagged behind — it must accept every built connector.
+    args = build_parser().parse_args(
+        ["watchlist", "vault", "--title", "Feeds", "--sources", "rss", "http"]
+    )
+    assert args.sources == ["rss", "http"]

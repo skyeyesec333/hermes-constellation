@@ -433,7 +433,7 @@ def build_parser() -> argparse.ArgumentParser:
     watchlist.add_argument("--title", required=True)
     watchlist.add_argument("--entity-ids", nargs="*", default=[])
     watchlist.add_argument("--query-terms", nargs="*", default=[])
-    watchlist.add_argument("--sources", nargs="*", default=[], choices=["gdelt", "edgar", "polymarket"])
+    watchlist.add_argument("--sources", nargs="*", default=[], choices=["gdelt", "edgar", "polymarket", "rss", "http"])
     watchlist.add_argument("--schedule", default="")
 
     watch_run = sub.add_parser("watch-run", help="Execute a source-grounded deterministic watchlist snapshot")
