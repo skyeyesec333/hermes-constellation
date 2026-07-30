@@ -115,7 +115,7 @@ Deliver incrementally:
 
 - temporal observations and events;
 - watchlists and snapshot/diff contracts;
-- official-source connectors first;
+- official-source connectors first — SEC EDGAR live-fired 2026-07-30 (CoreWeave CIK 1769628, 50 filing items, snapshot + receipts); Polymarket Gamma connector DELIVERED + live-fired 2026-07-30 (17 real markets, `watch-collect --polymarket-query`, egress-gated, owner-approved provider);
 - entity resolution and source-family deduplication;
 - derived analytics and cited briefs.
 
