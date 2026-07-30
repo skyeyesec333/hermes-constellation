@@ -144,7 +144,9 @@ Deliver:
 - crystallization: completed work sessions distilled into structured digests that enter the candidate pipeline through the normal review gate — **DELIVERED 2026-07-30** (`constellation crystallize`; deterministic digest, provenance-cited, review-only; real CSO artifact staged as acceptance);
 - self-healing lint `--fix` for mechanical repairs (orphan links, broken references), journaled and reversible, with non-mechanical findings still reported only — **DELIVERED 2026-07-30** (`lint --fix/--rollback`; single-unambiguous-target rule; byte-exact rollback replay);
 - ingest-time secret/PII screening before source material enters the vault — **DELIVERED 2026-07-30** (`screening.py`; strict blocks secrets pre-preservation, PII warns, quarantine/off profiles, never silent strip);
-- multi-writer merge semantics for concurrent agents/profiles: expected-hash writes, timestamp resolution, conflicts surfaced for review.
+- multi-writer merge semantics for concurrent agents/profiles: expected-hash writes, timestamp resolution, conflicts surfaced for review — **DELIVERED 2026-07-30** (`constellation merge`; per-field compare-and-swap; conflicts stage review candidates, no last-write-wins).
+
+**STAGE 7 COMPLETE 2026-07-30** — all seven items delivered (7.1 supersedes, 7.2 confidence, 7.3 contradictions, 7.4 crystallization, 7.5 lint --fix, 7.6 ingest screening, 7.7 merge).
 
 Exit gate: every lifecycle transition is journaled, reversible, and review-gated; no canonical record changes without an auditable trail; synthetic vault demonstrates supersession, decay, contradiction resolution, and crystallization end-to-end.
 
