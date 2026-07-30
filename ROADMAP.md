@@ -10,6 +10,15 @@ Status: `blocked — waiting for explicit private acceptance/public-promotion ap
 
 Immediate plan: `docs/plans/01-release-integrity.md`
 
+Reality check (2026-07-30): build work raced ahead of this header — Stage 7
+knowledge-lifecycle is COMPLETE (all seven items delivered), and Stage 5/6
+connectors (EDGAR, Polymarket) are live-fired. The Stage 1 gate above is the
+ONLY thing between the repo and Stage 3 public onboarding. Open items below
+the fold: entity resolution/source-family dedup (Stage 5 bullet, unbuilt —
+live duplicates exist in the CSO vault), derived analytics depth, Thai
+retrieval evaluation, S6-B deferred items (React Flow editing, Beyond-Round-3
+agent testing), RSS standing schedule (owner decision, never answered).
+
 Stage 0 completed on 2026-07-17 with these executed gates:
 
 - `scripts/verify_fast.sh`: passed Ruff and all 189 tests.
