@@ -540,6 +540,13 @@ def build_parser() -> argparse.ArgumentParser:
     crystallize.add_argument("artifact", type=Path, help="artifact path (inside the vault)")
     crystallize.add_argument("--actor", required=True, help="who ran the crystallization")
 
+    merge = sub.add_parser("merge", help="Multi-writer merge: per-field compare-and-swap on a canonical record (conflicts stage a review candidate)")
+    merge.add_argument("vault", type=Path)
+    merge.add_argument("record_path", help="vault-relative canonical record path")
+    merge.add_argument("--actor", required=True)
+    merge.add_argument("--set", dest="sets", action="append", default=[], metavar="FIELD=JSON", help="new value (JSON-parsed), repeatable")
+    merge.add_argument("--expect", dest="expects", action="append", default=[], metavar="FIELD=JSON", help="expected current value (JSON-parsed; default: absent), repeatable")
+
     trail = sub.add_parser("trail", help="Trace full provenance chain for a decision")
     trail.add_argument("vault", type=Path)
     trail.add_argument("decision_id", help="Canonical decision ULID")
@@ -1426,6 +1433,28 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
 
         return crystallize_artifact(
             vault, Path(values["artifact"]), actor=str(values["actor"])
+        )
+    if action == "merge":
+        import json as _json
+
+        from constellation.merge import apply_record_update
+
+        def _pairs(items: list[str]) -> dict[str, object]:
+            pairs: dict[str, object] = {}
+            for item in items:
+                field, _, raw = item.partition("=")
+                if not field or not raw:
+                    raise ValueError(f"--set/--expect need FIELD=JSON: {item!r}")
+                pairs[field] = _json.loads(raw)
+            return pairs
+
+        sets = _pairs([str(s) for s in values["sets"]])
+        expects = _pairs([str(e) for e in values["expects"]])
+        if not sets:
+            raise ValueError("at least one --set FIELD=JSON is required")
+        updates = {field: (expects.get(field, "absent"), new) for field, new in sets.items()}
+        return apply_record_update(
+            vault, str(values["record_path"]), updates=updates, actor=str(values["actor"])
         )
     if action == "lint":
         from constellation.record_lint import lint_fix, lint_records, rollback_lint_fix
