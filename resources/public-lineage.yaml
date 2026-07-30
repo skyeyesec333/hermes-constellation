@@ -269,6 +269,8 @@ files:
     lineage: handwritten-generic
   src/constellation/screening.py:
     lineage: handwritten-generic
+  src/constellation/crystallize.py:
+    lineage: handwritten-generic
   src/constellation/cli.py:
     lineage: handwritten-generic
   src/constellation/conference.py:
@@ -396,6 +398,8 @@ files:
   tests/test_screening.py:
     lineage: handwritten-generic
   tests/test_lint_fix.py:
+    lineage: handwritten-generic
+  tests/test_crystallize.py:
     lineage: handwritten-generic
   tests/test_claim_extractor.py:
     lineage: handwritten-generic

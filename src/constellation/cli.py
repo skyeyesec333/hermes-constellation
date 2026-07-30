@@ -535,6 +535,11 @@ def build_parser() -> argparse.ArgumentParser:
     cp_status = cockpit_subs.add_parser("status", help="Check cockpit state")
     cp_status.add_argument("vault", type=Path)
 
+    crystallize = sub.add_parser("crystallize", help="Distill a vault work artifact into a review-gated structured digest candidate")
+    crystallize.add_argument("vault", type=Path)
+    crystallize.add_argument("artifact", type=Path, help="artifact path (inside the vault)")
+    crystallize.add_argument("--actor", required=True, help="who ran the crystallization")
+
     trail = sub.add_parser("trail", help="Trace full provenance chain for a decision")
     trail.add_argument("vault", type=Path)
     trail.add_argument("decision_id", help="Canonical decision ULID")
@@ -1415,6 +1420,12 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
             str(values["entity_id"]),
             as_of=str(as_of) if as_of else None,
             sensitivity_ceiling=str(values.get("sensitivity", "internal")),
+        )
+    if action == "crystallize":
+        from constellation.crystallize import crystallize_artifact
+
+        return crystallize_artifact(
+            vault, Path(values["artifact"]), actor=str(values["actor"])
         )
     if action == "lint":
         from constellation.record_lint import lint_fix, lint_records, rollback_lint_fix
