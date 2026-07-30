@@ -62,8 +62,10 @@ def test_build_supports_exact_id_and_fts_with_versioned_evidence(tmp_path):
     assert packet["packet_version"] == "2"
     evidence = packet["evidence"][0]
     assert set(evidence) == {
-        "note_id", "path", "anchor", "source_hash", "sensitivity", "route", "score"
+        "note_id", "path", "anchor", "source_hash", "sensitivity", "route", "score",
+        "confidence",  # 7.2: additive derived score on claim rows (packet_version unchanged)
     }
+    assert evidence["confidence"]["derived"] is True
     assert len(evidence["anchor"]) <= 240
 
 

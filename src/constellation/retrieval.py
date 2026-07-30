@@ -295,6 +295,51 @@ def exact_lookup(
     return _packet("evidence_found", [_evidence(row, "exact_id", 1.0)])
 
 
+def _attach_derived_confidence(vault: Path, evidence: list[dict[str, object]]) -> None:
+    """Attach the 7.2 derived confidence score to claim evidence rows.
+
+    Pure derivation over canonical metadata — the stored record is never
+    touched; the score rides along as an index/display artifact.
+    """
+    from datetime import UTC, datetime
+
+    from .confidence import compute_confidence
+    from .frontmatter import parse_frontmatter
+
+    now = datetime.now(UTC)
+    for item in evidence:
+        path = str(item.get("path", ""))
+        if not path.startswith("claims/"):
+            continue
+        try:
+            metadata, _ = parse_frontmatter((vault / path).read_text(encoding="utf-8"))
+            item["confidence"] = compute_confidence(metadata, now=now)
+        except Exception:  # noqa: BLE001 — missing/unparseable record degrades, never breaks search
+            continue
+
+
+def _confidence_of(item: dict[str, object]) -> float:
+    conf = item.get("confidence")
+    if isinstance(conf, dict):
+        return float(conf.get("score", 0.0))
+    return 0.0
+
+
+def _tiebreak_by_confidence(evidence: list[dict[str, object]]) -> list[dict[str, object]]:
+    """Order equal-scored evidence by derived confidence (FTS rank stays primary)."""
+    result: list[dict[str, object]] = []
+    index = 0
+    while index < len(evidence):
+        end = index + 1
+        while end < len(evidence) and evidence[end]["score"] == evidence[index]["score"]:
+            end += 1
+        group = evidence[index:end]
+        group.sort(key=_confidence_of, reverse=True)
+        result.extend(group)
+        index = end
+    return result
+
+
 def search(
     root: Path | str,
     query: str,
@@ -326,6 +371,8 @@ def search(
         for row in rows
         if _SENSITIVITY_RANK[row["sensitivity"]] <= ceiling
     ][:bounded_limit]
+    _attach_derived_confidence(vault, evidence)
+    evidence = _tiebreak_by_confidence(evidence)
     return _packet("evidence_found" if evidence else "no_evidence_found", evidence)
 
 

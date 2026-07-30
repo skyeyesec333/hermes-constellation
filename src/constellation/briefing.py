@@ -98,12 +98,28 @@ def build_entity_briefing(
             if record_id in seen_claims:
                 continue
             seen_claims.add(record_id)
-            claims.append({
+            claim_entry: dict[str, Any] = {
                 "title": title,
                 "confidence": edge.get("confidence"),
                 "record_path": edge["record_path"],
                 "citations": citation_targets.get(record_id, []),
-            })
+            }
+            # 7.2: derived live confidence (display artifact; record untouched)
+            try:
+                from datetime import UTC, datetime
+
+                from .confidence import compute_confidence
+                from .frontmatter import parse_frontmatter
+
+                claim_meta, _ = parse_frontmatter(
+                    (vault / edge["record_path"]).read_text(encoding="utf-8")
+                )
+                claim_entry["confidence_score"] = compute_confidence(
+                    claim_meta, now=datetime.now(UTC)
+                )
+            except Exception:  # noqa: BLE001 — degrade, never break the briefing
+                pass
+            claims.append(claim_entry)
         elif edge["edge_kind"] in _TYPED_KINDS:
             typed[edge["edge_kind"]].append({
                 "title": title,
