@@ -395,6 +395,8 @@ files:
     lineage: handwritten-generic
   tests/test_screening.py:
     lineage: handwritten-generic
+  tests/test_lint_fix.py:
+    lineage: handwritten-generic
   tests/test_claim_extractor.py:
     lineage: handwritten-generic
   tests/test_classification.py:

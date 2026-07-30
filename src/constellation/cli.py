@@ -480,8 +480,10 @@ def build_parser() -> argparse.ArgumentParser:
     timeline_surface.add_argument("--as-of", help="ISO-8601 with timezone")
     timeline_surface.add_argument("--sensitivity", default="internal")
 
-    lint = sub.add_parser("lint", help="Read-only record-health findings")
+    lint = sub.add_parser("lint", help="Record-health findings; --fix repairs only mechanical orphan wikilinks (journaled, reversible)")
     lint.add_argument("vault", type=Path)
+    lint.add_argument("--fix", action="store_true", help="apply mechanical orphan-wikilink repairs (journaled)")
+    lint.add_argument("--rollback", action="store_true", help="reverse the most recent --fix run (byte-exact by hash)")
 
     source_review = sub.add_parser("source-review", help="Render the offline source review workspace")
     source_review.add_argument("vault", type=Path)
@@ -1415,9 +1417,16 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
             sensitivity_ceiling=str(values.get("sensitivity", "internal")),
         )
     if action == "lint":
-        from constellation.record_lint import lint_records
+        from constellation.record_lint import lint_fix, lint_records, rollback_lint_fix
 
-        return lint_records(vault)
+        if values.get("rollback"):
+            return rollback_lint_fix(vault)
+        if values.get("fix"):
+            return lint_fix(vault, apply=True)
+        report = lint_records(vault)
+        wikilinks = lint_fix(vault, apply=False)
+        report["wikilinks"] = {"fixable": wikilinks["fixable"], "orphans": wikilinks["remaining"]}
+        return report
     if action == "dossier":
         from constellation.storage import atomic_write_text
         from constellation.wiki_views import build_entity_dossier, render_dossier_markdown
