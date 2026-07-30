@@ -126,6 +126,20 @@ def main() -> int:
         r.raise_for_status()
         return {"start": start, "end": end}
 
+    def probe_timeline():
+        r = httpx.get(f"{base}{API_PREFIX}/timeline/{node_ids[0]}", timeout=30)
+        r.raise_for_status()
+        data = r.json()
+        assert "entries" in data, "timeline missing entries key"
+        return {"node": node_ids[0], "entries": len(data["entries"])}
+
+    def probe_briefing():
+        r = httpx.get(f"{base}{API_PREFIX}/briefing/{node_ids[0]}", timeout=30)
+        r.raise_for_status()
+        data = r.json()
+        assert "claims" in data and "candidates" in data, "briefing missing model keys"
+        return {"node": node_ids[0], "claims": len(data["claims"])}
+
     def probe_review_candidates():
         r = httpx.get(f"{base}{API_PREFIX}/review/candidates", timeout=30)
         r.raise_for_status()
@@ -148,9 +162,11 @@ def main() -> int:
         if node_ids:
             step("neighbors", probe_neighbors)
             step("path", probe_path)
+            step("timeline", probe_timeline)
+            step("briefing", probe_briefing)
         else:
-            results.append({"step": "neighbors", "ok": False, "error": "no nodes from projection"})
-            results.append({"step": "path", "ok": False, "error": "no nodes from projection"})
+            for missing in ("neighbors", "path", "timeline", "briefing"):
+                results.append({"step": missing, "ok": False, "error": "no nodes from projection"})
         step("review_candidates", probe_review_candidates)
         step("review_watch_status", probe_watch_status)
         step("static_assets", probe_assets)
