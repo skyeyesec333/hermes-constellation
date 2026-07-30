@@ -65,9 +65,14 @@ def build_parser() -> argparse.ArgumentParser:
                        help="exclude candidate edges (typed neighbors; included by default)")
     graph.add_argument("--sensitivity", default="internal")
 
-    resolve = sub.add_parser("resolve", help="Propose review-only identity matches")
+    resolve = sub.add_parser("resolve", help="Propose review-only identity matches and duplicate-resolution merges")
     resolve.add_argument("vault", type=Path)
-    resolve.add_argument("action", choices=["propose"])
+    resolve.add_argument("action", choices=["propose", "scan", "stage"])
+    resolve.add_argument("--keeper-id", help="stage: enriched entity id that survives the merge")
+    resolve.add_argument("--stub-id", help="stage: duplicate entity id marked stale")
+    resolve.add_argument("--title", help="stage: clean title override for the keeper")
+    resolve.add_argument("--alias", action="append", default=[],
+                         help="stage: extra alias for the keeper (repeatable)")
 
     ingest = sub.add_parser("ingest", help="Preserve a local source and stage its canonical candidate")
     ingest.add_argument("vault", type=Path)
@@ -693,6 +698,33 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
             raise ValueError("graph path requires --from and --to")
         return path(vault, str(start_entity), str(end_entity), max_hops=int(values["max_hops"]))
     if action == "resolve":
+        if values["action"] == "scan":
+            from constellation.entity_resolution import (
+                scan_entity_duplicates,
+                scan_source_family_duplicates,
+            )
+
+            duplicates = scan_entity_duplicates(vault)
+            families = scan_source_family_duplicates(vault)
+            return {
+                "status": "duplicates_found" if duplicates or families else "no_duplicates",
+                "duplicates": [asdict(duplicate) for duplicate in duplicates],
+                "source_families": [asdict(family) for family in families],
+            }
+        if values["action"] == "stage":
+            from constellation.entity_resolution import stage_merge_proposal
+
+            keeper_id = values.get("keeper_id")
+            stub_id = values.get("stub_id")
+            if not keeper_id or not stub_id:
+                raise ValueError("resolve stage requires --keeper-id and --stub-id")
+            return stage_merge_proposal(
+                vault,
+                keeper_id=str(keeper_id),
+                stub_id=str(stub_id),
+                proposed_title=values.get("title") or None,
+                extra_aliases=tuple(values.get("alias") or ()),
+            )
         from constellation.identity import propose_identity_candidates_from_vault
 
         candidates = propose_identity_candidates_from_vault(vault)
