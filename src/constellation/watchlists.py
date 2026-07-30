@@ -235,6 +235,56 @@ def make_edgar_connector(
     return EdgarConnector(ciks, fetcher=fetcher or _default_edgar_fetcher, authorize=authorize)
 
 
+def _default_polymarket_fetcher(url: str, timeout: int) -> bytes:
+    """Production fetcher for PolymarketConnector; Gamma API is public GET."""
+    import urllib.request
+
+    request = urllib.request.Request(
+        url, headers={"User-Agent": "Constellation/0.2 watch-collect"}
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
+        return response.read()
+
+
+def make_polymarket_connector(
+    vault: Path | str,
+    queries: list[str],
+    *,
+    provider: str,
+    model: str,
+    sensitivity: Sensitivity,
+    fetcher: Callable[[str, int], bytes] | None = None,
+):
+    """Build a PolymarketConnector authorized through the vault egress policy.
+
+    Identical authorization path to make_http_connector/make_edgar_connector:
+    evaluated (and ledgered) per constructed search URL BEFORE any network
+    attempt; an undeclared provider or disallowed purpose fails closed with
+    WatchlistError and zero network traffic. The connector emits one
+    ConnectorItem per market.
+    """
+    from .egress import EgressRequest, authorize_egress
+    from .polymarket_connector import PolymarketConnector
+
+    vault = Path(vault).absolute()
+
+    def authorize(url: str) -> None:
+        decision = authorize_egress(
+            vault,
+            EgressRequest(
+                provider=provider,
+                model=model,
+                purpose="research",
+                sensitivity=sensitivity,
+                request_input_sha256=hashlib.sha256(url.encode()).hexdigest(),
+            ),
+        )
+        if not decision.allowed:
+            raise WatchlistError(f"egress denied for {provider} watch fetch: {decision.reason}")
+
+    return PolymarketConnector(queries, fetcher=fetcher or _default_polymarket_fetcher, authorize=authorize)
+
+
 def _write_failed_receipt(
     vault: Path,
     *,

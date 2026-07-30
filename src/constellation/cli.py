@@ -450,6 +450,7 @@ def build_parser() -> argparse.ArgumentParser:
     watch_collect.add_argument("--url", nargs="+", help="HTTP(S) URLs fetched via the egress-gated connector")
     watch_collect.add_argument("--feed-url", nargs="+", help="RSS/Atom feed URLs fetched via the egress-gated connector (one item per entry)")
     watch_collect.add_argument("--edgar-cik", nargs="+", help="SEC CIK numbers fetched via the egress-gated EDGAR connector (one item per recent filing)")
+    watch_collect.add_argument("--polymarket-query", nargs="+", help="Polymarket Gamma search terms fetched via the egress-gated connector (one item per market)")
     watch_collect.add_argument("--provider", help="declared egress provider for --url/--feed-url/--edgar-cik fetches")
     watch_collect.add_argument("--model", help="egress model label for connector fetches (default: <provider>-live-api)")
     watch_collect.add_argument("--max-items", type=int, default=50)
@@ -1365,15 +1366,26 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
         urls = values.get("url") or []
         feed_urls = values.get("feed_url") or []
         edgar_ciks = values.get("edgar_cik") or []
+        polymarket_queries = values.get("polymarket_query") or []
         fixture_dir = values.get("fixture_dir")
-        if urls or feed_urls or edgar_ciks:
+        if urls or feed_urls or edgar_ciks or polymarket_queries:
             from constellation.watchlists import _require_canonical_watchlist
 
             provider = values.get("provider")
             if not provider:
-                raise SystemExit("--provider is required with --url/--feed-url/--edgar-cik")
+                raise SystemExit("--provider is required with --url/--feed-url/--edgar-cik/--polymarket-query")
             sensitivity = _require_canonical_watchlist(vault, watchlist_id).sensitivity
-            if edgar_ciks:
+            if polymarket_queries:
+                from constellation.watchlists import make_polymarket_connector
+
+                connector = make_polymarket_connector(
+                    vault,
+                    [str(q) for q in polymarket_queries],
+                    provider=str(provider),
+                    model=str(values.get("model") or f"{provider}-live-api"),
+                    sensitivity=sensitivity,
+                )
+            elif edgar_ciks:
                 connector = make_edgar_connector(
                     vault,
                     [str(c) for c in edgar_ciks],

@@ -273,6 +273,8 @@ files:
     lineage: handwritten-generic
   src/constellation/merge.py:
     lineage: handwritten-generic
+  src/constellation/polymarket_connector.py:
+    lineage: handwritten-generic
   src/constellation/cli.py:
     lineage: handwritten-generic
   src/constellation/conference.py:
@@ -404,6 +406,8 @@ files:
   tests/test_crystallize.py:
     lineage: handwritten-generic
   tests/test_merge.py:
+    lineage: handwritten-generic
+  tests/test_polymarket_connector.py:
     lineage: handwritten-generic
   tests/test_claim_extractor.py:
     lineage: handwritten-generic
