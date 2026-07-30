@@ -264,6 +264,8 @@ files:
     lineage: handwritten-generic
   src/constellation/entity_resolution.py:
     lineage: handwritten-generic
+  src/constellation/analytics.py:
+    lineage: handwritten-generic
   src/constellation/edgar_connector.py:
     lineage: handwritten-generic
   src/constellation/supersedes.py:
@@ -397,6 +399,8 @@ files:
   tests/test_rss_connector.py:
     lineage: handwritten-generic
   tests/test_entity_resolution.py:
+    lineage: handwritten-generic
+  tests/test_analytics.py:
     lineage: handwritten-generic
   tests/test_edgar_connector.py:
     lineage: handwritten-generic

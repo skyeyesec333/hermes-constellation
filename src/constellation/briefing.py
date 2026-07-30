@@ -127,6 +127,18 @@ def build_entity_briefing(
                 "updated_at": edge.get("updated_at", ""),
             })
 
+    # item 4: derived analytics rollup (display artifact; records untouched).
+    # Degrade to None rather than break the briefing if aggregation fails.
+    analytics: dict[str, Any] | None = None
+    try:
+        from .analytics import entity_analytics
+
+        analytics = entity_analytics(
+            vault, entity_id, sensitivity_ceiling=sensitivity_ceiling
+        )
+    except Exception:  # noqa: BLE001 — degrade, never break the briefing
+        pass
+
     return {
         "entity": {
             "id": entity_id,
@@ -144,6 +156,7 @@ def build_entity_briefing(
         "events": typed["event"],
         "opportunities": typed["opportunity"],
         "candidates": candidates,
+        "analytics": analytics,
     }
 
 
@@ -191,6 +204,34 @@ def render_briefing_markdown(briefing: dict[str, Any]) -> str:
         lines.append("")
         for cand in briefing["candidates"]:
             lines.append(f"- [CANDIDATE] {cand['title']} ({cand['kind']}) — `{cand['record_path']}`")
+        lines.append("")
+    analytics = briefing.get("analytics")
+    if analytics:
+        claims = analytics["claims"]
+        bands = claims["by_confidence_band"]
+        staleness = analytics["staleness"]
+        contradictions = analytics["contradictions"]
+        lines += [
+            "## Derived Analytics",
+            "",
+            f"- Claims: {claims['total']} total"
+            + ("".join(f", {status} ×{count}" for status, count in claims["by_status"].items())),
+            f"- Confidence bands: high ×{bands['high']}, medium ×{bands['medium']}, "
+            f"low ×{bands['low']}, unscored ×{bands['unscored']}",
+            f"- Contradictions: {contradictions['open_pairs']} open pair(s), "
+            f"{contradictions['declared_edges']} declared edge(s)",
+            f"- Observations: {analytics['observations']['total']} · "
+            f"Events: {analytics['events']['total']}",
+            f"- Staleness: fresh ×{staleness['fresh']}, aging ×{staleness['aging']}, "
+            f"stale ×{staleness['stale']}",
+        ]
+        if analytics["activity_by_month"]:
+            lines.append("- Activity by month:")
+            for bucket in analytics["activity_by_month"]:
+                lines.append(
+                    f"  - {bucket['month']}: claims ×{bucket['claims']}, "
+                    f"observations ×{bucket['observations']}, events ×{bucket['events']}"
+                )
         lines.append("")
     lines.append(f"_Generated from {briefing['generated_from']}._")
     return "\n".join(lines) + "\n"
@@ -268,6 +309,42 @@ def render_briefing_html(briefing: dict[str, Any]) -> str:
                 f"<li class=\"candidate\">[CANDIDATE] {escape(cand['title'])} "
                 f"({escape(cand['kind'])}) — <code>{escape(cand['record_path'])}</code></li>"
             )
+        parts.append("</ul>")
+    analytics = briefing.get("analytics")
+    if analytics:
+        claims = analytics["claims"]
+        bands = claims["by_confidence_band"]
+        staleness = analytics["staleness"]
+        contradictions = analytics["contradictions"]
+        status_bits = "".join(
+            f", {escape(status)} ×{count}" for status, count in claims["by_status"].items()
+        )
+        parts.append("<h2>Derived Analytics</h2><ul>")
+        parts.append(f"<li>Claims: {claims['total']} total{status_bits}</li>")
+        parts.append(
+            f"<li>Confidence bands: high ×{bands['high']}, medium ×{bands['medium']}, "
+            f"low ×{bands['low']}, unscored ×{bands['unscored']}</li>"
+        )
+        parts.append(
+            f"<li>Contradictions: {contradictions['open_pairs']} open pair(s), "
+            f"{contradictions['declared_edges']} declared edge(s)</li>"
+        )
+        parts.append(
+            f"<li>Observations: {analytics['observations']['total']} · "
+            f"Events: {analytics['events']['total']}</li>"
+        )
+        parts.append(
+            f"<li>Staleness: fresh ×{staleness['fresh']}, aging ×{staleness['aging']}, "
+            f"stale ×{staleness['stale']}</li>"
+        )
+        if analytics["activity_by_month"]:
+            parts.append("<li>Activity by month:<ul>")
+            for bucket in analytics["activity_by_month"]:
+                parts.append(
+                    f"<li>{escape(bucket['month'])}: claims ×{bucket['claims']}, "
+                    f"observations ×{bucket['observations']}, events ×{bucket['events']}</li>"
+                )
+            parts.append("</ul></li>")
         parts.append("</ul>")
     parts.append(f"<p class=\"meta\">Generated from {escape(briefing['generated_from'])}.</p>")
     parts.append("</body></html>")
