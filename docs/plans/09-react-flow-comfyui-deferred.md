@@ -1,9 +1,9 @@
 # Plan 09 — React Flow workflow editing + ComfyUI (DEFERRED — isolated)
 
-Status: `backburner — owner-approved isolated plan, NOT active. Do not build until promoted.`
+Status: `ACTIVE — promoted by owner 2026-07-30. Isolated branch, do not entangle with other workstreams.`
 Captured: 2026-07-30. Origin: S6-B deferred list; owner 2026-07-30: "6 is
 important, that plus comfyUI (if that's necessary) but needs to be an
-isolated plan for later."
+isolated plan for later." Promoted same day: "go forward with react flow."
 
 ## Scope (as currently understood)
 
