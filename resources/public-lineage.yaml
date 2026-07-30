@@ -28,6 +28,7 @@ public_roots:
 - docs/threat-model.md
 - docs/migration.md
 - docs/plans/01-release-integrity.md
+- docs/plans/09-react-flow-comfyui-deferred.md
 - src
 - skills
 - examples
@@ -80,6 +81,8 @@ files:
   docs/model-provider-portability.md:
     lineage: handwritten-generic
   docs/plans/01-release-integrity.md:
+    lineage: handwritten-generic
+  docs/plans/09-react-flow-comfyui-deferred.md:
     lineage: handwritten-generic
   docs/project-manager-crm.md:
     lineage: handwritten-generic
