@@ -14,10 +14,13 @@ Reality check (2026-07-30): build work raced ahead of this header — Stage 7
 knowledge-lifecycle is COMPLETE (all seven items delivered), and Stage 5/6
 connectors (EDGAR, Polymarket) are live-fired. The Stage 1 gate above is the
 ONLY thing between the repo and Stage 3 public onboarding. Open items below
-the fold: entity resolution/source-family dedup (Stage 5 bullet, unbuilt —
-live duplicates exist in the CSO vault), derived analytics depth, Thai
-retrieval evaluation, S6-B deferred items (React Flow editing, Beyond-Round-3
-agent testing), RSS standing schedule (owner decision, never answered).
+the fold: Thai retrieval evaluation, S6-B deferred items (React Flow
+editing). Closed 2026-07-30: entity resolution/source-family dedup
+(entity_resolution.py + `resolve scan|stage`, 0ccf3d8), derived analytics
+depth (analytics.py in briefings, 16212a0), RSS standing schedule
+(constellation-weekly-watch cron, Mon 08:00), Beyond-Round-3 cheap version
+(constellation-journey-regression cron, daily 07:00). See
+maintenance/HANDOFF-2026-07-30-items-2-3-4-7.md in the CSO vault.
 
 Stage 0 completed on 2026-07-17 with these executed gates:
 
