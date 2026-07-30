@@ -140,7 +140,7 @@ Deliver:
 
 - first-class `supersedes` links between claims: typed, timestamped, old version preserved and marked stale, queryable ("what changed about X") — **DELIVERED 2026-07-30** (`constellation claim supersede/chain`, journaled ledger, force-via-review on already-stale);
 - confidence as a living value: decays with time, strengthens with each confirming source, feeds retrieval ranking and briefing confidence — **DELIVERED 2026-07-30** (`confidence.py` computed score; retrieval tie-break + briefing display; canonical base never overwritten);
-- contradiction detection with resolution proposals (recency + source authority + support count) staged as review-only candidates — the human overrides, never the model;
+- contradiction detection with resolution proposals (recency + source authority + support count) staged as review-only candidates — the human overrides, never the model — **DELIVERED 2026-07-30** (`claim contradictions [--stage]`; promotion applies 7.1 supersedes edges);
 - crystallization: completed work sessions distilled into structured digests that enter the candidate pipeline through the normal review gate;
 - self-healing lint `--fix` for mechanical repairs (orphan links, broken references), journaled and reversible, with non-mechanical findings still reported only;
 - ingest-time secret/PII screening before source material enters the vault;
