@@ -192,6 +192,8 @@ files:
     lineage: handwritten-generic
   scripts/operator_journey.py:
     lineage: handwritten-generic
+  scripts/retrieval_eval.py:
+    lineage: handwritten-generic
   scripts/verify_fast.sh:
     lineage: handwritten-generic
   scripts/verify_release.sh:
@@ -265,6 +267,8 @@ files:
   src/constellation/entity_resolution.py:
     lineage: handwritten-generic
   src/constellation/analytics.py:
+    lineage: handwritten-generic
+  src/constellation/retrieval_eval.py:
     lineage: handwritten-generic
   src/constellation/edgar_connector.py:
     lineage: handwritten-generic
@@ -401,6 +405,8 @@ files:
   tests/test_entity_resolution.py:
     lineage: handwritten-generic
   tests/test_analytics.py:
+    lineage: handwritten-generic
+  tests/test_retrieval_eval.py:
     lineage: handwritten-generic
   tests/test_edgar_connector.py:
     lineage: handwritten-generic
