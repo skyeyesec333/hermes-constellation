@@ -442,8 +442,9 @@ def build_parser() -> argparse.ArgumentParser:
     watch_collect.add_argument("--fixture-dir", type=Path)
     watch_collect.add_argument("--url", nargs="+", help="HTTP(S) URLs fetched via the egress-gated connector")
     watch_collect.add_argument("--feed-url", nargs="+", help="RSS/Atom feed URLs fetched via the egress-gated connector (one item per entry)")
-    watch_collect.add_argument("--provider", help="declared egress provider for --url/--feed-url fetches")
-    watch_collect.add_argument("--model", help="egress model label for --url/--feed-url fetches (default: <provider>-live-api)")
+    watch_collect.add_argument("--edgar-cik", nargs="+", help="SEC CIK numbers fetched via the egress-gated EDGAR connector (one item per recent filing)")
+    watch_collect.add_argument("--provider", help="declared egress provider for --url/--feed-url/--edgar-cik fetches")
+    watch_collect.add_argument("--model", help="egress model label for connector fetches (default: <provider>-live-api)")
     watch_collect.add_argument("--max-items", type=int, default=50)
     watch_collect.add_argument("--max-bytes", type=int, default=5_000_000)
     watch_collect.add_argument("--previous-snapshot-id")
@@ -1291,6 +1292,7 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
         from constellation.watchlists import (
             LocalFixtureConnector,
             RunCaps,
+            make_edgar_connector,
             make_http_connector,
             make_rss_connector,
             run_watchlist,
@@ -1299,15 +1301,24 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
         watchlist_id = str(values["watchlist_id"])
         urls = values.get("url") or []
         feed_urls = values.get("feed_url") or []
+        edgar_ciks = values.get("edgar_cik") or []
         fixture_dir = values.get("fixture_dir")
-        if urls or feed_urls:
+        if urls or feed_urls or edgar_ciks:
             from constellation.watchlists import _require_canonical_watchlist
 
             provider = values.get("provider")
             if not provider:
-                raise SystemExit("--provider is required with --url/--feed-url")
+                raise SystemExit("--provider is required with --url/--feed-url/--edgar-cik")
             sensitivity = _require_canonical_watchlist(vault, watchlist_id).sensitivity
-            if feed_urls:
+            if edgar_ciks:
+                connector = make_edgar_connector(
+                    vault,
+                    [str(c) for c in edgar_ciks],
+                    provider=str(provider),
+                    model=str(values.get("model") or f"{provider}-live-api"),
+                    sensitivity=sensitivity,
+                )
+            elif feed_urls:
                 connector = make_rss_connector(
                     vault,
                     [str(u) for u in feed_urls],
@@ -1326,7 +1337,7 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
         elif fixture_dir:
             connector = LocalFixtureConnector(Path(fixture_dir))
         else:
-            raise SystemExit("watch-collect requires --fixture-dir, --url, or --feed-url")
+            raise SystemExit("watch-collect requires --fixture-dir, --url, --feed-url, or --edgar-cik")
         previous_snapshot_id = values.get("previous_snapshot_id")
         return run_watchlist(
             vault,
