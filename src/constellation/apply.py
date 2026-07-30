@@ -32,6 +32,17 @@ def _hash_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _is_canonical_cutover_path(relative: str) -> bool:
+    """Canonical-folder check for cutover routing.
+
+    people/ is canonical (person records); originals of migrated records and
+    quarantined notes from canonical folders move under legacy/ or
+    quarantine/ so the prepared vault passes canonical validation.
+    """
+    parts = Path(relative).parts
+    return bool(parts) and parts[0] in ALLOWED_CANONICAL_FOLDERS
+
+
 def tree_sha256(root: Path | str) -> str:
     """Hash regular file paths and bytes without following symlinks."""
     supplied = Path(root)
@@ -193,14 +204,14 @@ def build_cutover_vault(
                         mapping["proposed_metadata"]["original_path"],
                         provenance.read_bytes(),
                     )
-                elif Path(relative).parts[0] in ALLOWED_CANONICAL_FOLDERS:
+                elif _is_canonical_cutover_path(relative):
                     _write_file(stage, f"legacy/{relative}", data)
                 else:
                     _write_file(stage, relative, data)
             elif disposition in {"preserve_legacy", "preserve_source"}:
                 _write_file(stage, relative, data)
             elif disposition in {"quarantine", "defer_specialized_schema"}:
-                if Path(relative).parts[0] in ALLOWED_CANONICAL_FOLDERS:
+                if _is_canonical_cutover_path(relative):
                     _write_file(stage, f"quarantine/{relative}", data)
                 else:
                     _write_file(stage, relative, data)

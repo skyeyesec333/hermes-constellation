@@ -13,6 +13,7 @@ CANONICAL_MODELS: dict[str, type[BaseModel]] = {
     "claims": Claim,
     "source-items": SourceItem,
     "entities": EntityRecord,
+    "people": EntityRecord,
     "relationships": RelationshipRecord,
     "research": ResearchRun,
     "interactions": Interaction,

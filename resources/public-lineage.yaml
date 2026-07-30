@@ -522,6 +522,8 @@ files:
     lineage: handwritten-generic
   tests/test_review.py:
     lineage: handwritten-generic
+  tests/test_review_bulk.py:
+    lineage: handwritten-generic
   tests/test_root_plugin.py:
     lineage: handwritten-generic
   tests/test_skill.py:

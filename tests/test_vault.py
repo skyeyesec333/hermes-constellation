@@ -323,3 +323,44 @@ def test_doctor_counts_frontmatter_crm_fields_and_flags_legacy_inline(tmp_path) 
 
     assert crm["with_stage"] == 2
     assert crm["legacy_inline_stage"] == 1
+
+
+def test_validate_vault_scans_people_folder(tmp_path):
+    """people/ is a canonical entity folder (person records) — regression test.
+
+    Before the fix, CANONICAL_MODELS lacked "people": validate_vault silently
+    skipped every person record and any promotion targeting people/*.md failed
+    with "target folder is not canonical".
+    """
+    from constellation.frontmatter import render_frontmatter
+    from constellation.validation import validate_canonical_text, validate_vault
+    from constellation.vault import initialize_vault
+
+    root = tmp_path / "vault"
+    initialize_vault(root)
+    (root / "people").mkdir()
+    person = render_frontmatter(
+        {
+            "schema_version": "0.1",
+            "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "type": "person",
+            "title": "Fictional Person",
+            "status": "active",
+            "sensitivity": "internal",
+            "created_at": "2026-02-03T00:00:00+00:00",
+            "updated_at": "2026-02-03T00:00:00+00:00",
+            "aliases": [],
+            "source_ids": [],
+            "external_ids": {},
+            "resolution_state": "unresolved",
+        },
+        "# Fictional Person\n",
+    )
+    (root / "people" / "01ARZ3NDEKTSV4RRFFQ69G5FAV.md").write_text(person, encoding="utf-8")
+
+    record = validate_canonical_text(person, "people/01ARZ3NDEKTSV4RRFFQ69G5FAV.md")
+    assert str(record.type) == "person"
+
+    report = validate_vault(root)
+    assert report["valid"] == 1
+    assert report["invalid"] == 0

@@ -68,7 +68,10 @@ def test_build_cutover_preserves_working_paths_and_isolates_invalid_canonical_no
     assert (destination / "entities/person-alex.md").is_file()
     assert (destination / "source-items/evidence.md").is_file()
     assert (destination / "sources/legacy-source-items/evidence.md").read_text() == source_item
-    assert (destination / "people/alex.md").is_file()
+    # people/ is canonical now: the migrated record's legacy original moves to
+    # legacy/ so the prepared vault passes canonical validation.
+    assert not (destination / "people/alex.md").exists()
+    assert (destination / "legacy/people/alex.md").is_file()
     assert (destination / "patterns/keep.md").is_file()
     assert (destination / "quarantine/source-items/broken.md").read_text() == "# Broken legacy note\n"
     assert not (destination / "source-items/broken.md").exists()

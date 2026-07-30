@@ -949,3 +949,100 @@ def _promote_generic_candidate(
         root,
         {"schema_version": "0.1", "status": "promoted", "target_path": target_path},
     )
+
+
+def _bulk_group(summary: dict[str, object]) -> int:
+    """Promotion order: ingests before claims, claims before merge patches."""
+    kind = str(summary.get("kind") or "")
+    target = str(summary.get("target_path") or "")
+    if kind in {"candidate_patch", "ingest_candidate"} and target.startswith("source-items/"):
+        return 0
+    if kind == "claim_candidate":
+        return 1
+    if kind == "candidate_patch":
+        return 2
+    return 3
+
+
+def plan_bulk_promotion(
+    root: Path | str,
+    *,
+    kinds: set[str] | None = None,
+    target_prefix: str | None = None,
+    limit: int | None = None,
+) -> list[dict[str, object]]:
+    """Ordered bulk-promotion plan over the review queue.
+
+    Deterministic order: ingest candidates (source-items/) first so claim
+    citations can resolve, then claim candidates, then merge candidate
+    patches (title sort puts "keeper ..." before "stub ..." within a pair),
+    then everything else. Filters are conjunctive. Read-only.
+    """
+    items = list_candidates(root)
+    if kinds is not None:
+        items = [i for i in items if str(i.get("kind") or "") in kinds]
+    if target_prefix is not None:
+        items = [i for i in items if str(i.get("target_path") or "").startswith(target_prefix)]
+    items = [i for i in items if i.get("promotable")]
+    items.sort(key=lambda i: (_bulk_group(i), str(i.get("title") or ""), str(i.get("id") or "")))
+    if limit is not None:
+        if limit < 1:
+            raise ValueError("limit must be >= 1")
+        items = items[:limit]
+    return items
+
+
+def promote_candidates_bulk(
+    root: Path | str,
+    *,
+    kinds: set[str] | None = None,
+    target_prefix: str | None = None,
+    limit: int | None = None,
+    confirm: bool,
+) -> dict[str, object]:
+    """Owner-gated batch promotion. Without ``confirm`` returns a dry-run plan.
+
+    Each candidate is promoted through the same single-candidate path
+    (``promote_candidate``) with its own expected_base_hash — bulk is
+    iteration, never a bypass. Continues past individual failures and
+    reports them; failed candidates stay queued.
+    """
+    plan = plan_bulk_promotion(
+        root, kinds=kinds, target_prefix=target_prefix, limit=limit
+    )
+    if not confirm:
+        return {
+            "status": "dry_run",
+            "planned": len(plan),
+            "candidates": [
+                {
+                    "id": str(i.get("id")),
+                    "kind": str(i.get("kind")),
+                    "title": str(i.get("title")),
+                    "target_path": str(i.get("target_path")),
+                }
+                for i in plan
+            ],
+        }
+    results: list[dict[str, str]] = []
+    for item in plan:
+        cid = str(item.get("id"))
+        base = item.get("expected_base_hash")
+        try:
+            promote_candidate(
+                root,
+                cid,
+                confirm=True,
+                expected_base_hash=str(base) if base is not None else None,
+            )
+            results.append({"id": cid, "status": "promoted"})
+        except Exception as exc:  # isolate bad packets; they stay queued
+            results.append({"id": cid, "status": "failed", "error": f"{type(exc).__name__}: {exc}"})
+    promoted = sum(1 for r in results if r["status"] == "promoted")
+    failed = [r for r in results if r["status"] == "failed"]
+    return {
+        "status": "completed",
+        "promoted": promoted,
+        "failed": failed,
+        "results": results,
+    }

@@ -202,12 +202,14 @@ def inventory_vault(root: Path | str, *, max_files: int = 100_000) -> dict[str, 
         if not text.startswith("---"):
             frontmatter["missing"] += 1
             entry["frontmatter"] = "missing"
+            metadata = None
         else:
             try:
                 metadata, _ = parse_frontmatter(text)
             except FrontmatterError:
                 frontmatter["invalid"] += 1
                 entry["frontmatter"] = "invalid"
+                metadata = None
             else:
                 frontmatter["valid"] += 1
                 entry["frontmatter"] = "valid"
@@ -220,6 +222,18 @@ def inventory_vault(root: Path | str, *, max_files: int = 100_000) -> dict[str, 
                 sensitivity = metadata.get("sensitivity")
                 if sensitivity is not None:
                     sensitivities[str(sensitivity)] += 1
+        if canonical and Path(relative).parts[0] == "people":
+            # people/ is canonical only in post-migration vaults (records carry
+            # schema_version). In legacy vaults people/ holds legacy notes that
+            # must still migrate to entities/ — classify those as legacy.
+            has_schema_marker = (
+                isinstance(metadata, dict) and "schema_version" in metadata
+            )
+            if not has_schema_marker:
+                canonical = False
+                canonical_markdown -= 1
+                legacy_markdown += 1
+                entry["classification"] = "legacy"
         if canonical:
             try:
                 validate_canonical_text(text, relative)

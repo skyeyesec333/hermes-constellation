@@ -132,10 +132,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     review = sub.add_parser("review", help="List or promote candidates")
     review.add_argument("vault", type=Path)
-    review.add_argument("action", choices=["list", "promote"])
+    review.add_argument("action", choices=["list", "promote", "promote-bulk"])
     review.add_argument("--candidate")
     review.add_argument("--expected-base-hash")
     review.add_argument("--confirm", action="store_true")
+    review.add_argument("--kind", action="append", help="Bulk filter: candidate kind (repeatable)")
+    review.add_argument("--target-prefix", help="Bulk filter: target_path prefix, e.g. source-items/")
+    review.add_argument("--limit", type=int, help="Bulk filter: max candidates to promote")
 
     research = sub.add_parser("research", help="Create or inspect a research receipt")
     research.add_argument("vault", type=Path)
@@ -788,10 +791,22 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
             sensitivity_ceiling=str(values.get("sensitivity", "internal")),
         )
     if action == "review":
-        from constellation.review import list_candidates, promote_candidate
+        from constellation.review import list_candidates, promote_candidate, promote_candidates_bulk
 
         if values.get("action") == "list":
             return list_candidates(vault)
+        if values.get("action") == "promote-bulk":
+            kinds = set(values["kind"]) if values.get("kind") else None
+            limit = values.get("limit")
+            if limit is not None and limit < 1:
+                raise ValueError("--limit must be >= 1")
+            return promote_candidates_bulk(
+                vault,
+                kinds=kinds,
+                target_prefix=values.get("target_prefix"),
+                limit=limit,
+                confirm=bool(values.get("confirm")),
+            )
         return promote_candidate(
             vault,
             str(values.get("candidate") or ""),
