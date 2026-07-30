@@ -701,6 +701,7 @@ def promote_candidate(
     *,
     confirm: bool,
     expected_base_hash: str | None,
+    defer_index: bool = False,
 ) -> dict[str, str]:
     if not confirm:
         raise PromotionError("explicit confirmation is required")
@@ -714,6 +715,31 @@ def promote_candidate(
         payload = json.loads(candidate_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise PromotionError("candidate packet is invalid") from exc
+    if defer_index:
+        original = _rebuild_index_after_write
+        try:
+            globals()["_rebuild_index_after_write"] = _identity_index_result
+            return _dispatch_promotion(
+                vault, candidate_path, payload, candidate_id, expected_base_hash
+            )
+        finally:
+            globals()["_rebuild_index_after_write"] = original
+    return _dispatch_promotion(
+        vault, candidate_path, payload, candidate_id, expected_base_hash
+    )
+
+
+def _identity_index_result(root: Path, result: dict[str, str]) -> dict[str, str]:
+    return result
+
+
+def _dispatch_promotion(
+    vault: Path,
+    candidate_path: Path,
+    payload: dict[str, object],
+    candidate_id: str,
+    expected_base_hash: str | None,
+) -> dict[str, str]:
     if isinstance(payload, dict) and payload.get("kind") == "ingest_candidate":
         return _review_ingest_candidate(vault, candidate_path, payload, expected_base_hash)
     if isinstance(payload, dict) and payload.get("type") == "claim":
@@ -1034,15 +1060,23 @@ def promote_candidates_bulk(
                 cid,
                 confirm=True,
                 expected_base_hash=str(base) if base is not None else None,
+                defer_index=True,
             )
             results.append({"id": cid, "status": "promoted"})
         except Exception as exc:  # isolate bad packets; they stay queued
             results.append({"id": cid, "status": "failed", "error": f"{type(exc).__name__}: {exc}"})
     promoted = sum(1 for r in results if r["status"] == "promoted")
     failed = [r for r in results if r["status"] == "failed"]
-    return {
+    summary: dict[str, object] = {
         "status": "completed",
         "promoted": promoted,
         "failed": failed,
         "results": results,
     }
+    if promoted:
+        # one index rebuild for the whole batch instead of one per promotion
+        from .retrieval import build_index
+
+        report = build_index(root)
+        summary["index_generation"] = str(report["generation"])
+    return summary

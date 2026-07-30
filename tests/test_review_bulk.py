@@ -8,6 +8,7 @@ from constellation.models import CandidatePatch, Sensitivity
 from constellation.review import (
     list_candidates,
     plan_bulk_promotion,
+    promote_candidate,
     promote_candidates_bulk,
     write_candidate,
 )
@@ -207,7 +208,7 @@ def test_bulk_isolates_non_promotion_errors(vault, monkeypatch):
     poisoned = "01JAAAAAAAAAAAAAAAAAAAAAA2"  # the stub patch
     original = review_module.promote_candidate
 
-    def flaky(root, candidate_id, *, confirm, expected_base_hash):
+    def flaky(root, candidate_id, *, confirm, expected_base_hash, defer_index=False):
         if candidate_id == poisoned:
             raise TypeError("simulated malformed packet")
         return original(
@@ -221,3 +222,49 @@ def test_bulk_isolates_non_promotion_errors(vault, monkeypatch):
     assert len(result["failed"]) == 1
     assert result["failed"][0]["id"] == poisoned
     assert "TypeError" in result["failed"][0]["error"]
+
+
+def test_single_promote_rebuilds_index_by_default(vault):
+    result = promote_candidate(
+        vault, "01JAAAAAAAAAAAAAAAAAAAAAA1", confirm=True,
+        expected_base_hash=str(next(
+            c["expected_base_hash"] for c in list_candidates(vault)
+            if c["id"] == "01JAAAAAAAAAAAAAAAAAAAAAA1"
+        )),
+    )
+    assert "index_generation" in result
+
+
+def test_deferred_promote_skips_rebuild_and_bulk_rebuilds_once(vault):
+    from constellation.review import list_candidates as _lc
+
+    keeper = next(c for c in _lc(vault) if c["id"] == "01JAAAAAAAAAAAAAAAAAAAAAA1")
+    result = promote_candidate(
+        vault, "01JAAAAAAAAAAAAAAAAAAAAAA1", confirm=True,
+        expected_base_hash=str(keeper["expected_base_hash"]), defer_index=True,
+    )
+    assert "index_generation" not in result
+    assert result["status"] == "promoted"
+
+    bulk = promote_candidates_bulk(vault, confirm=True)
+    assert bulk["status"] == "completed"
+    assert bulk["promoted"] == 2
+    assert "index_generation" in bulk
+
+
+def test_bulk_rebuilds_index_exactly_once(vault, monkeypatch):
+    """Performance invariant: N promotions -> exactly one build_index call."""
+    import constellation.retrieval as retrieval_module
+
+    calls: list = []
+    original = retrieval_module.build_index
+
+    def spy(root):
+        calls.append(root)
+        return original(root)
+
+    monkeypatch.setattr(retrieval_module, "build_index", spy)
+    result = promote_candidates_bulk(vault, confirm=True)
+    assert result["promoted"] == 3
+    assert len(calls) == 1
+    assert "index_generation" in result
