@@ -138,7 +138,7 @@ Deepen the evidence-first answer to the "LLM wiki" pattern: knowledge that ages,
 
 Deliver:
 
-- first-class `supersedes` links between claims: typed, timestamped, old version preserved and marked stale, queryable ("what changed about X");
+- first-class `supersedes` links between claims: typed, timestamped, old version preserved and marked stale, queryable ("what changed about X") — **DELIVERED 2026-07-30** (`constellation claim supersede/chain`, journaled ledger, force-via-review on already-stale);
 - confidence as a living value: decays with time, strengthens with each confirming source, feeds retrieval ranking and briefing confidence;
 - contradiction detection with resolution proposals (recency + source authority + support count) staged as review-only candidates — the human overrides, never the model;
 - crystallization: completed work sessions distilled into structured digests that enter the candidate pipeline through the normal review gate;
