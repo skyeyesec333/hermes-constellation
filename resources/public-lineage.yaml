@@ -28,6 +28,7 @@ public_roots:
 - docs/threat-model.md
 - docs/migration.md
 - docs/graph-intelligence.md
+- docs/connectors
 - docs/references/graph-intelligence-sources.md
 - docs/plans/01-release-integrity.md
 - docs/plans/09-react-flow-comfyui-deferred.md
@@ -89,6 +90,10 @@ files:
   docs/plans/09-react-flow-comfyui-deferred.md:
     lineage: handwritten-generic
   docs/project-manager-crm.md:
+    lineage: handwritten-generic
+  docs/connectors/opencti.md:
+    lineage: handwritten-generic
+  docs/connectors/misp.md:
     lineage: handwritten-generic
   docs/references/graph-intelligence-sources.md:
     lineage: handwritten-generic
@@ -316,6 +321,8 @@ files:
     lineage: handwritten-generic
   src/constellation/graph_export.py:
     lineage: handwritten-generic
+  src/constellation/connector_contracts.py:
+    lineage: handwritten-generic
   src/constellation/entity_warninglists.py:
     lineage: handwritten-generic
   src/constellation/mentions.py:
@@ -521,6 +528,12 @@ files:
   tests/test_graph_delta.py:
     lineage: handwritten-generic
   tests/test_graph_export.py:
+    lineage: handwritten-generic
+  tests/test_connector_contracts.py:
+    lineage: handwritten-generic
+  tests/fixtures/connectors/opencti-sample.json:
+    lineage: handwritten-generic
+  tests/fixtures/connectors/misp-sample.json:
     lineage: handwritten-generic
   tests/test_entity_warninglists.py:
     lineage: handwritten-generic

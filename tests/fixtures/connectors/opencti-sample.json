@@ -1,0 +1,25 @@
+{
+  "type": "bundle",
+  "id": "bundle--fictional-0001",
+  "objects": [
+    {
+      "type": "identity",
+      "id": "identity--fictional-aaa",
+      "name": "Fictional Alpha Ltd",
+      "identity_class": "organization"
+    },
+    {
+      "type": "identity",
+      "id": "identity--fictional-bbb",
+      "name": "Fictional Beta SA",
+      "identity_class": "organization"
+    },
+    {
+      "type": "relationship",
+      "id": "relationship--fictional-r1",
+      "relationship_type": "owns",
+      "source_ref": "identity--fictional-aaa",
+      "target_ref": "identity--fictional-bbb"
+    }
+  ]
+}

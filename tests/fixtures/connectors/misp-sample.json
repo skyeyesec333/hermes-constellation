@@ -1,0 +1,36 @@
+{
+  "Event": {
+    "uuid": "fictional-misp-event-0001",
+    "info": "Fictional corporate linkage report",
+    "Attribute": [
+      {
+        "uuid": "fictional-attr-aaa",
+        "type": "text",
+        "category": "Other",
+        "value": "Fictional Alpha Ltd",
+        "comment": "entity:organization"
+      },
+      {
+        "uuid": "fictional-attr-bbb",
+        "type": "text",
+        "category": "Other",
+        "value": "Fictional Beta SA",
+        "comment": "entity:organization"
+      }
+    ],
+    "Object": [
+      {
+        "uuid": "fictional-obj-r1",
+        "name": "fictional-link",
+        "ObjectReference": [
+          {
+            "uuid": "fictional-ref-1",
+            "relationship_type": "owns",
+            "source_uuid": "fictional-attr-aaa",
+            "target_uuid": "fictional-attr-bbb"
+          }
+        ]
+      }
+    ]
+  }
+}

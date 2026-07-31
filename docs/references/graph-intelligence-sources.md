@@ -48,6 +48,15 @@ release audit.
   permissive clean-room core.
 - Default confidence-decay behavior remains Constellation's own.
 
+## Wave 6 connector contracts (2026-07-31)
+
+Import-only, file-intake contracts for OpenCTI STIX bundles and MISP event
+exports are implemented in `src/constellation/connector_contracts.py` and
+documented in `docs/connectors/opencti.md` and `docs/connectors/misp.md`.
+No live servers, feeds, PyMISP/TAXII clients, or community/publishing
+features are implemented or planned in the public core; external IDs map
+to canonical provenance via external_ids and never mint canonical ULIDs.
+
 ## Paid-commercial-deployment gate (forward-looking)
 
 The planned implementation is compatible with paid deployments when these
