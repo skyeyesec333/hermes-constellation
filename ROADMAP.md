@@ -25,6 +25,14 @@ depth (analytics.py in briefings, 16212a0), RSS standing schedule
 (constellation-journey-regression cron, daily 07:00). See
 maintenance/HANDOFF-2026-07-30-items-2-3-4-7.md in the CSO vault.
 
+i2-successor graph intelligence program (private, owner-approved 2026-07-30;
+spec in CSO vault maintenance/SPEC-i2-successor-graph-intelligence-program-2026-07-30.md):
+private implementation lane parallel to the blocked public Stage 1 — no push,
+no public promotion. Wave 0 (reconcile/inventory/freeze contracts): Task 0.1
+predicate inventory delivered (scripts/predicate_inventory.py; deterministic,
+read-only, metadata-only; private-vault run saved to /tmp only). Baseline at
+program start: core 874c6a6, dashboard 6b6f07b, verify_fast green.
+
 Stage 0 completed on 2026-07-17 with these executed gates:
 
 - `scripts/verify_fast.sh`: passed Ruff and all 189 tests.

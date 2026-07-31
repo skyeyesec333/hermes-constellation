@@ -194,6 +194,8 @@ files:
     lineage: handwritten-generic
   scripts/operator_journey.py:
     lineage: handwritten-generic
+  scripts/predicate_inventory.py:
+    lineage: handwritten-generic
   scripts/retrieval_eval.py:
     lineage: handwritten-generic
   scripts/verify_fast.sh:
@@ -459,6 +461,8 @@ files:
   tests/test_dashboard_journey_w5.py:
     lineage: handwritten-generic
   tests/test_operator_journey_w5.py:
+    lineage: handwritten-generic
+  tests/test_predicate_inventory.py:
     lineage: handwritten-generic
   tests/test_hybrid_retrieval.py:
     lineage: handwritten-generic
