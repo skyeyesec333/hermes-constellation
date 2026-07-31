@@ -1,244 +1,425 @@
-<img alt="the_black_univere_remix_scene" src="https://github.com/user-attachments/assets/eb8d6891-f978-40ef-ba53-ca2da26ee393" width="100%" />
+![Constellation Zero — Private Intelligence System](assets/constellation-zero-header.jpg)
 
-# Constellation
+# Constellation Zero
 
-Constellation is a private intelligence system for people and teams whose work depends on relationships, evidence, decisions, and timing. It turns the material behind that work, including deep web research and your inbound sources (PDFs, images, texts, books, reports, etc.)  into an interconnected record, then helps you understand it, act on it, and notice when it changes.
+**The private intelligence system for evidence-backed decisions, relationships, and investigations.**
 
-This public repository is a product overview, not a package installer. Constellation deployments are designed and operated privately around an organization's sources, workflows, governance, and model choices.
+Constellation Zero is an open-source private intelligence system for turning scattered documents, conversations, research, relationships, and decisions into a living intelligence picture you can inspect, challenge, and act on.
 
-Version v0.1 coming soon. 
+It combines an evidence-preserving knowledge layer with an analyst-grade visual graph, temporal relationship analysis, bounded research, decision memory, and LLM-accelerated workflows. The result is a system that helps you understand not only what is connected, but why the connection exists, when it was true, what supports it, what contradicts it, and what changed.
 
-## The job
+Constellation Zero is **LLM-accelerated, model-agnostic, and harness-agnostic**. The reference deployment uses Hermes Agent and Obsidian, but neither is required. You can connect local models, approved cloud models, custom agents, other orchestration frameworks, your own interface, or no model at all. The canonical record remains human-readable Markdown and preserved source material under your control.
 
-Most important work is scattered across cards, meeting notes, decks, email, research, calendars, chat, and somebody's memory. Files can be stored, but the context does not compound. A normal CRM remembers fields. A normal AI assistant remembers a conversation. Neither reliably answers:
+## The problem
 
-- Who is this person in the context of our relationship?
-- What do we know about this company, and where did that information come from?
-- What did we decide, why, and what has changed since?
-- Which follow-up, risk, relationship, or opportunity needs attention now?
+Important intelligence is distributed across files, email, meeting notes, decks, business cards, chat, public sources, analyst judgments, and institutional memory.
 
-Constellation is built to answer those questions from the underlying evidence rather than from an old chat summary.
+Most tools handle one part of the problem:
 
-## What it does
+- A document system stores files.
+- A CRM stores relationship fields.
+- An LLM wiki stores rewritten summaries.
+- A vector database retrieves similar text.
+- A graph tool draws connections.
+- A research tool finds web pages.
 
-| Job | What Constellation does | Useful result |
-|---|---|---|
-| Captures evidence | Preserves files, pages, cards, transcripts, emails, decks, recordings, and research with hashes and stable anchors. | The original material remains available and readable. |
-| Builds a working memory | Connects people, companies, sources, claims, interactions, decisions, inquiries, opportunities, observations, and events. | A person or company has a history instead of a loose pile of notes. |
-| Separates evidence from judgment | Keeps source statements, corroborated facts, analyst inference, and strategic judgment distinct. | You can see what is known, inferred, disputed, stale, or still unknown. |
-| Runs bounded research | Searches approved sources, extracts relevant pages, keeps receipts, and stages findings for review. | Research becomes reusable evidence instead of a one-off answer. |
-| Prepares action | Produces meeting briefs, decision trails, opportunity views, follow-up tasks, and strategic analyses with citations. | You start the next conversation with context and a clear next move. |
-| Watches for change | Tracks people, companies, markets, filings, open questions, and commitments over time. | A concise alert explains what changed, why it may matter, and links to the evidence. |
+The hard work begins when you need to combine those things and defend the result.
 
-## How it works
+You need to know:
 
-```text
-capture a source or ask a question
-  -> preserve the original material
-  -> extract text, structure, metadata, and source anchors
-  -> link it to people, companies, claims, meetings, decisions, and opportunities
-  -> stage any new interpretation for review
-  -> promote trusted records into the private vault
-  -> search, reason, monitor, and brief from the connected evidence
+- What do we actually know about this person, company, or network?
+- Which source supports each claim?
+- Was this relationship true at the time under investigation?
+- Is this a relationship, or merely two names appearing in the same document?
+- Who connects these entities, and how strong is that path?
+- What changed since the last review?
+- Which conclusions are sourced, inferred, disputed, stale, or unresolved?
+- What did we decide, why did we decide it, and what has changed since?
+
+Constellation Zero is built for that layer between raw information and consequential judgment.
+
+## What you can see
+
+The visual graph is the fastest way to understand the system.
+
+Open an entity, a company, a deal, a risk pattern, or a research question and see a visual, filterable network of the records connected to it:
+
+- people, companies, organizations, sources, claims, interactions, decisions, opportunities, and events;
+- directed and typed relationships such as ownership, control, employment, funding, advice, competition, supply, and partnership;
+- evidence-backed edges with source anchors and confidence context;
+- relationships that appear, expire, or change across a selected time range;
+- influential nodes, intermediaries, components, and connected clusters;
+- filtered paths between two entities at a chosen date;
+- graph-linked facets and histograms for narrowing a large network;
+- material changes since the previous snapshot;
+- review candidates and unresolved relationships clearly separated from promoted knowledge.
+
+The graph is not a static picture exported from an analyst's head. It is a visual projection of the canonical intelligence record. Select an edge and trace it back to the source, excerpt, page, slide, timestamp, or OCR region that supports it. Select a claim and see its confidence, corroboration, contradiction, supersession history, and review state. Move the timeline and see the network change with it.
+
+The picture helps you see the pattern. The evidence lets you defend it.
+
+### Accessing the visual graph
+
+Constellation Zero supports two visual access paths. The standalone path is harness-independent. The richer reference deployment is available through the optional Constellation Hermes dashboard plugin.
+
+For a local browser graph without Hermes, run:
+
+```bash
+PYTHONPATH=src python scripts/graph_server.py
 ```
 
-The data layer stays simple:
+Then open `http://127.0.0.1:3457`. The standalone server reads the canonical vault, serves a React Flow-compatible graph projection, and provides a read-only browser surface with node and edge details, focus by entity, confidence filtering, controls, and a minimap. It requires no Hermes harness, agent, LLM, or provider credentials.
 
-- Markdown records and preserved source files are canonical;
-- search indexes, caches, and dashboards can be rebuilt;
-- every meaningful statement can point back to a source, page, slide, line, cell, timestamp, or OCR region;
-- changes are versioned and conflict-checked;
-- models can propose work, but they do not silently rewrite the record of truth.
+After the Hermes dashboard plugin is installed and the local dashboard is running, open the **Constellation** tab for the richer deployment surface.
 
-This lets Constellation keep working when the model, interface, or deployment changes. The knowledge is not trapped in a vendor database or a chat thread.
+Both surfaces read the same canonical vault. The Hermes graph tab adds typed node and edge rendering, evidence and review-state styling, predicate and confidence filters, as-of temporal filtering, node details, ego focus, all-shortest path mode, SNA and community views, typology and hypothesis panels, and graph-delta investigation.
 
-## Constellation and LLM wikis
+Promotion and canonical mutation remain in the CLI and review workflow. React Flow workflow editing is a separate extension point; the current graph surface is intentionally read-only so visual exploration cannot silently change trusted intelligence.
 
-| LLM-wiki approach | How Constellation differs |
-|---|---|
-| [Karpathy's LLM Wiki pattern](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) compiles raw sources into a persistent, linked Markdown wiki instead of rebuilding an answer from RAG chunks each time. | Constellation shares the compounding-record idea, but makes evidence, entities, claims, relationships, decisions, sensitivity, and review first-class. It is not only a generated prose wiki. |
-| [nvk/llm-wiki](https://github.com/nvk/llm-wiki) packages multi-agent research, source ingestion, wiki compilation, query depths, and portable agent plugins. | Constellation uses bounded inquiries and policy-controlled research to keep organization-specific intelligence useful without letting every agent run an open-ended research loop. The durable output is a reviewed operating record, not just a research wiki. |
-| [LLM Wiki](https://github.com/nashsu/llm_wiki) is a desktop application that turns documents into an interlinked wiki maintained by an LLM. | Constellation is interface-neutral: Obsidian is a useful default, but a deployment can use another editor, a web workspace, a terminal, or an agent surface against the same canonical records. It also carries the source anchors and review trail behind the wiki. |
-| [karpathy-llm-wiki](https://github.com/Astro-Han/karpathy-llm-wiki) is an Agent Skills workflow for raw-source ingestion, cited wiki pages, and wiki-health linting. | Constellation adopts the discipline of source-first compilation and health checks, then extends it to entity resolution, claims-versus-inference, relationship history, decision trails, egress controls, and reviewable actions. |
+## The core distinction
 
-The distinction is simple: an LLM wiki compiles what it knows into pages. Constellation compiles what an organization knows into an inspectable record of evidence, judgment, relationships, and action.
+Constellation Zero is built around a simple rule:
 
-## A conference contact, step by step
+> Every node, relationship, score, path, alert, and risk signal must be traceable to canonical records and preserved evidence.
 
-Assume you meet Arun at a conference. You receive a business card, write three lines about the conversation, and later receive a slide deck.
+That rule creates several differences at once:
 
-1. **Capture.** The card image, encounter note, and deck are copied into the vault. Each becomes a preserved source with an immutable hash, media type, capture time, and original path. Nothing has become a contact record yet.
-2. **Extract locally.** OCR reads visible card text and records regions and confidence. The deck extractor records slide text, notes, tables, and anchors. The encounter note stays as authored. Low-confidence OCR stays visible instead of becoming a fact.
-3. **Stage proposals.** Constellation creates review candidates: a possible person, a possible company, an interaction, a source-backed follow-up, and perhaps an opportunity. It does not invent Arun's current role, merge him with a similar name, or send a message.
-4. **Check the existing record.** Identity matching compares normalized names and any explicit email or phone evidence. A match is a suggestion for review, never an automatic merge.
-5. **Create a bounded inquiry.** If the question is "Who is Arun's firm and is there a relevant partnership path?", the inquiry states its scope, sensitivity, source preference, budget, and stop condition before web research begins.
-6. **Run approved discovery lanes.** For an `internal` or `public` inquiry, and only when those adapters are configured and authorized:
-   - SearXNG runs broad keyword searches for the person, company, event, and stated topic.
-   - EXA runs a separate semantic search to find conceptually related material that exact keywords may miss.
-   - Brave runs an independent search and can apply a freshness window when recent news matters.
-   The system deduplicates results, records which lane produced them, and rejects obvious identity or relevance noise. Confidential and restricted material does not go to these external search services.
-7. **Fetch selected sources, not the whole web.** Only relevant URLs enter the extraction ladder. Each attempt is egress-gated, URL-checked, bounded by time and size limits, and recorded. The retrieved page is preserved before any claim is staged. A failed or irrelevant page produces a failed or partial receipt, not a made-up conclusion.
-8. **Compile an evidence packet.** The system links the card, encounter, deck, selected official pages, filings, and other accepted sources. A model or analyst may prepare a company summary, relationship map, risks, and recommended next move, but the packet marks what is sourced, inferred, uncertain, or contradictory.
-9. **Review and promote.** A human approves exact candidates. The promoted person, company, interaction, claim, inquiry result, and opportunity remain linked to their sources. The review log shows what changed.
-10. **Use the record.** Before a follow-up, Constellation can build a brief with the last interaction, shared context, promises, open questions, recent changes, and citations. It can later watch approved public sources and create a new, reviewable observation when something material changes.
+- A source is not a claim.
+- A claim is not a fact.
+- A mention is not a relationship.
+- A relationship is not necessarily current.
+- A model proposal is not trusted knowledge.
+- A graph projection is not the system of record.
+- A summary is not a substitute for the source trail.
 
-This is the intended full workflow. The public core should label each configured adapter, model call, monitor, and interface honestly rather than imply it arrives pre-wired.
+Constellation preserves those distinctions instead of compressing them into one page, one embedding, or one opaque score.
 
-## Uploading a pitch deck, consulting deck, or startup deck
+## Why it is different from an LLM wiki
 
-A deck is not just a PDF to summarize. It is usually a compact map of entities, claims, numbers, relationships, positioning, and unanswered questions.
+LLM-wikis and agent-memory products are useful when the job is to make a body of text easier to query. Constellation Zero addresses the harder problem: maintaining a reviewable intelligence record as evidence, relationships, and judgments change over time.
 
-1. **Preserve and extract locally.** Constellation keeps the original PDF or PPTX, reads native slide text and notes where available, runs OCR on image-only or low-text slides, and retains slide, table, chart, and OCR-region anchors. No external research is required for this first pass.
-2. **Parse the working facts.** It identifies reviewable candidates such as companies, people, products, customers, partners, investors, competitors, markets, dates, metrics, pricing, funding claims, technical claims, and stated risks. Each candidate stays tied to the slide or region that produced it.
-3. **Resolve entities cautiously.** A company logo, abbreviated name, or familiar executive is a lead, not a fact. Constellation checks the existing record and stages possible matches for review instead of silently merging similar names.
-4. **Build a small research plan.** The user can choose the scope and depth: no external research, a low default pass, a standard pass, or a deeper investigation. The plan states which entities and claims matter, which sources are allowed, and when to stop.
-5. **Use discovery lanes selectively.** At the default low setting, Constellation makes only a small number of targeted discovery calls and fetches only the most relevant results. SearXNG is useful for broad factual discovery, EXA for semantically related material, and Brave for an independent or time-sensitive check. It does not spray every extracted name across every provider.
-6. **Stop before the rabbit hole.** Query, fetch, token, time, and depth ceilings are policy-configurable. The workflow stops when the evidence is sufficient for the stated question, when the budget is reached, or when new searches are only repeating the same weak signal. A deeper OSINT or research pass must be requested deliberately.
-7. **Return an evidence packet.** The output links the original deck to extracted facts, approved entities, selected external sources, open questions, contradictions, and proposed next actions. A human can accept, reject, or defer each meaning-bearing update.
+### 1. An LLM wiki rewrites knowledge into pages
 
-This makes the default useful without turning every uploaded slide deck into an expensive research project. More depth remains available when the decision justifies it.
+When an agent updates a page, the prior wording, uncertainty, and source context can disappear into the rewrite.
 
-## The full toolchain
+Constellation preserves the source first, stages proposed changes, and keeps the canonical record review-gated. A model can suggest a person, claim, relationship, decision, or next action. It does not silently promote it.
 
-### Capture and intake
+### 2. An LLM wiki gives you a current summary
 
-Constellation accepts the material people actually work with:
+A current summary can hide what was believed six months ago, what evidence changed, or why a decision was made.
 
-| Input                                           | What happens                                                                                               |
-| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| Documents, PDFs, decks, spreadsheets, and books | Text, tables, notes, sections, pages, slides, and cells are extracted with stable anchors.                 |
-| Scanned documents, images, and business cards   | Local OCR extracts reviewable fields while retaining the original image and region references.             |
-| Meetings and voice notes                        | Local transcription and transcript capture create evidence bundles without inventing speaker identity.     |
-| Email and attachments                           | Messages, attachments, headers, and query receipts become source-backed relationship and decision context. |
-| Web pages and public research                   | Approved sources are fetched through a controlled extraction ladder and preserved before claims are made.  |
-| Existing Obsidian or file archives              | Material can be brought in gradually, without forcing a migration into a proprietary database.             |
+Constellation keeps time-aware claims, decisions, interactions, observations, and supersession chains. You can ask what changed, when it changed, and which evidence drove the change.
 
-### Research and external intelligence
+### 3. An LLM wiki flattens confidence into prose
 
-Research starts with an Inquiry: a question, scope, budget, sensitivity, source preference, and stop condition.
+A sentence can sound certain even when it came from one weak source or an uncertain extraction.
 
-Constellation then uses the right discovery and extraction tools for the question:
+Constellation carries evidence, confidence, source authority, corroboration, time context, and contradiction state. Confidence can decay without support and strengthen with confirming evidence. The base record remains inspectable; computed confidence does not overwrite history.
 
-| Tool | Role |
-|---|---|
-| SearXNG | Broad keyword discovery. |
-| EXA | Semantic discovery when exact keywords are not enough. |
-| Brave Search | Independent and time-sensitive discovery. |
-| Firecrawl, Crawl4AI, Scrapling, raw HTTP, and browser capture | An extraction ladder for pages that need progressively stronger handling. |
-| EDGAR and official registries | Filings, ownership, and formal company evidence. |
-| RSS, blogs, news, market, and specialist research connectors | Monitored public signals for entities and questions that matter. |
-| Hermes research, OSINT, document, email, and browser skills | Operator workflows that feed the same evidence and review path. |
+### 4. An LLM wiki hides contradictions
 
-Every external call passes an egress policy first. The policy decides what can leave the machine, which provider may receive it, for what purpose, and at what sensitivity. The system records both approvals and denials. A failed or irrelevant run remains visible as a failed or partial run; it does not become an invented answer.
+Most summaries prefer a coherent answer. Real intelligence work often contains competing claims.
 
-### Retrieval and analysis
+Constellation detects contradictions and stages resolution proposals. The human decides whether one claim supersedes another, whether both remain qualified, or whether the conflict is unresolved.
 
-Constellation uses several ways to retrieve information without treating any index as the source of truth:
+### 5. An LLM wiki treats retrieval as the product
 
-| Capability | What it does |
-|---|---|
-| Full-text search | Finds exact words and phrases across validated records and extracted evidence. |
-| Semantic search | Finds conceptually related material when the wording differs. |
-| Hybrid retrieval | Fuses lexical and semantic results while retaining citations, anchors, sensitivity boundaries, and an explanation of ranking. |
-| Relationship graph | Traverses sourced links among people, companies, claims, interactions, decisions, and opportunities. |
-| Timelines and decision trails | Shows what happened, what was believed at the time, and what changed later. |
-| Strategic framework library | Applies methods such as Porter, SWOT, jobs-to-be-done, systems thinking, and custom lenses to cited evidence. |
-| Book intelligence | Turns useful books and long-form material into reusable frameworks and searchable source-backed concepts. |
+Finding a similar paragraph is useful. It does not establish identity, ownership, control, influence, chronology, or causality.
 
-## Models and languages
+Constellation combines lexical, semantic, temporal, and graph retrieval while retaining the evidence trail and the limits of each result.
 
-### Which LLMs can be used?
+### 6. An LLM wiki is usually optimized for prose
 
-Constellation is provider-neutral. The core does not bundle an LLM, a provider credential, or a generic agent. A deployment can connect a local runtime or an approved cloud provider through its own adapter and egress policy.
+Prose is a poor interface for understanding a network of entities and relationships.
 
-That does not mean every model performs equally well. The model matters most when it must follow an evidence packet, return strict structured output, use tools carefully, compare conflicting material, reason across long context, or work in more than one language. Smaller or local models can be a good fit for bounded extraction, classification, and privacy-sensitive work. More capable models are usually worth using for complex research synthesis, relationship analysis, decision support, and multilingual work where a bad inference costs time or trust.
+Constellation gives analysts a visual graph, directed paths, timeline scrubbing, centrality measures, cluster views, facets, and dossiers — all linked to the underlying records and sources.
 
-Choose models against representative sources and tasks, not a benchmark or vendor claim. For each model, test:
+### 7. An LLM wiki makes the model the center of gravity
 
-- structured output and schema compliance;
-- source citation and anchor discipline;
-- correct handling of uncertainty and contradictions;
-- tool-use reliability and refusal on denied egress;
-- the languages, scripts, and local terminology that the deployment actually uses.
+Your memory becomes dependent on one model, one vendor, one prompt layer, or one chat interface.
 
-An allowed model call receives only the material authorized for that provider, model, purpose, and sensitivity. It returns a candidate with sources and assumptions. Review decides what becomes durable knowledge.
+Constellation is model- and harness-agnostic. Hermes and Obsidian are the default operating surfaces, not the boundary of the product. Replace the model, agent, interface, or deployment without abandoning the canonical intelligence record.
 
-### Languages and scripts
+## Why it is different from traditional graph and link-analysis tools
 
-Canonical notes, source text, hashes, and frontmatter use UTF-8. Constellation preserves names and content in Thai, Chinese, Japanese, Korean, Arabic, Latin-script languages, and mixed-language records rather than forcing English transliteration. Identity normalization uses Unicode-aware NFKC normalization and case folding, but that is not a promise of correct cross-language identity resolution.
+Traditional analyst tools established the value of visual network analysis. Constellation Zero carries that value into a more portable, evidence-native architecture.
 
-Storage is the easy part. Retrieval, OCR, segmentation, entity resolution, and model reasoning need language-specific validation. A Thai or APAC deployment needs a retrieval evaluation set, appropriate OCR and embedding/model choices, and a tokenizer or query strategy that is tested on the languages it serves. Do not market generic UTF-8 storage as language-aware retrieval without that evaluation.
+It gives you:
 
-## Operating intelligence
+- a visual network view without making the visual graph the only source of truth;
+- temporal edges instead of timeless lines that flatten history;
+- typed relationships instead of generic links;
+- source-backed assertions instead of unsupported connections;
+- reviewable candidates instead of automatic graph pollution;
+- explainable scores instead of opaque model-generated influence;
+- rebuildable projections instead of proprietary graph state;
+- human-readable records instead of a closed analyst file format;
+- local-first operation without requiring Neo4j, Elasticsearch, Kafka, or an always-on graph service;
+- export manifests and clearance boundaries for controlled sharing.
 
-Constellation is designed to run the work around a relationship or decision, not only store the record of it.
+The graph is where the analyst sees the intelligence. The evidence layer is why the analyst can trust, challenge, and reuse it.
 
-| Capability               | What it does                                                                                                |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------- |
-| Meeting preparation      | Builds a concise brief from relationship history, current context, open questions, decisions, and evidence. |
-| Decisions                | Preserves the choice, rationale, assumptions, alternatives, owners, review date, and later contradictions.  |
-| Opportunities and CRM    | Connects account, partner, or deal activity to evidence, pipeline stage, next action, and a Kanban view.    |
-| Relationship health      | Finds stale relationships, overdue promises, missing follow-ups, and changing contact context.              |
-| Watchlists and snapshots | Compares an entity or topic over time and records material changes.                                         |
-| Observations and events  | Turns monitored changes into dated, sourced intelligence.                                                   |
-| Patterns                 | Finds clusters, repeated themes, shared relationships, and recurring risk or opportunity signals.           |
-| Briefs and alerts        | Delivers a cited memo, task, dashboard item, or concise Telegram nudge when action is warranted.            |
+## Who uses Constellation Zero
 
-## What the core ships, and what a deployment adds
+### Corporate intelligence and investigations teams
 
-The open-source core is mostly Python plus human-readable Markdown and preserved files. It ships the record model, validation, source-preservation and intake paths, rebuildable indexes, review workflow, CLI, and bounded Hermes plugin tools. Those records remain readable without any Constellation application.
+Map ownership, control, employment, funding, partnerships, suppliers, and influence. Identify intermediaries, trace time-valid paths, compare snapshots, and produce a sourced dossier for a decision-maker.
 
-Obsidian is the default human workspace because Markdown, wikilinks, Dataview, Tasks, Kanban, and file history make the record easy to inspect. It is a default, not a requirement. A team can use another editor, a custom web interface, a terminal workflow, a different agent framework, or an internal application as long as it respects the canonical records and review contract.
+### OSINT researchers and investigative journalists
 
-The core does **not** pre-package a hosted application UI, a chat agent, a model provider, credentials, or autonomous background workers. Those are deployment decisions. A complete private deployment can add:
+Build a defensible network from public sources. Preserve the original material, separate mentions from relationships, track source quality, and show which edges are confirmed, proposed, or unresolved.
 
-- Obsidian for direct reading, editing, Kanban, task, dashboard, and timeline views;
-- a local web workspace for review queues, source viewers, entity profiles, relationship graphs, watchlists, and decision or opportunity views;
-- Hermes in Telegram, TUI, WebUI, and the Obsidian console for natural-language work and approvals;
-- a CLI, API, and MCP-compatible tool surface for power users and custom systems;
-- local or approved cloud models, selected adapters, scheduled monitoring, and notifications;
-- Git and plain files for portability, backup, audit, and recovery.
+### Government affairs and public-policy teams
 
-Each interface should read the same records. Changing the interface should not require migrating the knowledge.
+Maintain a long-memory record of ministries, officials, advisors, counterparties, commitments, and political or regulatory developments. Prepare formal briefs without relying on one person's inbox or memory.
 
-## Trust rules that stay in the product
+### Defense, security, and risk teams
 
-Constellation is useful only if people can tell the difference between source material, a proposal, and a trusted conclusion.
+Investigate networks, monitor material changes, apply evidence-backed risk typologies, and export bounded intelligence packets without silently promoting model findings into facts.
+
+### Financial crime, compliance, and due-diligence teams
+
+Review beneficial ownership, control, related parties, intermediaries, and changing corporate structures. Preserve the source trail and the reasoning behind escalations.
+
+### Investors and deal teams
+
+Connect company claims, filings, leadership, financing, customers, competitors, and risks into a time-aware diligence record. Return to the evidence when the investment committee asks what supports the conclusion.
+
+### Founders, executives, and principals
+
+Prepare for negotiations, board meetings, acquisitions, partnerships, and sensitive counterparties. See the relationship history, open commitments, unresolved claims, recent changes, and relevant paths before acting.
+
+### Advisors, consultants, and professional-services firms
+
+Carry context across clients and engagements. Turn interviews, decks, research, and decisions into reusable intelligence instead of isolated deliverables that disappear when the project closes.
+
+### Business development and partnership teams
+
+Understand the network behind a target account or partner. See who connects the organization, which relationship is stale, what was promised, and which evidence supports the next move.
+
+### Research programs and policy institutes
+
+Maintain claims that evolve over months or years. Track corroboration, contradiction, supersession, and source quality while preserving the intellectual history of the program.
+
+### Family offices and private investment offices
+
+Keep sensitive relationship, counterparty, diligence, and decision intelligence under controlled data and model boundaries rather than in a public SaaS knowledge base.
+
+### Engineering teams building private AI
+
+Use Constellation as the canonical evidence and operating layer beneath agents, models, connectors, and interfaces. Give automation a clear boundary: it can propose and explain; humans approve what becomes trusted memory.
+
+### Integrators and intelligence-platform builders
+
+Use the open-source record model, validation rules, graph projection, review contract, and connector capability model as a foundation for a private deployment or sector-specific intelligence product.
+
+## Representative scenarios
+
+### From a conference contact to a relationship brief
+
+Capture a card, encounter note, and deck. Preserve the original files. Extract candidate details locally. Review the proposed identity and company links. Run a bounded inquiry if needed. Before the next conversation, generate a cited brief containing the history, shared context, open questions, and next action.
+
+### From a company filing to a changing ownership graph
+
+Ingest official filings and related source material. Create sourced ownership and control candidates. Promote reviewed relationships. View the graph, filter by relationship type, scrub the timeline, and receive a bounded alert when a material edge changes.
+
+### From scattered research to an intelligence dossier
+
+Gather approved sources under a declared research budget and egress policy. Preserve selected pages and receipts. Separate source statements, corroborated claims, analyst judgments, and unresolved contradictions. Generate a clearance-bounded dossier with an export manifest.
+
+### From a meeting to a durable decision trail
+
+Capture the meeting and attachments. Record the decision, rationale, alternatives, assumptions, owner, and review date. Later, connect new evidence to the decision and show whether the original assumptions held.
+
+### From co-mentions to a defensible relationship
+
+A document mentions two people. Constellation records a mention hit and investigative lead. It does not create a relationship automatically. A relationship candidate requires explicit endpoints, predicate, source IDs, and supporting evidence before review.
+
+### From an emerging risk pattern to a reviewable finding
+
+Run a configured graph typology against the validated record. The system produces a sourced finding candidate with the pattern, supporting edges, confidence context, and relevant evidence. An analyst reviews it before it enters the trusted record or an external report.
+
+## Feature set
+
+### Visual graph and analyst workbench
+
+- Interactive entity graph with typed, directed, sourced relationships
+- Time-aware graph views and timeline scrubbing
+- Filtered directed paths valid at a selected date
+- Degree, betweenness, PageRank, components, intermediaries, and influence views
+- Histogram and facet filtering with graph-linked selection
+- Cluster and subgraph exploration
+- Deterministic edge IDs for selection persistence, deltas, and exports
+- Graph change detection against preserved snapshots
+- Evidence-backed risk typologies
+- 360-degree dossiers with clearance-bounded export manifests
+- Review-state visibility for proposed, promoted, stale, superseded, and contradicted records
+
+### Evidence and canonical records
+
+- Source preservation with hashes, media types, capture metadata, and stable anchors
+- Extracted text, tables, slide notes, cells, OCR regions, and transcript evidence
+- Typed records for entities, sources, claims, relationships, interactions, decisions, inquiries, opportunities, observations, events, and analyses
+- Human-readable Markdown as canonical storage
+- Rebuildable search indexes, projections, caches, dashboards, and graph views
+- Versioned, conflict-checked changes
+- Source, claim, inference, and decision separation
+
+### Relationship intelligence
+
+- Directed and typed relationships
+- Real-world validity intervals and observation intervals
+- Roles, qualifiers, and relationship-specific metadata
+- Controlled predicate registry with inverse, domain, range, stability, and alias rules
+- FollowTheMoney-compatible local import and export
+- Mention hits and co-mention candidates kept separate from canonical relationships
+- Review-gated identity matching and merge proposals
+
+### Research and discovery
+
+- Bounded inquiries with scope, sensitivity, source preference, budget, and stop condition
+- Broad keyword, semantic, independent, and time-sensitive discovery lanes
+- Controlled extraction ladder for difficult web pages
+- Official-source connectors and local source capture
+- Egress policy for every external call
+- Receipts for searches, fetches, failures, partial results, and provider decisions
+- Evidence packets linking source material, claims, contradictions, open questions, and next actions
+
+### Knowledge lifecycle
+
+- Typed supersession chains between claims and relationships
+- Living confidence that decays and strengthens under explicit rules
+- Contradiction detection and review-only resolution proposals
+- Crystallization of completed work sessions into cited digests
+- Self-healing lint for safe mechanical repairs
+- Journaled, byte-exact rollback
+- Multi-writer merge semantics with expected-hash writes and conflict surfacing
+- Ingest-time secret and PII screening with block, warn, quarantine, and off profiles
+
+### Monitoring and operating intelligence
+
+- Watchlists, preserved snapshots, and deterministic diffs
+- Material-change candidates and bounded alerts
+- Decision trails with assumptions, alternatives, owners, and review dates
+- Meeting briefs and relationship histories
+- Opportunity and pipeline context tied to evidence
+- Stale relationship and overdue commitment detection
+- Full-text, semantic, hybrid, and graph retrieval
+- Strategic analyses and cited briefings
+
+### Model, harness, and deployment independence
+
+- Provider-neutral model adapters
+- Local, cloud, or mixed model deployments
+- Explicit egress and sensitivity controls
+- Hermes Agent reference integration
+- Obsidian reference workspace
+- CLI and plugin/tool surfaces
+- Custom interfaces and agent frameworks supported through the canonical record and review contract
+- No silent model writes to trusted knowledge
+
+## The operating contract
+
+Constellation Zero keeps the following rules inside the product:
 
 - Sources are preserved before interpretation.
-- Claims retain their evidence, confidence, and time context.
-- Contradictory or superseded information is kept visible rather than erased.
-- A proposed merge, claim, decision, identity match, or follow-up remains reviewable.
-- Outgoing research and model calls are policy-gated and logged.
-- Search can report stale, incomplete, or degraded results instead of pretending it found everything.
-- Canonical data stays in human-readable files that you can inspect without the application.
+- Every claim retains evidence, confidence, and time context.
+- Mentions do not become relationships without evidence and review.
+- Contradictory and superseded information remains visible.
+- Machine-generated candidates remain candidates until approved.
+- External research and model calls pass through explicit policy.
+- Failed, incomplete, stale, and degraded results remain visible.
+- The canonical record is portable and human-readable.
+- Graphs and indexes are derived from the record and can be rebuilt.
 
-## Who it is for
+## What Constellation Zero is not
 
-### Individuals
+- **Not a generic chatbot.** Chat is one possible interface. The intelligence record lives outside the conversation.
+- **Not an LLM wiki.** Summaries do not replace evidence, history, or review.
+- **Not a conventional CRM.** Relationship fields do not explain the network, evidence, or decision logic behind them.
+- **Not a vector database.** Embeddings assist retrieval; they do not become the system of record.
+- **Not a black-box graph.** Every meaningful node, edge, score, path, and alert is explainable and source-linked.
+- **Not an autonomous outreach robot.** It can prepare actions and alerts; it does not silently contact people or alter trusted facts.
+- **Not locked to one model, agent, or interface.** Hermes and Obsidian are the reference deployment, not a dependency of the record.
 
-Founders, advisors, investors, researchers, executives, and other people whose work depends on a long memory of conversations, documents, decisions, and commitments.
+## The open-source core and the deployment around it
 
-### Teams and SMEs
+Constellation Zero provides the canonical record model, validation, source preservation, intake, review workflow, knowledge lifecycle, graph intelligence, projections, retrieval, CLI, and a standalone local React Flow graph server. The optional Hermes dashboard plugin provides the richer local graph and read-model analytics surface.
 
-Business development, consulting, investment, strategy, professional services, research, and operational teams that need shared context without putting sensitive work into an opaque SaaS knowledge base.
+A complete deployment may add models, agent orchestration, connectors, scheduled monitoring, notification channels, identity and access controls, local web interfaces, and organization-specific workflows. Hermes is the reference harness, but the standalone graph server and canonical APIs allow other interfaces and harnesses to consume the same projections and records.
 
-### Enterprises
+The deployment can change without migrating the intelligence. The record stays yours.
 
-Organizations that need a controlled intelligence layer across internal documents, approved external research, relationship history, decisions, and monitored change. Constellation can run inside their own data, model, identity, and governance boundaries.
+## Agent skills: the operating layer
 
-## What it is not
+Constellation Zero also includes reusable agent skills that teach an agent how to work with the system safely and consistently.
 
-| It is not                 | Because                                                                                                                       |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| A generic chatbot         | Chat is an interface. The record, evidence, and decision history live outside the conversation.                               |
-| A note-taking replacement | Obsidian and other editors remain useful interfaces. Constellation provides the evidence and intelligence layer beneath them. |
-| A conventional CRM        | CRM fields alone do not explain why a relationship matters or what supports the current view.                                 |
-| A vector database         | Embeddings help retrieval, but they are not the system of record.                                                             |
-| A black-box agent         | The system keeps sources, receipts, candidates, policy decisions, and review history visible.                                 |
-| An outreach robot         | It can prepare follow-ups and alerts, but it does not silently contact people or change canonical facts.                      |
-|                           |                                                                                                                               |
+The bundled Constellation skill is a portable, provider-independent operating contract. It covers:
 
-## The short explanation
+- how to preserve original source bytes and provenance;
+- how to separate mechanical extraction, source claims, prior evidence, and inference;
+- how to avoid inventing entity matches or turning mentions into relationships;
+- how to follow intake, first-distillation, search, research, review, and repair modes;
+- how to respect sensitivity labels and model-egress policy;
+- how to stage candidates instead of writing unreviewed facts;
+- how to validate canonical writes, rebuild indexes, and produce completion receipts;
+- how to stop when a task requires a separate research or approval decision.
 
-> Constellation is a private intelligence system that turns the files, meetings, research, relationships, and decisions behind your work into connected, evidence-backed memory. It helps you prepare, decide, follow through, and notice change without giving up control of your data or losing track of why you believe something.
+These skills sit above the model and below the user's workflow. An agent can load them, adapt them to a deployment, extend them with domain-specific procedures, and improve them as the operating model matures. A new model does not need the build history of Constellation; it needs the current skill, evidence contract, schemas, and bounded task context.
+
+This is an important part of the system's portability. The skill carries the method. The model supplies interpretation. The canonical record, validation layer, and review gate enforce the boundary.
+
+### Companion skill packs
+
+The Constellation operating skill is the base layer. A deployment can add domain-specific skills that use the same evidence, provenance, and review contracts.
+
+Examples include:
+
+- **LinkedIn OSINT** — capture a single profile into a source-separated person dossier, with identity restraint and a handoff to deeper research;
+- **OSINT research** — run bounded or deep multi-source investigations while preserving search receipts, source quality, contradictions, and open questions;
+- **Company and filing intelligence** — use SEC/EDGAR and other official-source workflows to build evidence-backed company and ownership context;
+- **Transaction diligence** — investigate M&A, valuation, funding, ownership, and unresolved counterparty signals;
+- **Corporate and regional intelligence** — adapt research workflows to APAC firms, local markets, professional-services networks, and cross-border operating reality;
+- **Document and media intake** — process decks, PDFs, spreadsheets, images, business cards, meeting notes, and audio into reviewable evidence;
+- **Constellation vault operations** — validate canonical records, stage claims, manage inquiries, refine research, and maintain the private intelligence substrate.
+
+These packs are not separate memory stores. They are reusable methods for agents working against the same canonical record. They can be loaded selectively, adapted to a sector, combined into a deployment workflow, or replaced without changing the underlying evidence model.
+
+### What is included, and what is not
+
+Constellation Zero includes the record system, graph intelligence, CLI, review contract, and reusable Constellation operating skill. Companion skill packs can be installed or developed around it.
+
+It does **not** bundle:
+
+- a large language model;
+- model-provider credentials;
+- a generic autonomous agent;
+- a mandatory agent harness;
+- an always-on worker that can modify the vault without review.
+
+Hermes Agent is the reference harness because it provides a natural way to load skills, invoke bounded tools, switch providers, and operate the system through conversational workflows. Other harnesses can use the same skills and contracts if they respect the canonical record and review boundary. Obsidian is the reference human workspace, not a runtime requirement.
+
+## Privacy and control
+
+Canonical records and preserved source files can remain local. External model and research calls are optional and policy-controlled. The egress policy determines what may leave the machine, which provider may receive it, for what purpose, and at what sensitivity.
+
+Constellation does not claim that every deployment is automatically local-only. It provides the boundary so a deployment can make that decision explicitly and auditably.
+
+## Try it
+
+```bash
+git clone https://github.com/skyeyesec333/hermes-constellation.git
+cd hermes-constellation
+```
+
+Start with the synthetic demo vault and the installation guide. The core can run without a cloud key.
+
+## Status
+
+Constellation Zero v2 is the completed beta release of the private intelligence core, including the i2-successor graph intelligence build, visual graph analysis, temporal relationship analysis, bounded research, review-gated knowledge lifecycle, monitoring, and deployment-neutral model architecture.
+
+The public repository is an open-source reference implementation and foundation for private deployments, integrations, and sector-specific intelligence systems.
+
+## License
+
+Apache-2.0.
