@@ -210,6 +210,8 @@ files:
     lineage: handwritten-generic
   scripts/predicate_inventory.py:
     lineage: handwritten-generic
+  scripts/graph_delta_watchdog.py:
+    lineage: handwritten-generic
   scripts/retrieval_eval.py:
     lineage: handwritten-generic
   scripts/verify_fast.sh:
@@ -309,6 +311,8 @@ files:
   src/constellation/typologies.py:
     lineage: handwritten-generic
   src/constellation/hypotheses.py:
+    lineage: handwritten-generic
+  src/constellation/graph_delta.py:
     lineage: handwritten-generic
   src/constellation/entity_warninglists.py:
     lineage: handwritten-generic
@@ -511,6 +515,8 @@ files:
   tests/test_typologies.py:
     lineage: handwritten-generic
   tests/test_hypotheses.py:
+    lineage: handwritten-generic
+  tests/test_graph_delta.py:
     lineage: handwritten-generic
   tests/test_entity_warninglists.py:
     lineage: handwritten-generic

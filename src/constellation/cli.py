@@ -280,6 +280,12 @@ def build_parser() -> argparse.ArgumentParser:
     hypothesis.add_argument("action", choices=["generate", "list", "show", "refresh"])
     hypothesis.add_argument("id", nargs="?", help="hypothesis packet id (show/refresh)")
 
+    delta = sub.add_parser("graph-delta", help="Snapshot and diff the canonical graph")
+    delta.add_argument("vault", type=Path)
+    delta.add_argument("action", choices=["snapshot", "diff"])
+    delta.add_argument("from_snapshot", nargs="?", help="snapshot path relative to vault (diff)")
+    delta.add_argument("to_snapshot", nargs="?", help="snapshot path relative to vault (diff)")
+
     interaction = sub.add_parser("interaction", help="Stage or list review-only interactions")
     interaction.add_argument("vault", type=Path)
     interaction.add_argument("action", choices=["stage", "list"])
@@ -1128,6 +1134,16 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
         if sub_action == "show":
             return show_hypothesis(vault, str(packet_id))
         return refresh_hypothesis(vault, str(packet_id))
+    if action == "graph-delta":
+        from constellation.graph_delta import diff_snapshots, snapshot_graph
+
+        if values.get("action") == "snapshot":
+            return snapshot_graph(vault)
+        from_snapshot = values.get("from_snapshot")
+        to_snapshot = values.get("to_snapshot")
+        if not from_snapshot or not to_snapshot:
+            raise ValueError("graph-delta diff requires FROM and TO snapshot paths")
+        return diff_snapshots(vault, str(from_snapshot), str(to_snapshot))
     if action == "interaction":
         from datetime import datetime as dt
 
