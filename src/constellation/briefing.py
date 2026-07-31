@@ -206,17 +206,16 @@ def _network_position(
     degraded = False
     degradation_note = ""
     try:
-        import networkx as nx
+        from .graph_analytics import entity_component_size
 
-        from .graph_model import build_graph_model
-
-        model = build_graph_model(vault, sensitivity_ceiling=sensitivity_ceiling)
-        for component in nx.weakly_connected_components(model.simple):
-            if entity_id in component:
-                component_size = len(component)
-                break
+        component_size = entity_component_size(
+            vault, entity_id, sensitivity_ceiling=sensitivity_ceiling
+        )
         if component_size is None:
-            component_size = 1
+            degraded = True
+            degradation_note = (
+                "component size unavailable: optional networkx dependency not installed"
+            )
     except Exception:  # noqa: BLE001 — degrade, never break the briefing
         degraded = True
         degradation_note = (

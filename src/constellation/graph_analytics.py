@@ -33,6 +33,24 @@ class GraphAnalyticsError(RuntimeError):
     """Raised when analytics cannot run (missing extra or invalid input)."""
 
 
+def entity_component_size(
+    root: Path | str, entity_id: str, *, sensitivity_ceiling: str = "internal"
+) -> int | None:
+    """Weak-component size containing one entity, or None when NetworkX is
+    absent. Never raises for a missing optional dependency — offline
+    surfaces (briefing) call this so they never import networkx themselves."""
+    try:
+        import networkx as nx
+
+        model = build_graph_model(root, sensitivity_ceiling=sensitivity_ceiling)
+    except Exception:  # noqa: BLE001 — optional dependency may be absent
+        return None
+    for component in nx.weakly_connected_components(model.simple):
+        if entity_id in component:
+            return len(component)
+    return 1
+
+
 def _round(value: float) -> float:
     return round(float(value), 6)
 
