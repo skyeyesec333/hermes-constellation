@@ -271,6 +271,10 @@ def build_parser() -> argparse.ArgumentParser:
     analytics.add_argument("--as-of", help="ISO-8601; only relationships valid at this time")
     analytics.add_argument("--top", type=int, default=25, help="Max ranked nodes to report")
 
+    typologies = sub.add_parser("typologies", help="Detect deterministic graph-shape typologies")
+    typologies.add_argument("vault", type=Path)
+    typologies.add_argument("action", choices=["scan"])
+
     interaction = sub.add_parser("interaction", help="Stage or list review-only interactions")
     interaction.add_argument("vault", type=Path)
     interaction.add_argument("action", choices=["stage", "list"])
@@ -1096,6 +1100,10 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
             as_of=as_of,
             top=int(values.get("top", 25)),
         )
+    if action == "typologies":
+        from constellation.typologies import scan_typologies
+
+        return scan_typologies(vault)
     if action == "interaction":
         from datetime import datetime as dt
 
