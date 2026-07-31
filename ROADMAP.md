@@ -32,7 +32,14 @@ no public promotion. Wave 0 (reconcile/inventory/freeze contracts): Task 0.1
 predicate inventory delivered (scripts/predicate_inventory.py; deterministic,
 read-only, metadata-only; private-vault run saved to /tmp only). Task 0.2
 contracts frozen (docs/graph-intelligence.md +
-docs/references/graph-intelligence-sources.md). Baseline at
+docs/references/graph-intelligence-sources.md). Wave 1 (trustworthy
+relationship semantics) COMPLETE 2026-07-31: predicate registry
+(resources/predicates/core.yaml + predicates.py; confidence decay consumes
+the shared stability lookup), temporal/qualifier RelationshipRecord schema,
+review-gated relationship pipeline (stage/list/supersede + promotion through
+the existing review machinery, idempotent envelope candidates with
+assertion fingerprints), and temporal directed graph filters with stable
+sha256 edge_ids (b5d9e29, 467da51, 23239a6, c1f4da5). Baseline at
 program start: core 874c6a6, dashboard 6b6f07b, verify_fast green.
 
 Stage 0 completed on 2026-07-17 with these executed gates:
