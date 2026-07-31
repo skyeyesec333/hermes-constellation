@@ -23,6 +23,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
+from .predicates import predicate_stability
+
 _BASE_BY_STATUS = {
     "corroborated": 0.8,
     "source-claimed": 0.5,
@@ -35,25 +37,9 @@ _TERMINAL_STATES = {"stale", "superseded"}
 
 _HALF_LIFE_DAYS = {"durable": 365.0, "standard": 90.0, "transient": 14.0}
 
-# Exact-match predicate -> stability class. Deliberately small and
-# documented; unknown predicates default to standard.
-_PREDICATE_STABILITY = {
-    "founded": "durable",
-    "founded_in": "durable",
-    "founded_by": "durable",
-    "headquartered": "durable",
-    "headquarters": "durable",
-    "legal_name": "durable",
-    "based_in": "durable",
-    "architecture": "durable",
-    "ownership": "durable",
-    "headcount": "transient",
-    "pricing": "transient",
-    "hiring": "transient",
-    "job_opening": "transient",
-    "status_update": "transient",
-    "stock_price": "transient",
-}
+# Stability classes resolve through the shared predicate registry lookup
+# (predicates.predicate_stability); the legacy claim-only vocabulary is
+# preserved there so existing decay behavior does not shift.
 
 _REINFORCEMENT_STEP = 0.05
 _REINFORCEMENT_CAP = 6  # max 0.30 bonus
@@ -88,7 +74,7 @@ def compute_confidence(
     base = float(explicit) if explicit is not None else _BASE_BY_STATUS.get(status, 0.5)
 
     predicate = str(metadata.get("predicate", ""))
-    stability = _PREDICATE_STABILITY.get(predicate, "standard")
+    stability = predicate_stability(predicate)
     half_life = _HALF_LIFE_DAYS[stability]
 
     timestamp = _parse_time(metadata.get("observed_at")) or _parse_time(metadata.get("created_at"))

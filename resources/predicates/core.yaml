@@ -1,0 +1,343 @@
+# Core relationship predicate registry (i2-successor program, Wave 1).
+#
+# Advisory mode: unknown legacy predicates remain readable (warnings only).
+# Deprecation preserves old values and proposes review-gated normalization;
+# it never silently rewrites canonical files. See docs/graph-intelligence.md.
+version: 1
+predicates:
+- name: owns
+  label: owns
+  inverse: owned_by
+  directed: true
+  symmetric: false
+  domains: [person, company, organization]
+  ranges: [company, organization]
+  stability: durable
+  allowed_qualifiers: [percentage, ownership_type, shares_count, currency]
+  aliases: [owner_of, ownership]
+  external_mappings:
+    ftm: Ownership
+    stix: owns
+  deprecated_by: null
+- name: owned_by
+  label: owned by
+  inverse: owns
+  directed: true
+  symmetric: false
+  domains: [company, organization]
+  ranges: [person, company, organization]
+  stability: durable
+  allowed_qualifiers: [percentage, ownership_type, shares_count, currency]
+  aliases: []
+  external_mappings:
+    ftm: Ownership
+  deprecated_by: null
+- name: controls
+  label: controls
+  inverse: controlled_by
+  directed: true
+  symmetric: false
+  domains: [person, company, organization]
+  ranges: [company, organization]
+  stability: durable
+  allowed_qualifiers: [control_type, percentage]
+  aliases: []
+  external_mappings: {}
+  deprecated_by: null
+- name: controlled_by
+  label: controlled by
+  inverse: controls
+  directed: true
+  symmetric: false
+  domains: [company, organization]
+  ranges: [person, company, organization]
+  stability: durable
+  allowed_qualifiers: [control_type, percentage]
+  aliases: []
+  external_mappings: {}
+  deprecated_by: null
+- name: employed_by
+  label: employed by
+  inverse: employs
+  directed: true
+  symmetric: false
+  domains: [person]
+  ranges: [company, organization]
+  stability: standard
+  allowed_qualifiers: [role, title, seniority]
+  aliases: [works_at]
+  external_mappings:
+    ftm: Employment
+  deprecated_by: null
+- name: employs
+  label: employs
+  inverse: employed_by
+  directed: true
+  symmetric: false
+  domains: [company, organization]
+  ranges: [person]
+  stability: standard
+  allowed_qualifiers: [role, title, seniority]
+  aliases: []
+  external_mappings:
+    ftm: Employment
+  deprecated_by: null
+- name: former_role
+  label: former role (deprecated)
+  inverse: null
+  directed: true
+  symmetric: false
+  domains: [person]
+  ranges: [company, organization]
+  stability: standard
+  allowed_qualifiers: [role, title]
+  aliases: []
+  external_mappings: {}
+  deprecated_by: employed_by
+- name: directs
+  label: directs
+  inverse: directed_by
+  directed: true
+  symmetric: false
+  domains: [person]
+  ranges: [company, organization]
+  stability: standard
+  allowed_qualifiers: [role, title]
+  aliases: [ceo_of, chairman_of]
+  external_mappings:
+    ftm: Directorship
+  deprecated_by: null
+- name: directed_by
+  label: directed by
+  inverse: directs
+  directed: true
+  symmetric: false
+  domains: [company, organization]
+  ranges: [person]
+  stability: standard
+  allowed_qualifiers: [role, title]
+  aliases: []
+  external_mappings:
+    ftm: Directorship
+  deprecated_by: null
+- name: member_of
+  label: member of
+  inverse: has_member
+  directed: true
+  symmetric: false
+  domains: [person, company, organization]
+  ranges: [company, organization]
+  stability: standard
+  allowed_qualifiers: [role]
+  aliases: [board_member_of]
+  external_mappings:
+    ftm: Membership
+  deprecated_by: null
+- name: has_member
+  label: has member
+  inverse: member_of
+  directed: true
+  symmetric: false
+  domains: [company, organization]
+  ranges: [person, company, organization]
+  stability: standard
+  allowed_qualifiers: [role]
+  aliases: []
+  external_mappings:
+    ftm: Membership
+  deprecated_by: null
+- name: advises
+  label: advises
+  inverse: advised_by
+  directed: true
+  symmetric: false
+  domains: [person, company, organization]
+  ranges: [person, company, organization]
+  stability: standard
+  allowed_qualifiers: [role, capacity]
+  aliases: []
+  external_mappings:
+    ftm: Representation
+  deprecated_by: null
+- name: advised_by
+  label: advised by
+  inverse: advises
+  directed: true
+  symmetric: false
+  domains: [person, company, organization]
+  ranges: [person, company, organization]
+  stability: standard
+  allowed_qualifiers: [role, capacity]
+  aliases: []
+  external_mappings:
+    ftm: Representation
+  deprecated_by: null
+- name: funds
+  label: funds
+  inverse: funded_by
+  directed: true
+  symmetric: false
+  domains: [person, company, organization]
+  ranges: [person, company, organization]
+  stability: standard
+  allowed_qualifiers: [amount, currency, round]
+  aliases: [invests_in]
+  external_mappings: {}
+  deprecated_by: null
+- name: funded_by
+  label: funded by
+  inverse: funds
+  directed: true
+  symmetric: false
+  domains: [person, company, organization]
+  ranges: [person, company, organization]
+  stability: standard
+  allowed_qualifiers: [amount, currency, round]
+  aliases: []
+  external_mappings: {}
+  deprecated_by: null
+- name: partners_with
+  label: partners with
+  inverse: null
+  directed: false
+  symmetric: true
+  domains: [person, company, organization]
+  ranges: [person, company, organization]
+  stability: standard
+  allowed_qualifiers: [partnership_type]
+  aliases: [partnered_with]
+  external_mappings: {}
+  deprecated_by: null
+- name: competes_with
+  label: competes with
+  inverse: null
+  directed: false
+  symmetric: true
+  domains: [company, organization]
+  ranges: [company, organization]
+  stability: standard
+  allowed_qualifiers: [market]
+  aliases: []
+  external_mappings: {}
+  deprecated_by: null
+- name: supplies
+  label: supplies
+  inverse: supplied_by
+  directed: true
+  symmetric: false
+  domains: [person, company, organization]
+  ranges: [company, organization]
+  stability: standard
+  allowed_qualifiers: [product, service]
+  aliases: []
+  external_mappings: {}
+  deprecated_by: null
+- name: supplied_by
+  label: supplied by
+  inverse: supplies
+  directed: true
+  symmetric: false
+  domains: [company, organization]
+  ranges: [person, company, organization]
+  stability: standard
+  allowed_qualifiers: [product, service]
+  aliases: []
+  external_mappings: {}
+  deprecated_by: null
+- name: located_at
+  label: located at
+  inverse: location_of
+  directed: true
+  symmetric: false
+  domains: [person, company, organization]
+  ranges: [place, any]
+  stability: durable
+  allowed_qualifiers: [address_type]
+  aliases: []
+  external_mappings: {}
+  deprecated_by: null
+- name: location_of
+  label: location of
+  inverse: located_at
+  directed: true
+  symmetric: false
+  domains: [place, any]
+  ranges: [person, company, organization]
+  stability: durable
+  allowed_qualifiers: [address_type]
+  aliases: []
+  external_mappings: {}
+  deprecated_by: null
+- name: reports_to
+  label: reports to
+  inverse: supervises
+  directed: true
+  symmetric: false
+  domains: [person]
+  ranges: [person]
+  stability: standard
+  allowed_qualifiers: [role, title]
+  aliases: []
+  external_mappings: {}
+  deprecated_by: null
+- name: supervises
+  label: supervises
+  inverse: reports_to
+  directed: true
+  symmetric: false
+  domains: [person]
+  ranges: [person]
+  stability: standard
+  allowed_qualifiers: [role, title]
+  aliases: []
+  external_mappings: {}
+  deprecated_by: null
+- name: associated_with
+  label: associated with
+  inverse: null
+  directed: false
+  symmetric: true
+  domains: [any]
+  ranges: [any]
+  stability: standard
+  allowed_qualifiers: [context]
+  aliases: [affiliated_with]
+  external_mappings:
+    ftm: Associate
+  deprecated_by: null
+- name: served_with
+  label: served with
+  inverse: null
+  directed: false
+  symmetric: true
+  domains: [person]
+  ranges: [person]
+  stability: durable
+  allowed_qualifiers: [unit, theater]
+  aliases: []
+  external_mappings: {}
+  deprecated_by: null
+- name: founded
+  label: founded
+  inverse: founded_by
+  directed: true
+  symmetric: false
+  domains: [person]
+  ranges: [company, organization]
+  stability: durable
+  allowed_qualifiers: [role]
+  aliases: [co_founded]
+  external_mappings: {}
+  deprecated_by: null
+- name: founded_by
+  label: founded by
+  inverse: founded
+  directed: true
+  symmetric: false
+  domains: [company, organization]
+  ranges: [person]
+  stability: durable
+  allowed_qualifiers: [role]
+  aliases: []
+  external_mappings: {}
+  deprecated_by: null

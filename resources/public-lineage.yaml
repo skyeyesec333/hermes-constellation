@@ -112,6 +112,8 @@ files:
     lineage: handwritten-generic
   resources/default-config/config.yaml:
     lineage: handwritten-generic
+  resources/predicates/core.yaml:
+    lineage: handwritten-generic
   resources/generated-json-schemas/analysis.json:
     lineage: generated-from-python-schema
   resources/generated-json-schemas/watchlist.json:
@@ -290,6 +292,8 @@ files:
     lineage: handwritten-generic
   src/constellation/confidence.py:
     lineage: handwritten-generic
+  src/constellation/predicates.py:
+    lineage: handwritten-generic
   src/constellation/contradictions.py:
     lineage: handwritten-generic
   src/constellation/screening.py:
@@ -427,6 +431,8 @@ files:
   tests/test_supersedes.py:
     lineage: handwritten-generic
   tests/test_confidence.py:
+    lineage: handwritten-generic
+  tests/test_predicates.py:
     lineage: handwritten-generic
   tests/test_contradictions.py:
     lineage: handwritten-generic
