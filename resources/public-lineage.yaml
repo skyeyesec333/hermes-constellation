@@ -304,6 +304,8 @@ files:
     lineage: handwritten-generic
   src/constellation/graph_model.py:
     lineage: handwritten-generic
+  src/constellation/graph_analytics.py:
+    lineage: handwritten-generic
   src/constellation/entity_warninglists.py:
     lineage: handwritten-generic
   src/constellation/mentions.py:
@@ -499,6 +501,8 @@ files:
   tests/test_ftm_adapter.py:
     lineage: handwritten-generic
   tests/test_graph_model.py:
+    lineage: handwritten-generic
+  tests/test_graph_analytics.py:
     lineage: handwritten-generic
   tests/test_entity_warninglists.py:
     lineage: handwritten-generic

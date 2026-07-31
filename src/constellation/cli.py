@@ -257,6 +257,16 @@ def build_parser() -> argparse.ArgumentParser:
     backfill.add_argument("--plan", help="Plan input file (stage)")
     backfill.add_argument("--limit", type=int, default=50, help="Max proposals to stage")
 
+    analytics = sub.add_parser("graph-analytics", help="SNA metrics over the cited projection")
+    analytics.add_argument("vault", type=Path)
+    analytics.add_argument("action", choices=["report"])
+    analytics.add_argument("--include-claims", action="store_true",
+                           help="Include claim-derived entity edges (default: relationships only)")
+    analytics.add_argument("--sensitivity", default="internal",
+                           choices=["public", "internal", "confidential", "restricted"])
+    analytics.add_argument("--as-of", help="ISO-8601; only relationships valid at this time")
+    analytics.add_argument("--top", type=int, default=25, help="Max ranked nodes to report")
+
     interaction = sub.add_parser("interaction", help="Stage or list review-only interactions")
     interaction.add_argument("vault", type=Path)
     interaction.add_argument("action", choices=["stage", "list"])
@@ -1062,6 +1072,21 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
         if not plan_file:
             raise ValueError("--plan is required for relationship-backfill stage")
         return backfill_stage(vault, str(plan_file), limit=int(values.get("limit", 50)))
+    if action == "graph-analytics":
+        from constellation.graph_analytics import compute_graph_analytics
+
+        as_of = values.get("as_of")
+        if as_of:
+            from datetime import datetime as dt
+
+            as_of = dt.fromisoformat(str(as_of).replace("Z", "+00:00"))
+        return compute_graph_analytics(
+            vault,
+            sensitivity_ceiling=str(values.get("sensitivity", "internal")),
+            include_claims=bool(values.get("include_claims", False)),
+            as_of=as_of,
+            top=int(values.get("top", 25)),
+        )
     if action == "interaction":
         from datetime import datetime as dt
 
