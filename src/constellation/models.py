@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import secrets
 import time
 from datetime import datetime
@@ -166,6 +167,10 @@ class EntityRecord(BaseRecord):
         return self
 
 
+_QUALIFIER_KEY_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+_QUALIFIER_LIMIT = 20
+
+
 class RelationshipRecord(BaseRecord):
     type: Literal["relationship"] = "relationship"  # pyright: ignore[reportIncompatibleVariableOverride]
     subject_id: Ulid
@@ -174,11 +179,46 @@ class RelationshipRecord(BaseRecord):
     source_ids: Annotated[list[Ulid], Field(min_length=1)]
     evidence_class: Literal["verified", "corroborated", "single-source", "inferred", "user-asserted"]
     confidence: Annotated[float, Field(ge=0.0, le=1.0)] | None = None
+    observed_at: datetime | None = None
+    first_seen: datetime | None = None
+    last_seen: datetime | None = None
+    valid_from: datetime | None = None
+    valid_to: datetime | None = None
+    role: Annotated[str, Field(max_length=200)] = ""
+    qualifiers: dict[str, Annotated[str, Field(max_length=500)]] = Field(default_factory=dict)
+    supersedes: list[Ulid] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def endpoints_are_distinct(self) -> "RelationshipRecord":
         if self.subject_id == self.object_id:
             raise ValueError("relationship cannot relate to itself")
+        return self
+
+    @field_validator("observed_at", "first_seen", "last_seen", "valid_from", "valid_to")
+    @classmethod
+    def optional_aware_datetime(cls, value: datetime | None) -> datetime | None:
+        if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+            raise ValueError("relationship temporal fields must include a timezone when set")
+        return value
+
+    @field_validator("qualifiers")
+    @classmethod
+    def qualifiers_are_bounded(cls, values: dict[str, str]) -> dict[str, str]:
+        if len(values) > _QUALIFIER_LIMIT:
+            raise ValueError(f"relationship qualifiers are limited to {_QUALIFIER_LIMIT}")
+        for key in values:
+            if not _QUALIFIER_KEY_RE.fullmatch(key):
+                raise ValueError(
+                    "qualifier keys must match ^[a-z][a-z0-9_]{0,63}$"
+                )
+        return values
+
+    @model_validator(mode="after")
+    def intervals_are_ordered(self) -> "RelationshipRecord":
+        if self.valid_from is not None and self.valid_to is not None and self.valid_to < self.valid_from:
+            raise ValueError("valid_to cannot be earlier than valid_from")
+        if self.first_seen is not None and self.last_seen is not None and self.last_seen < self.first_seen:
+            raise ValueError("last_seen cannot be earlier than first_seen")
         return self
 
 

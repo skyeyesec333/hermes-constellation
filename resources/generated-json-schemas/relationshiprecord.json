@@ -43,20 +43,73 @@
       "title": "Evidence Class",
       "type": "string"
     },
+    "first_seen": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "First Seen"
+    },
     "id": {
       "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
       "title": "Id",
       "type": "string"
+    },
+    "last_seen": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Last Seen"
     },
     "object_id": {
       "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
       "title": "Object Id",
       "type": "string"
     },
+    "observed_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Observed At"
+    },
     "predicate": {
       "maxLength": 100,
       "minLength": 1,
       "title": "Predicate",
+      "type": "string"
+    },
+    "qualifiers": {
+      "additionalProperties": {
+        "maxLength": 500,
+        "type": "string"
+      },
+      "title": "Qualifiers",
+      "type": "object"
+    },
+    "role": {
+      "default": "",
+      "maxLength": 200,
+      "title": "Role",
       "type": "string"
     },
     "schema_version": {
@@ -88,6 +141,14 @@
       "title": "Subject Id",
       "type": "string"
     },
+    "supersedes": {
+      "items": {
+        "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+        "type": "string"
+      },
+      "title": "Supersedes",
+      "type": "array"
+    },
     "title": {
       "maxLength": 300,
       "minLength": 1,
@@ -104,6 +165,32 @@
       "format": "date-time",
       "title": "Updated At",
       "type": "string"
+    },
+    "valid_from": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Valid From"
+    },
+    "valid_to": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Valid To"
     }
   },
   "required": [

@@ -434,6 +434,8 @@ files:
     lineage: handwritten-generic
   tests/test_predicates.py:
     lineage: handwritten-generic
+  tests/test_relationship_model.py:
+    lineage: handwritten-generic
   tests/test_contradictions.py:
     lineage: handwritten-generic
   tests/test_screening.py:
