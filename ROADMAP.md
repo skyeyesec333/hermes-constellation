@@ -59,7 +59,10 @@ COMPLETE 2026-07-31 in the dashboard plugin repo: read-model analytics API
 (36b5474), graph explorer canvas with filters/path mode/investigation
 panels (e2f1ac8), host-env-independent analytics serving (3812496),
 journey harness coverage (2f81999 core). Live browser smoke + full journey
-watchdog green. Baseline at
+watchdog green. Wave 6 (exchange and decay) COMPLETE 2026-07-31: bounded
+graph export with evidence manifest (230ffd8), import-only connector
+contracts (bcd61d8), relationship decay reports with staged review-gated
+suggestions (a1439cf). Baseline at
 program start: core 874c6a6, dashboard 6b6f07b, verify_fast green.
 
 Stage 0 completed on 2026-07-17 with these executed gates:
