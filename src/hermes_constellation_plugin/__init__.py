@@ -62,6 +62,7 @@ _CONFIGURED_VAULT_ACTIONS = frozenset(
         "typologies",
         "hypothesis",
         "graph-delta",
+        "export",
         "decision",
         "inquiry",
         "opportunity",

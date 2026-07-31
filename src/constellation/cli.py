@@ -286,6 +286,15 @@ def build_parser() -> argparse.ArgumentParser:
     delta.add_argument("from_snapshot", nargs="?", help="snapshot path relative to vault (diff)")
     delta.add_argument("to_snapshot", nargs="?", help="snapshot path relative to vault (diff)")
 
+    export = sub.add_parser("export", help="Bounded graph export with evidence manifest")
+    export.add_argument("vault", type=Path)
+    export.add_argument("export_target", choices=["graph"])
+    export.add_argument("--format", default="json", choices=["json", "ndjson"])
+    export.add_argument("--out", required=True, help="Output file path")
+    export.add_argument("--sensitivity", default="internal",
+                        choices=["public", "internal", "confidential", "restricted"])
+    export.add_argument("--entity", help="Optional ego-scope entity ULID")
+
     interaction = sub.add_parser("interaction", help="Stage or list review-only interactions")
     interaction.add_argument("vault", type=Path)
     interaction.add_argument("action", choices=["stage", "list"])
@@ -1144,6 +1153,16 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
         if not from_snapshot or not to_snapshot:
             raise ValueError("graph-delta diff requires FROM and TO snapshot paths")
         return diff_snapshots(vault, str(from_snapshot), str(to_snapshot))
+    if action == "export":
+        from constellation.graph_export import export_graph
+
+        return export_graph(
+            vault,
+            str(values["out"]),
+            format=str(values.get("format", "json")),
+            sensitivity=str(values.get("sensitivity", "internal")),
+            entity=values.get("entity"),
+        )
     if action == "interaction":
         from datetime import datetime as dt
 
