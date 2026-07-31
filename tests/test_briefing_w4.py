@@ -197,3 +197,34 @@ def test_briefing_respects_sensitivity_ceiling(tmp_path: Path) -> None:
     full = build_entity_briefing(vault, entity_id, sensitivity_ceiling="confidential")
     titles = [c["title"] for c in full["claims"]]
     assert "Secret Acme term sheet" in titles
+
+
+def test_briefing_network_position_with_and_without_networkx(tmp_path: Path, monkeypatch) -> None:
+    import sys
+
+    from constellation.briefing import build_entity_briefing, render_briefing_markdown
+
+    vault, entity_id, _ = _briefing_vault(tmp_path)
+    briefing = build_entity_briefing(vault, entity_id)
+
+    position = briefing["network_position"]
+    assert position is not None
+    assert position["degree"] == 1  # one canonical relationship edge
+    assert position["component_size"] == 2  # Acme + RegCorp
+    assert position["degraded"] is False
+    assert position["confidence_note"]
+    assert position["freshness_note"]
+    markdown = render_briefing_markdown(briefing)
+    assert "## Network Position" in markdown
+    assert "component" in markdown
+
+    # Degraded fallback: without NetworkX the briefing still renders with a
+    # citation-backed degree and an explicit degraded note.
+    monkeypatch.setitem(sys.modules, "networkx", None)
+    degraded = build_entity_briefing(vault, entity_id)
+    assert degraded["network_position"]["degree"] == 1
+    assert degraded["network_position"]["component_size"] is None
+    assert degraded["network_position"]["degraded"] is True
+    markdown = render_briefing_markdown(degraded)
+    assert "## Network Position" in markdown
+    assert "networkx" in markdown.lower()

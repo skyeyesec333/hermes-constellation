@@ -139,6 +139,13 @@ def build_entity_briefing(
     except Exception:  # noqa: BLE001 — degrade, never break the briefing
         pass
 
+    # Wave 3.4: citation-backed network position. Degree always comes from
+    # the cited projection (no NetworkX needed); component size needs the
+    # optional graph extra and degrades explicitly when absent.
+    network_position = _network_position(
+        vault, entity_id, projection, sensitivity_ceiling
+    )
+
     return {
         "entity": {
             "id": entity_id,
@@ -157,6 +164,72 @@ def build_entity_briefing(
         "opportunities": typed["opportunity"],
         "candidates": candidates,
         "analytics": analytics,
+        "network_position": network_position,
+    }
+
+
+def _network_position(
+    vault: Path,
+    entity_id: str,
+    projection: dict[str, Any],
+    sensitivity_ceiling: str,
+) -> dict[str, Any] | None:
+    """Citation-backed network position for one entity.
+
+    Degree counts canonical relationship edges only (every canonical
+    relationship carries source_ids by schema). Component size uses the
+    optional NetworkX extra; when it is absent the block degrades with an
+    explicit flag instead of disappearing or failing.
+    """
+    edges = [
+        e for e in projection["edges"]
+        if e["edge_kind"] == "relationship"
+        and not e["candidate"]
+        and entity_id in {e["subject_id"], e["object_id"]}
+    ]
+    if not edges:
+        return None
+    scored = [float(e["confidence"]) for e in edges if e.get("confidence") is not None]
+    if scored:
+        confidence_note = (
+            f"mean confidence {round(sum(scored) / len(scored), 2)} "
+            f"across {len(scored)} scored edge(s)"
+        )
+    else:
+        confidence_note = "no scored edges"
+    updated = sorted(str(e.get("updated_at", "")) for e in edges if e.get("updated_at"))
+    freshness_note = (
+        f"{len(edges)} cited edge(s), newest update {updated[-1]}" if updated
+        else f"{len(edges)} cited edge(s), no update timestamps"
+    )
+    component_size: int | None = None
+    degraded = False
+    degradation_note = ""
+    try:
+        import networkx as nx
+
+        from .graph_model import build_graph_model
+
+        model = build_graph_model(vault, sensitivity_ceiling=sensitivity_ceiling)
+        for component in nx.weakly_connected_components(model.simple):
+            if entity_id in component:
+                component_size = len(component)
+                break
+        if component_size is None:
+            component_size = 1
+    except Exception:  # noqa: BLE001 — degrade, never break the briefing
+        degraded = True
+        degradation_note = (
+            "component size unavailable: optional networkx dependency not installed"
+        )
+    return {
+        "degree": len(edges),
+        "component_size": component_size,
+        "degraded": degraded,
+        "degradation_note": degradation_note,
+        "confidence_note": confidence_note,
+        "freshness_note": freshness_note,
+        "evidence_edge_count": len(edges),
     }
 
 
@@ -204,6 +277,19 @@ def render_briefing_markdown(briefing: dict[str, Any]) -> str:
         lines.append("")
         for cand in briefing["candidates"]:
             lines.append(f"- [CANDIDATE] {cand['title']} ({cand['kind']}) — `{cand['record_path']}`")
+        lines.append("")
+    position = briefing.get("network_position")
+    if position:
+        lines += ["## Network Position", ""]
+        component = (
+            f"component size {position['component_size']}"
+            if position["component_size"] is not None
+            else position["degradation_note"]
+        )
+        lines.append(f"- Degree: {position['degree']} cited relationship edge(s); {component}")
+        lines.append(f"- {position['confidence_note']}; {position['freshness_note']}")
+        if position["degraded"]:
+            lines.append("- degraded: install the graph extra (networkx) for component metrics")
         lines.append("")
     analytics = briefing.get("analytics")
     if analytics:
