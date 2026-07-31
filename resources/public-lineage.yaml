@@ -27,6 +27,8 @@ public_roots:
 - docs/clean-room-release.md
 - docs/threat-model.md
 - docs/migration.md
+- docs/graph-intelligence.md
+- docs/references/graph-intelligence-sources.md
 - docs/plans/01-release-integrity.md
 - docs/plans/09-react-flow-comfyui-deferred.md
 - src
@@ -70,6 +72,8 @@ files:
     lineage: handwritten-generic
   docs/first-distillation-contract.md:
     lineage: handwritten-generic
+  docs/graph-intelligence.md:
+    lineage: handwritten-generic
   docs/gmail-workflow.md:
     lineage: handwritten-generic
   docs/installation.md:
@@ -85,6 +89,8 @@ files:
   docs/plans/09-react-flow-comfyui-deferred.md:
     lineage: handwritten-generic
   docs/project-manager-crm.md:
+    lineage: handwritten-generic
+  docs/references/graph-intelligence-sources.md:
     lineage: handwritten-generic
   docs/threat-model.md:
     lineage: handwritten-generic
