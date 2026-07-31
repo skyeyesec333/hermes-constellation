@@ -51,7 +51,10 @@ unresolved, hash-guarded, HELD for owner review — not staged); FtM export
 optional networkx extra (7855a2d), SNA metrics with immutable analysis
 receipts (a7285cc), bounded all-shortest typed paths (ab9cb14), briefing
 network_position with degraded no-networkx fallback (7a05c46, 7301d56).
-Baseline at
+Wave 4 (investigation layer) COMPLETE 2026-07-31: deterministic typology
+detection from canonical graph shape (5b8258a), review-only hypothesis
+packets with expiry/falsification/review trail (2a198a3), bounded graph
+delta snapshots/diffs + script-only watchdog (a3f4a70). Baseline at
 program start: core 874c6a6, dashboard 6b6f07b, verify_fast green.
 
 Stage 0 completed on 2026-07-17 with these executed gates:
