@@ -54,7 +54,12 @@ network_position with degraded no-networkx fallback (7a05c46, 7301d56).
 Wave 4 (investigation layer) COMPLETE 2026-07-31: deterministic typology
 detection from canonical graph shape (5b8258a), review-only hypothesis
 packets with expiry/falsification/review trail (2a198a3), bounded graph
-delta snapshots/diffs + script-only watchdog (a3f4a70). Baseline at
+delta snapshots/diffs + script-only watchdog (a3f4a70). Wave 5 (dashboard)
+COMPLETE 2026-07-31 in the dashboard plugin repo: read-model analytics API
+(36b5474), graph explorer canvas with filters/path mode/investigation
+panels (e2f1ac8), host-env-independent analytics serving (3812496),
+journey harness coverage (2f81999 core). Live browser smoke + full journey
+watchdog green. Baseline at
 program start: core 874c6a6, dashboard 6b6f07b, verify_fast green.
 
 Stage 0 completed on 2026-07-17 with these executed gates:
