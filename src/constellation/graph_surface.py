@@ -134,11 +134,16 @@ def _scan_candidate_packets(vault: Path) -> tuple[list[dict[str, Any]], int]:
         except (OSError, json.JSONDecodeError):
             skipped += 1
             continue
-        if (
-            isinstance(payload, dict)
-            and payload.get("type") in _CANDIDATE_TYPES
-            and payload.get("id")
-        ):
+        if not isinstance(payload, dict):
+            continue
+        if payload.get("kind") == "relationship_candidate":
+            record = payload.get("record")
+            if isinstance(record, dict) and record.get("id"):
+                packets.append(record)
+            else:
+                skipped += 1
+            continue
+        if payload.get("type") in _CANDIDATE_TYPES and payload.get("id"):
             packets.append(payload)
     return packets, skipped
 
@@ -317,6 +322,21 @@ def build_graph_projection(
                     edges.append(_edge(
                         edge_kind="claim",
                         edge_source="candidate_claim",
+                        record=packet,
+                        subject_id=subject,
+                        object_id=obj,
+                        predicate=str(packet.get("predicate", "")),
+                        folder=".constellation/candidates",
+                        candidate=True,
+                    ))
+                    candidate_count += 1
+            elif str(packet.get("type")) == "relationship":
+                subject = str(packet.get("subject_id", ""))
+                obj = str(packet.get("object_id", ""))
+                if subject in node_records and obj in node_records:
+                    edges.append(_edge(
+                        edge_kind="relationship",
+                        edge_source="candidate_relationship",
                         record=packet,
                         subject_id=subject,
                         object_id=obj,

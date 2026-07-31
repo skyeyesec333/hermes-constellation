@@ -54,6 +54,7 @@ _CONFIGURED_VAULT_ACTIONS = frozenset(
         "synthesize",
         "claim",
         "interaction",
+        "relationship",
         "decision",
         "inquiry",
         "opportunity",

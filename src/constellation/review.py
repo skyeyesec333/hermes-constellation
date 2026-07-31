@@ -43,6 +43,88 @@ def _candidate_files(root: Path) -> list[Path]:
     )
 
 
+def _relationship_candidate_summary(path: Path, payload: dict[str, object]) -> dict[str, object]:
+    record = payload.get("record")
+    if not isinstance(record, dict) or not record.get("id"):
+        raise PromotionError("relationship candidate packet is invalid")
+    if path.stem != f"relationship-{record['id']}":
+        raise PromotionError("relationship candidate filename does not match relationship id")
+    return {
+        "id": path.stem,
+        "kind": "relationship_candidate",
+        "title": f"Review relationship: {record.get('title', path.stem)}",
+        "target_path": f"relationships/{record['id']}.md",
+        "expected_base_hash": None,
+        "promotable": True,
+    }
+
+
+def _promote_relationship_candidate(
+    root: Path,
+    candidate_path: Path,
+    payload: dict[str, object],
+    expected_base_hash: str | None,
+) -> dict[str, str]:
+    summary = _relationship_candidate_summary(candidate_path, payload)
+    if expected_base_hash is not None:
+        raise PromotionError("relationship candidate must be promoted as a create-only record")
+    from .models import RelationshipRecord
+    from .predicates import load_predicate_registry
+    from .relationship import RelationshipPipelineError, validate_promotion_ready
+
+    try:
+        record = RelationshipRecord.model_validate_json(json.dumps(payload.get("record")))
+    except ValidationError as exc:
+        raise PromotionError("relationship candidate packet is invalid") from exc
+    registry = load_predicate_registry()
+    resolution = registry.resolve(record.predicate)
+    if resolution.status == "unknown" and not payload.get("experimental"):
+        raise PromotionError(
+            f"predicate {record.predicate!r} is not in the registry and the candidate is "
+            "not marked experimental"
+        )
+    target_path = str(summary["target_path"])
+    target = safe_relative_path(root, target_path)
+    if target.exists():
+        raise PromotionError("relationship target already exists")
+    try:
+        validate_promotion_ready(root, record)
+    except RelationshipPipelineError as exc:
+        raise PromotionError(str(exc)) from exc
+    canonical_record = record.model_copy(update={"status": "active"})
+    body = f"# {record.title}\n"
+    excerpt = payload.get("evidence_excerpt")
+    anchor = payload.get("evidence_anchor")
+    if isinstance(excerpt, str) and excerpt.strip():
+        body += f"\n{excerpt.strip()}\n"
+    if isinstance(anchor, str) and anchor.strip():
+        body += f"\nEvidence anchor: {anchor.strip()}\n"
+    content = render_frontmatter(
+        canonical_record.model_dump(mode="json", exclude_none=True), body
+    )
+    try:
+        validate_canonical_text(content, target_path)
+        atomic_write_text(root, target_path, content)
+    except (CanonicalValidationError, ConflictError) as exc:
+        raise PromotionError("relationship candidate promotion failed") from exc
+    _append_action(
+        root,
+        {
+            "schema_version": "0.1",
+            "action": "candidate_promoted",
+            "candidate_id": candidate_path.stem,
+            "target_path": target_path,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "result_hash": sha256_file(target),
+        },
+    )
+    candidate_path.unlink()
+    return _rebuild_index_after_write(
+        root,
+        {"schema_version": "0.1", "status": "promoted", "target_path": target_path},
+    )
+
+
 def _ingest_candidate_summary(
     root: Path, path: Path, payload: dict[str, object]
 ) -> dict[str, object]:
@@ -462,6 +544,9 @@ def list_candidates(root: Path | str) -> list[dict[str, object]]:
             if payload.get("kind") == "ingest_candidate":
                 results.append(_ingest_candidate_summary(vault, path, payload))
                 continue
+            if payload.get("kind") == "relationship_candidate":
+                results.append(_relationship_candidate_summary(path, payload))
+                continue
             if payload.get("type") == "claim":
                 results.append(_claim_candidate_summary(path, payload))
                 continue
@@ -766,6 +851,8 @@ def _dispatch_promotion(
 ) -> dict[str, str]:
     if isinstance(payload, dict) and payload.get("kind") == "ingest_candidate":
         return _review_ingest_candidate(vault, candidate_path, payload, expected_base_hash)
+    if isinstance(payload, dict) and payload.get("kind") == "relationship_candidate":
+        return _promote_relationship_candidate(vault, candidate_path, payload, expected_base_hash)
     if isinstance(payload, dict) and payload.get("type") == "claim":
         return _promote_claim_candidate(vault, candidate_path, payload, expected_base_hash)
     if isinstance(payload, dict) and payload.get("type") == "interaction":

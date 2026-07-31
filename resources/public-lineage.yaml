@@ -364,6 +364,8 @@ files:
     lineage: handwritten-generic
   src/constellation/review.py:
     lineage: handwritten-generic
+  src/constellation/relationship.py:
+    lineage: handwritten-generic
   src/constellation/schema.py:
     lineage: handwritten-generic
   src/constellation/search_adapter.py:
@@ -549,6 +551,8 @@ files:
   tests/test_retrieval.py:
     lineage: handwritten-generic
   tests/test_review.py:
+    lineage: handwritten-generic
+  tests/test_relationship_pipeline.py:
     lineage: handwritten-generic
   tests/test_review_bulk.py:
     lineage: handwritten-generic

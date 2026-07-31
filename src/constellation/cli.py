@@ -200,6 +200,36 @@ def build_parser() -> argparse.ArgumentParser:
     claim.add_argument("--confidence", type=float)
     claim.add_argument("--limit", type=int, default=50, help="Max claims to list")
 
+    relationship = sub.add_parser(
+        "relationship", help="Stage, list, or supersede review-gated relationships"
+    )
+    relationship.add_argument("vault", type=Path)
+    relationship.add_argument("action", choices=["stage", "list", "supersede"])
+    relationship.add_argument("--subject-id", help="ULID of the subject entity (required for stage)")
+    relationship.add_argument("--predicate", help="Registry predicate, e.g. owns (required for stage)")
+    relationship.add_argument("--object-id", help="ULID of the object entity (required for stage)")
+    relationship.add_argument("--source-ids", nargs="+", help="ULIDs of supporting sources (required for stage)")
+    relationship.add_argument("--evidence-class", default="single-source",
+                              choices=["verified", "corroborated", "single-source", "inferred", "user-asserted"])
+    relationship.add_argument("--confidence", type=float)
+    relationship.add_argument("--observed-at", help="ISO-8601 timestamp when evidence observed the relationship")
+    relationship.add_argument("--valid-from", help="ISO-8601 start of real-world validity")
+    relationship.add_argument("--valid-to", help="ISO-8601 end of real-world validity")
+    relationship.add_argument("--role", default="", help="Bounded role text for the relationship")
+    relationship.add_argument("--qualifier", action="append", default=[],
+                              help="key=value qualifier (repeatable)")
+    relationship.add_argument("--evidence-excerpt", help="Short quoted excerpt from source")
+    relationship.add_argument("--evidence-anchor", help="Section/page anchor in the source")
+    relationship.add_argument("--experimental", action="store_true",
+                              help="Stage a predicate that is not in the registry")
+    relationship.add_argument("--new-id", help="ULID of the superseding (new) relationship")
+    relationship.add_argument("--old-id", help="ULID of the relationship being superseded")
+    relationship.add_argument("--actor", help="who asserts the supersede (required for supersede)")
+    relationship.add_argument("--basis", nargs="+", help="source ULIDs or review id justifying the supersede")
+    relationship.add_argument("--force", action="store_true",
+                              help="supersede an already-terminal relationship via a staged review candidate (never a direct write)")
+    relationship.add_argument("--limit", type=int, default=50, help="Max candidates to list")
+
     interaction = sub.add_parser("interaction", help="Stage or list review-only interactions")
     interaction.add_argument("vault", type=Path)
     interaction.add_argument("action", choices=["stage", "list"])
@@ -884,6 +914,74 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
             evidence_excerpt=values.get("evidence_excerpt"),
             claim_status=str(values.get("claim_status", "source-claimed")),
             confidence=values.get("confidence"),
+        )
+    if action == "relationship":
+        from datetime import datetime as dt
+        from typing import Literal, cast
+
+        from constellation.relationship import (
+            list_staged_relationships,
+            stage_relationship,
+            supersede_relationship,
+        )
+
+        def _iso(value):
+            if not value:
+                return None
+            return dt.fromisoformat(str(value).replace("Z", "+00:00"))
+
+        if values.get("action") == "list":
+            return list_staged_relationships(vault, limit=int(values.get("limit", 50)))
+        if values.get("action") == "supersede":
+            new_id = values.get("new_id")
+            old_id = values.get("old_id")
+            actor = values.get("actor")
+            basis = values.get("basis") or []
+            if not new_id or not old_id or not actor or not basis:
+                raise ValueError(
+                    "--new-id, --old-id, --actor, and --basis are required for relationship supersede"
+                )
+            return supersede_relationship(
+                vault,
+                new_id=str(new_id),
+                old_id=str(old_id),
+                actor=str(actor),
+                basis=[str(b) for b in basis],
+                force=bool(values.get("force", False)),
+            )
+        subject_id = values.get("subject_id")
+        predicate = values.get("predicate")
+        object_id = values.get("object_id")
+        source_ids = values.get("source_ids") or []
+        if not subject_id or not predicate or not object_id or not source_ids:
+            raise ValueError(
+                "--subject-id, --predicate, --object-id, and --source-ids are required for relationship stage"
+            )
+        qualifiers = {}
+        for item in values.get("qualifier") or []:
+            key, sep, val = str(item).partition("=")
+            if not sep or not key.strip():
+                raise ValueError("--qualifier expects key=value")
+            qualifiers[key.strip()] = val
+        return stage_relationship(
+            vault,
+            subject_id=str(subject_id),
+            predicate=str(predicate),
+            object_id=str(object_id),
+            source_ids=[str(s) for s in source_ids],
+            evidence_class=cast(
+                "Literal['verified', 'corroborated', 'single-source', 'inferred', 'user-asserted']",
+                values.get("evidence_class", "single-source"),
+            ),
+            confidence=values.get("confidence"),
+            observed_at=_iso(values.get("observed_at")),
+            valid_from=_iso(values.get("valid_from")),
+            valid_to=_iso(values.get("valid_to")),
+            role=str(values.get("role", "")),
+            qualifiers=qualifiers,
+            evidence_excerpt=values.get("evidence_excerpt"),
+            evidence_anchor=values.get("evidence_anchor"),
+            experimental=bool(values.get("experimental", False)),
         )
     if action == "interaction":
         from datetime import datetime as dt
