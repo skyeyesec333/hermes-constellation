@@ -116,6 +116,10 @@ files:
     lineage: handwritten-generic
   resources/mappings/followthemoney-v1.yaml:
     lineage: handwritten-generic
+  resources/entity-resolution/warninglists.schema.json:
+    lineage: handwritten-generic
+  resources/entity-resolution/default-warninglists.json:
+    lineage: handwritten-generic
   resources/generated-json-schemas/analysis.json:
     lineage: generated-from-python-schema
   resources/generated-json-schemas/watchlist.json:
@@ -297,6 +301,8 @@ files:
   src/constellation/predicates.py:
     lineage: handwritten-generic
   src/constellation/ftm_adapter.py:
+    lineage: handwritten-generic
+  src/constellation/entity_warninglists.py:
     lineage: handwritten-generic
   src/constellation/contradictions.py:
     lineage: handwritten-generic
@@ -485,6 +491,8 @@ files:
   tests/test_predicate_inventory.py:
     lineage: handwritten-generic
   tests/test_ftm_adapter.py:
+    lineage: handwritten-generic
+  tests/test_entity_warninglists.py:
     lineage: handwritten-generic
   tests/fixtures/ftm/fictional-entities.ndjson:
     lineage: handwritten-generic

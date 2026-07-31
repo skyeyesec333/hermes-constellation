@@ -31,6 +31,7 @@ from hashlib import sha256
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlsplit
 
 from .frontmatter import parse_frontmatter, render_frontmatter
@@ -393,6 +394,41 @@ def scan_entity_duplicates(root: Path | str) -> list[EntityDuplicate]:
         dup.stub_id,
     ))
     return duplicates
+
+
+def scan_entity_duplicates_report(root: Path | str) -> dict[str, Any]:
+    """Duplicate scan with warninglist triage applied, all visible.
+
+    Suppressed pairs are reported (never silently dropped), ambiguity-listed
+    pairs are flagged for human disambiguation but stay in the duplicate
+    list, and clean pairs pass through unchanged.
+    """
+    from .entity_warninglists import check_value, load_vault_warninglists
+
+    vault = _require_vault(root)
+    lists = load_vault_warninglists(vault)
+    kept: list[EntityDuplicate] = []
+    suppressed: list[dict[str, Any]] = []
+    ambiguous: list[dict[str, Any]] = []
+    for dup in scan_entity_duplicates(vault):
+        decision = check_value(dup.proposed_title, lists, entity_kind=dup.entity_kind)
+        if decision.decision == "suppress":
+            suppressed.append({
+                "pair_id": dup.pair_id,
+                "proposed_title": dup.proposed_title,
+                "entity_kind": dup.entity_kind,
+                "reason": decision.reason,
+            })
+            continue
+        if decision.decision == "force_ambiguity":
+            ambiguous.append({
+                "pair_id": dup.pair_id,
+                "proposed_title": dup.proposed_title,
+                "entity_kind": dup.entity_kind,
+                "reason": decision.reason,
+            })
+        kept.append(dup)
+    return {"duplicates": kept, "suppressed": suppressed, "ambiguous": ambiguous}
 
 
 def _normalize_source_url(url: str) -> str:

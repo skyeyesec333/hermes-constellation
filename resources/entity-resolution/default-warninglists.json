@@ -1,0 +1,32 @@
+{
+  "schema_version": "0.1",
+  "lists": [
+    {
+      "name": "fictional-generic-tokens",
+      "version": 1,
+      "description": "Fictional placeholder tokens that must never disambiguate or merge an entity on their own.",
+      "match_attributes": ["exact"],
+      "values": ["unknown entity", "n/a", "redacted"],
+      "action": "suppress",
+      "entity_kind": null
+    },
+    {
+      "name": "fictional-ambiguous-names",
+      "version": 1,
+      "description": "Fictional common-name placeholders that always require human disambiguation.",
+      "match_attributes": ["exact"],
+      "values": ["john smith", "jane doe"],
+      "action": "force_ambiguity",
+      "entity_kind": null
+    },
+    {
+      "name": "fictional-kind-pinned",
+      "version": 1,
+      "description": "Fictional demonstration of kind pinning: the token is only a valid company name.",
+      "match_attributes": ["exact"],
+      "values": ["apple"],
+      "action": "require_kind",
+      "entity_kind": "company"
+    }
+  ]
+}

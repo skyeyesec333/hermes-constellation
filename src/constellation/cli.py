@@ -743,11 +743,12 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
     if action == "resolve":
         if values["action"] == "scan":
             from constellation.entity_resolution import (
-                scan_entity_duplicates,
+                scan_entity_duplicates_report,
                 scan_source_family_duplicates,
             )
 
-            duplicates = scan_entity_duplicates(vault)
+            report = scan_entity_duplicates_report(vault)
+            duplicates = report["duplicates"]
             families = scan_source_family_duplicates(vault)
             untriaged = [duplicate for duplicate in duplicates if duplicate.review is None]
             reviewed = [duplicate for duplicate in duplicates if duplicate.review is not None]
@@ -761,6 +762,8 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
                 "reviewed_distinct": [asdict(duplicate) for duplicate in reviewed],
                 "untriaged_count": len(untriaged),
                 "source_families": [asdict(family) for family in families],
+                "warninglist_suppressed": report["suppressed"],
+                "warninglist_ambiguous": report["ambiguous"],
             }
         if values["action"] == "stage":
             from constellation.entity_resolution import stage_merge_proposal
