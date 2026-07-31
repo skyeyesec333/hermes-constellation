@@ -306,6 +306,8 @@ files:
     lineage: handwritten-generic
   src/constellation/mentions.py:
     lineage: handwritten-generic
+  src/constellation/relationship_backfill.py:
+    lineage: handwritten-generic
   src/constellation/contradictions.py:
     lineage: handwritten-generic
   src/constellation/screening.py:
@@ -497,6 +499,8 @@ files:
   tests/test_entity_warninglists.py:
     lineage: handwritten-generic
   tests/test_mentions.py:
+    lineage: handwritten-generic
+  tests/test_relationship_backfill.py:
     lineage: handwritten-generic
   tests/fixtures/ftm/fictional-entities.ndjson:
     lineage: handwritten-generic

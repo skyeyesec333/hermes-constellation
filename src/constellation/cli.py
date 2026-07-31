@@ -248,6 +248,15 @@ def build_parser() -> argparse.ArgumentParser:
     mentions.add_argument("--anchor", help="Deterministic anchor, e.g. chars 10-24 (stage)")
     mentions.add_argument("--limit", type=int, default=200, help="Max mention hits (scan)")
 
+    backfill = sub.add_parser(
+        "relationship-backfill", help="Plan and stage review-gated relationship backfill"
+    )
+    backfill.add_argument("vault", type=Path)
+    backfill.add_argument("action", choices=["inventory", "plan", "stage"])
+    backfill.add_argument("--out", help="Plan output file (plan)")
+    backfill.add_argument("--plan", help="Plan input file (stage)")
+    backfill.add_argument("--limit", type=int, default=50, help="Max proposals to stage")
+
     interaction = sub.add_parser("interaction", help="Stage or list review-only interactions")
     interaction.add_argument("vault", type=Path)
     interaction.add_argument("action", choices=["stage", "list"])
@@ -1035,6 +1044,24 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
         return stage_mention_lead(
             vault, source_id=str(source_id), entity_id=str(entity_id), anchor=str(anchor)
         )
+    if action == "relationship-backfill":
+        from constellation.relationship_backfill import (
+            backfill_inventory,
+            backfill_plan,
+            backfill_stage,
+        )
+
+        if values.get("action") == "inventory":
+            return backfill_inventory(vault)
+        if values.get("action") == "plan":
+            out = values.get("out")
+            if not out:
+                raise ValueError("--out is required for relationship-backfill plan")
+            return backfill_plan(vault, str(out))
+        plan_file = values.get("plan")
+        if not plan_file:
+            raise ValueError("--plan is required for relationship-backfill stage")
+        return backfill_stage(vault, str(plan_file), limit=int(values.get("limit", 50)))
     if action == "interaction":
         from datetime import datetime as dt
 
