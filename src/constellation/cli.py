@@ -404,9 +404,14 @@ def build_parser() -> argparse.ArgumentParser:
     briefing.add_argument("--sensitivity", default="internal",
                           choices=["public", "internal", "confidential", "restricted"])
 
-    decay = sub.add_parser("decay", help="Detect aging contacts needing follow-up")
+    decay = sub.add_parser("decay", help="Contact follow-up detection and relationship decay")
     decay.add_argument("vault", type=Path)
-    decay.add_argument("--threshold", type=int, default=14, help="Stale threshold in days")
+    decay.add_argument("decay_action", nargs="?", default="contacts",
+                       choices=["contacts", "run", "stage-suggestions"])
+    decay.add_argument("--threshold", type=int, default=14, help="Stale threshold in days (contacts)")
+    decay.add_argument("--as-of", help="ISO-8601 evaluation time (run/stage-suggestions)")
+    decay.add_argument("--manual", action="store_true", help="Mark report as human-triggered")
+    decay.add_argument("--limit", type=int, default=25, help="Max suggestions to stage")
 
     patterns = sub.add_parser("patterns", help="Detect cross-entity claim graph clusters")
     patterns.add_argument("vault", type=Path)
@@ -1454,9 +1459,25 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
             "candidates": len(model["candidates"]),
         }
     if action == "decay":
-        from constellation.decay import detect_decay
+        decay_action = str(values.get("decay_action", "contacts"))
+        if decay_action == "contacts":
+            from constellation.decay import detect_decay
 
-        return detect_decay(vault, threshold_days=int(values.get("threshold", 14)))
+            return detect_decay(vault, threshold_days=int(values.get("threshold", 14)))
+        from constellation.relationship_decay import decay_report, stage_decay_suggestions
+
+        as_of = values.get("as_of")
+        if as_of:
+            from datetime import datetime as dt
+
+            as_of = dt.fromisoformat(str(as_of).replace("Z", "+00:00"))
+        if decay_action == "run":
+            return decay_report(
+                vault, as_of=as_of, manual=bool(values.get("manual", False))
+            )
+        return stage_decay_suggestions(
+            vault, as_of=as_of, limit=int(values.get("limit", 25))
+        )
     if action == "patterns":
         from constellation.patterns import detect_patterns
 

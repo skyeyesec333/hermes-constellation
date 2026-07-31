@@ -323,6 +323,8 @@ files:
     lineage: handwritten-generic
   src/constellation/connector_contracts.py:
     lineage: handwritten-generic
+  src/constellation/relationship_decay.py:
+    lineage: handwritten-generic
   src/constellation/entity_warninglists.py:
     lineage: handwritten-generic
   src/constellation/mentions.py:
@@ -530,6 +532,8 @@ files:
   tests/test_graph_export.py:
     lineage: handwritten-generic
   tests/test_connector_contracts.py:
+    lineage: handwritten-generic
+  tests/test_relationship_decay.py:
     lineage: handwritten-generic
   tests/fixtures/connectors/opencti-sample.json:
     lineage: handwritten-generic
