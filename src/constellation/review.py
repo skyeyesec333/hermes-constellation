@@ -547,6 +547,18 @@ def list_candidates(root: Path | str) -> list[dict[str, object]]:
             if payload.get("kind") == "relationship_candidate":
                 results.append(_relationship_candidate_summary(path, payload))
                 continue
+            if payload.get("kind") == "mention_candidate":
+                results.append(
+                    {
+                        "id": path.stem,
+                        "kind": "mention_candidate",
+                        "title": f"Mention lead (review-only, not promotable): {payload.get('entity_id', '')}",
+                        "target_path": None,
+                        "expected_base_hash": None,
+                        "promotable": False,
+                    }
+                )
+                continue
             if payload.get("type") == "claim":
                 results.append(_claim_candidate_summary(path, payload))
                 continue
@@ -851,6 +863,10 @@ def _dispatch_promotion(
 ) -> dict[str, str]:
     if isinstance(payload, dict) and payload.get("kind") == "ingest_candidate":
         return _review_ingest_candidate(vault, candidate_path, payload, expected_base_hash)
+    if isinstance(payload, dict) and payload.get("kind") == "mention_candidate":
+        raise PromotionError(
+            "mention leads are review-only derived artifacts and cannot be promoted"
+        )
     if isinstance(payload, dict) and payload.get("kind") == "relationship_candidate":
         return _promote_relationship_candidate(vault, candidate_path, payload, expected_base_hash)
     if isinstance(payload, dict) and payload.get("type") == "claim":

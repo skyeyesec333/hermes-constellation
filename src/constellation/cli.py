@@ -240,6 +240,14 @@ def build_parser() -> argparse.ArgumentParser:
     exchange.add_argument("--dry-run", action="store_true", help="Parse and report only (default)")
     exchange.add_argument("--stage", action="store_true", help="Stage review candidates (never canonical writes)")
 
+    mentions = sub.add_parser("mentions", help="Scan or stage evidence-anchored mention leads")
+    mentions.add_argument("vault", type=Path)
+    mentions.add_argument("action", choices=["scan", "stage"])
+    mentions.add_argument("--source-id", help="ULID of the canonical source-item")
+    mentions.add_argument("--entity-id", help="ULID of the mentioned entity (stage)")
+    mentions.add_argument("--anchor", help="Deterministic anchor, e.g. chars 10-24 (stage)")
+    mentions.add_argument("--limit", type=int, default=200, help="Max mention hits (scan)")
+
     interaction = sub.add_parser("interaction", help="Stage or list review-only interactions")
     interaction.add_argument("vault", type=Path)
     interaction.add_argument("action", choices=["stage", "list"])
@@ -1010,6 +1018,23 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
         if not file:
             raise ValueError("an FtM NDJSON file argument is required for ftm-import")
         return ftm_import(vault, str(file), stage=bool(values.get("stage", False)))
+    if action == "mentions":
+        from constellation.mentions import scan_source_mentions, stage_mention_lead
+
+        source_id = values.get("source_id")
+        if not source_id:
+            raise ValueError("--source-id is required for mentions")
+        if values.get("action") == "scan":
+            return scan_source_mentions(
+                vault, str(source_id), limit=int(values.get("limit", 200))
+            )
+        entity_id = values.get("entity_id")
+        anchor = values.get("anchor")
+        if not entity_id or not anchor:
+            raise ValueError("--entity-id and --anchor are required for mentions stage")
+        return stage_mention_lead(
+            vault, source_id=str(source_id), entity_id=str(entity_id), anchor=str(anchor)
+        )
     if action == "interaction":
         from datetime import datetime as dt
 
