@@ -39,7 +39,14 @@ the shared stability lookup), temporal/qualifier RelationshipRecord schema,
 review-gated relationship pipeline (stage/list/supersede + promotion through
 the existing review machinery, idempotent envelope candidates with
 assertion fingerprints), and temporal directed graph filters with stable
-sha256 edge_ids (b5d9e29, 467da51, 23239a6, c1f4da5). Baseline at
+sha256 edge_ids (b5d9e29, 467da51, 23239a6, c1f4da5). Wave 2
+(compatibility, mentions, backfill) COMPLETE 2026-07-31: bounded FtM
+exchange adapter (87d7ed4), entity-resolution warninglists (68455f7),
+evidence-anchored mention cross-reference (8651981), conservative
+relationship backfill planner (b3709b7). Private-vault read-only runs:
+56/56 entity-to-entity claims eligible; plan = 51 create proposals (0
+unresolved, hash-guarded, HELD for owner review — not staged); FtM export
+505 entities at internal ceiling (32 excluded by sensitivity). Baseline at
 program start: core 874c6a6, dashboard 6b6f07b, verify_fast green.
 
 Stage 0 completed on 2026-07-17 with these executed gates:
