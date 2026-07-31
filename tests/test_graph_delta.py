@@ -90,12 +90,12 @@ def test_snapshot_is_deterministic_and_bounded(vault: Path) -> None:
 def test_diff_reports_added_removed_changed_unchanged(vault: Path) -> None:
     a, b, c = (_entity(vault, t) for t in ("A", "B", "C"))
     s = _source(vault)
-    _rel(vault, a, b, s)
+    owns_id = _rel(vault, a, b, s)
     snap1 = snapshot_graph(vault)
 
     _rel(vault, b, c, s, "advises")  # added
-    # Supersede: mark the existing relationship superseded (removed from active graph)
-    rel_path = next((vault / "relationships").glob("*.md"))
+    # Supersede: mark the owns relationship superseded (removed from active graph)
+    rel_path = vault / "relationships" / f"{owns_id}.md"
     text = rel_path.read_text(encoding="utf-8")
     rel_path.write_text(text.replace("status: active", "status: superseded"), encoding="utf-8")
     snap2 = snapshot_graph(vault)
