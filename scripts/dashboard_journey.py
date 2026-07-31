@@ -157,6 +157,48 @@ def main() -> int:
             assert len(r.content) > 0, f"{asset} served empty"
         return {"assets": ["dist/index.js", "dist/style.css"]}
 
+    def probe_sna():
+        r = httpx.get(f"{base}{API_PREFIX}/sna", timeout=60)
+        r.raise_for_status()
+        data = r.json()
+        assert data.get("status") == "ok" and "top_nodes" in data, "sna missing model keys"
+        return {"nodes": data.get("node_count")}
+
+    def probe_communities():
+        r = httpx.get(f"{base}{API_PREFIX}/communities", timeout=30)
+        r.raise_for_status()
+        data = r.json()
+        assert data.get("status") == "ok" and "components" in data, "communities missing keys"
+        return {"components": data.get("component_count")}
+
+    def probe_typologies():
+        r = httpx.get(f"{base}{API_PREFIX}/typologies", timeout=30)
+        r.raise_for_status()
+        data = r.json()
+        assert data.get("status") == "ok" and "matches" in data, "typologies missing keys"
+        return {"matches": len(data.get("matches", []))}
+
+    def probe_hypotheses():
+        r = httpx.get(f"{base}{API_PREFIX}/hypotheses", timeout=30)
+        r.raise_for_status()
+        assert isinstance(r.json(), list), "hypotheses must return a list"
+        return {"packets": len(r.json())}
+
+    def probe_graph_delta():
+        r = httpx.post(f"{base}{API_PREFIX}/graph-delta/snapshot", timeout=60)
+        r.raise_for_status()
+        snap_path = r.json().get("snapshot_path")
+        assert snap_path, "snapshot missing path"
+        r = httpx.get(
+            f"{base}{API_PREFIX}/graph-delta/diff",
+            params={"from_snapshot": snap_path, "to_snapshot": snap_path},
+            timeout=30,
+        )
+        r.raise_for_status()
+        data = r.json()
+        assert data.get("status") == "ok" and data["totals"]["added"] == 0, "self-diff must be empty"
+        return {"snapshot": snap_path, "unchanged": data["totals"]["unchanged"]}
+
     try:
         step("projection", probe_projection)
         if node_ids:
@@ -170,6 +212,11 @@ def main() -> int:
         step("review_candidates", probe_review_candidates)
         step("review_watch_status", probe_watch_status)
         step("static_assets", probe_assets)
+        step("sna", probe_sna)
+        step("communities", probe_communities)
+        step("typologies", probe_typologies)
+        step("hypotheses", probe_hypotheses)
+        step("graph_delta", probe_graph_delta)
     finally:
         server.should_exit = True
 
