@@ -60,6 +60,7 @@ _CONFIGURED_VAULT_ACTIONS = frozenset(
         "relationship-backfill",
         "graph-analytics",
         "typologies",
+        "hypothesis",
         "decision",
         "inquiry",
         "opportunity",

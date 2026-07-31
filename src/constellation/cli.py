@@ -275,6 +275,11 @@ def build_parser() -> argparse.ArgumentParser:
     typologies.add_argument("vault", type=Path)
     typologies.add_argument("action", choices=["scan"])
 
+    hypothesis = sub.add_parser("hypothesis", help="Manage review-only hypothesis packets")
+    hypothesis.add_argument("vault", type=Path)
+    hypothesis.add_argument("action", choices=["generate", "list", "show", "refresh"])
+    hypothesis.add_argument("id", nargs="?", help="hypothesis packet id (show/refresh)")
+
     interaction = sub.add_parser("interaction", help="Stage or list review-only interactions")
     interaction.add_argument("vault", type=Path)
     interaction.add_argument("action", choices=["stage", "list"])
@@ -1104,6 +1109,25 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
         from constellation.typologies import scan_typologies
 
         return scan_typologies(vault)
+    if action == "hypothesis":
+        from constellation.hypotheses import (
+            generate_hypotheses,
+            list_hypotheses,
+            refresh_hypothesis,
+            show_hypothesis,
+        )
+
+        sub_action = values.get("action")
+        if sub_action == "generate":
+            return generate_hypotheses(vault)
+        if sub_action == "list":
+            return list_hypotheses(vault)
+        packet_id = values.get("id")
+        if not packet_id:
+            raise ValueError(f"hypothesis {sub_action} requires a packet id")
+        if sub_action == "show":
+            return show_hypothesis(vault, str(packet_id))
+        return refresh_hypothesis(vault, str(packet_id))
     if action == "interaction":
         from datetime import datetime as dt
 
