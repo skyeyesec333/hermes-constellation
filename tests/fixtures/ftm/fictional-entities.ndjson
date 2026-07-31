@@ -1,0 +1,9 @@
+{"id": "ftm-person-001", "schema": "Person", "properties": {"name": ["Ada Fictional"], "nationality": ["zz"]}}
+{"id": "ftm-company-001", "schema": "Company", "properties": {"name": ["Fictional Holdings Ltd"], "jurisdiction": ["zz"]}}
+{"id": "ftm-company-002", "schema": "Company", "properties": {"name": ["Fictional Trading Co"], "jurisdiction": ["zz"]}}
+{"id": "ftm-org-001", "schema": "Organization", "properties": {"name": ["Fictional Standards Body"]}}
+{"id": "ftm-rel-001", "schema": "Ownership", "properties": {"owner": ["ftm-person-001"], "asset": ["ftm-company-001"], "percentage": ["40"], "startDate": ["2022-01-01"], "endDate": ["2024-06-30"], "role": ["beneficial owner"], "proof": ["https://fictional-registry.example.test/filings/001"]}}
+{"id": "ftm-rel-002", "schema": "Directorship", "properties": {"director": ["ftm-person-001"], "organization": ["ftm-company-002"], "role": ["chair"], "startDate": ["2023-03-01"], "proof": ["https://fictional-registry.example.test/filings/002"]}}
+{"id": "ftm-rel-003", "schema": "Membership", "properties": {"member": ["ftm-company-001"], "organization": ["ftm-org-001"], "startDate": ["2021-05-20"]}}
+{"id": "ftm-rel-004", "schema": "Employment", "properties": {"employee": ["ftm-person-001"], "employer": ["ftm-company-002"], "role": ["advisor"], "endDate": ["2020-12-31"]}}
+{"id": "ftm-rel-005", "schema": "Associate", "properties": {"person": ["ftm-person-001"], "associate": ["ftm-person-001"]}}

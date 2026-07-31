@@ -230,6 +230,16 @@ def build_parser() -> argparse.ArgumentParser:
                               help="supersede an already-terminal relationship via a staged review candidate (never a direct write)")
     relationship.add_argument("--limit", type=int, default=50, help="Max candidates to list")
 
+    exchange = sub.add_parser("exchange", help="Bounded file exchange (FtM import/export)")
+    exchange.add_argument("vault", type=Path)
+    exchange.add_argument("action", choices=["ftm-export", "ftm-import"])
+    exchange.add_argument("file", nargs="?", help="FtM NDJSON input (ftm-import)")
+    exchange.add_argument("--out", help="Output file (ftm-export)")
+    exchange.add_argument("--sensitivity", default="internal",
+                          choices=["public", "internal", "confidential", "restricted"])
+    exchange.add_argument("--dry-run", action="store_true", help="Parse and report only (default)")
+    exchange.add_argument("--stage", action="store_true", help="Stage review candidates (never canonical writes)")
+
     interaction = sub.add_parser("interaction", help="Stage or list review-only interactions")
     interaction.add_argument("vault", type=Path)
     interaction.add_argument("action", choices=["stage", "list"])
@@ -983,6 +993,20 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
             evidence_anchor=values.get("evidence_anchor"),
             experimental=bool(values.get("experimental", False)),
         )
+    if action == "exchange":
+        from constellation.ftm_adapter import ftm_export, ftm_import
+
+        if values.get("action") == "ftm-export":
+            out = values.get("out")
+            if not out:
+                raise ValueError("--out is required for ftm-export")
+            return ftm_export(
+                vault, str(out), sensitivity=str(values.get("sensitivity", "internal"))
+            )
+        file = values.get("file")
+        if not file:
+            raise ValueError("an FtM NDJSON file argument is required for ftm-import")
+        return ftm_import(vault, str(file), stage=bool(values.get("stage", False)))
     if action == "interaction":
         from datetime import datetime as dt
 

@@ -1,0 +1,76 @@
+# Bounded FollowTheMoney mapping profile v1 (i2-successor Wave 2).
+#
+# Independently authored adapter mapping: FtM schema/property names are used
+# under MIT compatibility; no FtM code or data is copied. Only the useful
+# subset is supported. See docs/graph-intelligence.md and
+# docs/references/graph-intelligence-sources.md.
+version: 1
+limits:
+  max_bytes: 5242880
+  max_entities: 10000
+  max_relationships: 10000
+entity_schemata:
+  Person:
+    kind: person
+    folder: people
+  Company:
+    kind: company
+    folder: entities
+  Organization:
+    kind: organization
+    folder: entities
+  LegalEntity:
+    kind: organization
+    folder: entities
+relationship_schemata:
+  Ownership:
+    predicate: owns
+    subject_property: owner
+    object_property: asset
+    role_property: role
+    percentage_property: percentage
+  Membership:
+    predicate: member_of
+    subject_property: member
+    object_property: organization
+    role_property: role
+    percentage_property: null
+  Directorship:
+    predicate: directs
+    subject_property: director
+    object_property: organization
+    role_property: role
+    percentage_property: null
+  Employment:
+    predicate: employed_by
+    subject_property: employee
+    object_property: employer
+    role_property: role
+    percentage_property: null
+  Associate:
+    predicate: associated_with
+    subject_property: person
+    object_property: associate
+    role_property: relationship
+    percentage_property: null
+  Family:
+    predicate: associated_with
+    subject_property: person
+    object_property: relative
+    role_property: relationship
+    percentage_property: null
+  Representation:
+    predicate: advises
+    subject_property: agent
+    object_property: client
+    role_property: role
+    percentage_property: null
+# Canonical predicate -> FtM schema for export (inverse of the above where
+# unambiguous; predicates absent here are excluded from export and counted).
+export_predicates:
+  owns: Ownership
+  member_of: Membership
+  directs: Directorship
+  employed_by: Employment
+  associated_with: Associate
+  advises: Representation
