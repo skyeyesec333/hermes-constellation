@@ -241,3 +241,73 @@ def test_typed_graph_cli_neighbors_and_path(tmp_path: Path) -> None:
     result = run_action(str(values.pop("command")), values)
     assert result["status"] == "path_found"
     assert result["hops"] == 2
+
+
+def _diamond_vault(tmp_path: Path) -> tuple[Path, dict[str, str]]:
+    """A → B → D and A → C → D: two equal-length shortest paths."""
+    vault = tmp_path / "vault"
+    initialize_vault(vault)
+    ids = {name: _entity(vault, name) for name in ("A", "B", "C", "D")}
+    ids["s"] = _source(vault)
+    for subject, obj, predicate in (
+        ("A", "B", "partners_with"), ("B", "D", "partners_with"),
+        ("A", "C", "advises"), ("C", "D", "advises"),
+    ):
+        _write(vault, "relationships", RelationshipRecord(
+            id=generate_ulid(), title=predicate, status="active",
+            sensitivity=Sensitivity.INTERNAL, subject_id=ids[subject],
+            object_id=ids[obj], predicate=predicate, source_ids=[ids["s"]],
+            evidence_class="user-asserted", created_at=NOW, updated_at=NOW,
+        ))
+    return vault, ids
+
+
+def test_all_shortest_returns_every_equal_path(tmp_path: Path) -> None:
+    vault, ids = _diamond_vault(tmp_path)
+
+    result = graph_path(vault, ids["A"], ids["D"], all_shortest=True)
+
+    assert result["status"] == "path_found"
+    assert result["hops"] == 2
+    assert result["total_paths"] == 2
+    assert len(result["paths"]) == 2
+    middles = {path[0]["object_id"] for path in result["paths"]}
+    assert middles == {ids["B"], ids["C"]}
+    assert result["truncated"] is False
+    # Deterministic: identical rerun.
+    again = graph_path(vault, ids["A"], ids["D"], all_shortest=True)
+    assert again["paths"] == result["paths"]
+
+
+def test_all_shortest_cap_and_directed(tmp_path: Path) -> None:
+    vault, ids = _diamond_vault(tmp_path)
+
+    capped = graph_path(vault, ids["A"], ids["D"], all_shortest=True, cap=1)
+    assert len(capped["paths"]) == 1
+    assert capped["total_paths"] == 2
+    assert capped["truncated"] is True
+
+    # Directed: D → A follows no subject→object edges.
+    reverse = graph_path(vault, ids["D"], ids["A"], all_shortest=True, direction="directed")
+    assert reverse["status"] == "no_path_found"
+    assert reverse["paths"] == []
+    forward = graph_path(vault, ids["A"], ids["D"], all_shortest=True, direction="directed")
+    assert forward["status"] == "path_found"
+    assert forward["total_paths"] == 2
+
+    with pytest.raises(Exception):
+        graph_path(vault, ids["A"], ids["D"], all_shortest=True, cap=99)
+
+
+def test_all_shortest_cli(tmp_path: Path) -> None:
+    from constellation.cli import build_parser, run_action
+
+    vault, ids = _diamond_vault(tmp_path)
+    values = vars(build_parser().parse_args([
+        "graph", str(vault), "path", "--from", ids["A"], "--to", ids["D"],
+        "--typed", "--all-shortest",
+    ]))
+    result = run_action(str(values.pop("command")), values)
+    assert result["status"] == "path_found"
+    assert result["total_paths"] == 2
+    assert len(result["paths"]) == 2

@@ -162,6 +162,55 @@ def graph_neighbors(
     return result
 
 
+def _all_shortest_paths(
+    adjacency: dict[str, list[tuple[str, dict[str, Any]]]],
+    start: str,
+    end: str,
+    *,
+    max_hops: int,
+    cap: int,
+) -> tuple[list[list[dict[str, Any]]], int, int]:
+    """Enumerate every shortest path up to cap, with exact total count.
+
+    BFS fixes node distances; counting tracks edge-distinct shortest paths;
+    enumeration walks only BFS-DAG edges in deterministic adjacency order.
+    """
+    distance = {start: 0}
+    count = {start: 1}
+    queue = [start]
+    while queue:
+        current = queue.pop(0)
+        if distance[current] >= max_hops:
+            continue
+        for next_node, _edge in adjacency.get(current, []):
+            hop = distance[current] + 1
+            if next_node not in distance:
+                distance[next_node] = hop
+                count[next_node] = 0
+                queue.append(next_node)
+            if distance[next_node] == hop:
+                count[next_node] += count[current]
+    if end not in distance:
+        return [], 0, 0
+    total = count[end]
+    paths: list[list[dict[str, Any]]] = []
+
+    def _walk(node: str, chain: list[dict[str, Any]]) -> None:
+        if len(paths) >= cap:
+            return
+        if node == end:
+            paths.append(chain)
+            return
+        for next_node, edge in adjacency.get(node, []):
+            if distance.get(next_node) == distance[node] + 1:
+                _walk(next_node, [*chain, edge])
+                if len(paths) >= cap:
+                    return
+
+    _walk(start, [])
+    return paths, total, distance[end]
+
+
 def graph_path(
     vault: Path | str,
     start_node_id: str,
@@ -175,6 +224,8 @@ def graph_path(
     direction: str = "both",
     as_of: datetime | None = None,
     min_confidence: float | None = None,
+    all_shortest: bool = False,
+    cap: int = 10,
 ) -> dict[str, Any]:
     """Return one deterministic shortest typed-edge chain between two nodes.
 
@@ -187,6 +238,8 @@ def graph_path(
         raise GraphApiError(f"max_hops must be between 1 and {_MAX_HOPS_LIMIT}")
     if start_node_id == end_node_id:
         raise GraphApiError("start and end nodes must differ")
+    if not 1 <= cap <= 50:
+        raise GraphApiError("cap must be between 1 and 50")
     _validate_options(direction, as_of)
     edges, excluded_by_as_of = _filtered_edges(
         vault,
@@ -211,6 +264,35 @@ def graph_path(
     queue: list[tuple[str, list[dict[str, Any]], frozenset[str]]] = [
         (start_node_id, [], frozenset({start_node_id}))
     ]
+    if all_shortest:
+        paths, total, hops = _all_shortest_paths(
+            adjacency, start_node_id, end_node_id, max_hops=max_hops, cap=cap
+        )
+        if not paths:
+            empty: dict[str, Any] = {
+                "status": "no_path_found",
+                "paths": [],
+                "hops": 0,
+                "total_paths": 0,
+                "truncated": False,
+                "cap": cap,
+                "candidates_included": include_candidates,
+            }
+            if as_of is not None:
+                empty["excluded_by_as_of"] = excluded_by_as_of
+            return empty
+        found: dict[str, Any] = {
+            "status": "path_found",
+            "paths": paths,
+            "hops": hops,
+            "total_paths": total,
+            "truncated": total > len(paths),
+            "cap": cap,
+            "candidates_included": include_candidates,
+        }
+        if as_of is not None:
+            found["excluded_by_as_of"] = excluded_by_as_of
+        return found
     while queue:
         current, chain, seen = queue.pop(0)
         if len(chain) >= max_hops:

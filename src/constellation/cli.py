@@ -64,6 +64,10 @@ def build_parser() -> argparse.ArgumentParser:
     graph.add_argument("--no-candidates", action="store_true",
                        help="exclude candidate edges (typed neighbors; included by default)")
     graph.add_argument("--sensitivity", default="internal")
+    graph.add_argument("--all-shortest", action="store_true",
+                       help="enumerate every shortest path (typed mode), bounded by --cap")
+    graph.add_argument("--cap", type=int, default=10,
+                       help="max paths returned by --all-shortest (1-50)")
 
     resolve = sub.add_parser("resolve", help="Propose review-only identity matches and duplicate-resolution merges")
     resolve.add_argument("vault", type=Path)
@@ -754,8 +758,13 @@ def run_action(action: str, values: dict[str, Any]) -> Any:
                 max_hops=int(values["max_hops"]), kinds=kinds,
                 include_candidates=bool(values.get("include_candidates")),
                 sensitivity_ceiling=ceiling,
+                all_shortest=bool(values.get("all_shortest", False)),
+                cap=int(values.get("cap", 10)),
             )
         from constellation.graph import neighbors, path
+
+        if values.get("all_shortest"):
+            raise ValueError("--all-shortest requires --typed mode")
 
         if values["graph_action"] == "neighbors":
             entity_id = values.get("entity")
