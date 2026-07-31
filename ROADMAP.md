@@ -46,7 +46,12 @@ evidence-anchored mention cross-reference (8651981), conservative
 relationship backfill planner (b3709b7). Private-vault read-only runs:
 56/56 entity-to-entity claims eligible; plan = 51 create proposals (0
 unresolved, hash-guarded, HELD for owner review — not staged); FtM export
-505 entities at internal ceiling (32 excluded by sensitivity). Baseline at
+505 entities at internal ceiling (32 excluded by sensitivity). Wave 3
+(graph analytics) COMPLETE 2026-07-31: deterministic graph model +
+optional networkx extra (7855a2d), SNA metrics with immutable analysis
+receipts (a7285cc), bounded all-shortest typed paths (ab9cb14), briefing
+network_position with degraded no-networkx fallback (7a05c46, 7301d56).
+Baseline at
 program start: core 874c6a6, dashboard 6b6f07b, verify_fast green.
 
 Stage 0 completed on 2026-07-17 with these executed gates:
