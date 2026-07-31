@@ -126,6 +126,63 @@ def test_neighbors_unknown_node_is_explicit(tmp_path: Path) -> None:
     assert result["edges"] == []
 
 
+def test_neighbors_new_filters_predicates_direction_confidence(tmp_path: Path) -> None:
+    vault, ids = _chain_vault(tmp_path)
+
+    by_predicate = graph_neighbors(vault, ids["b"], predicates={"partners_with"})
+    assert {e["predicate"] for e in by_predicate["edges"]} == {"partners_with"}
+    outgoing = graph_neighbors(vault, ids["a"], direction="outgoing")
+    assert all(e["subject_id"] == ids["a"] for e in outgoing["edges"])
+    incoming = graph_neighbors(vault, ids["b"], direction="incoming")
+    assert all(e["object_id"] == ids["b"] for e in incoming["edges"])
+    # The claim and its citation edge both carry confidence 0.6; the
+    # confidence-less relationship edge is filtered out.
+    confident = graph_neighbors(vault, ids["b"], min_confidence=0.5)
+    assert {e["edge_kind"] for e in confident["edges"]} == {"claim", "citation"}
+
+
+def test_path_new_filters_predicates_direction_as_of(tmp_path: Path) -> None:
+    vault, ids = _chain_vault(tmp_path)
+
+    blocked = graph_path(vault, ids["a"], ids["c"], predicates={"competes_with"})
+    assert blocked["status"] == "no_path_found"
+    directed_reverse = graph_path(vault, ids["b"], ids["a"], direction="directed")
+    assert directed_reverse["status"] == "no_path_found"
+    assert graph_path(vault, ids["a"], ids["b"], direction="directed")["status"] == "path_found"
+    # as_of: undated relationship stays traversable, marked unknown.
+    result = graph_path(vault, ids["a"], ids["b"], as_of=NOW)
+    assert result["status"] == "path_found"
+    assert result["path"][0]["temporal_status"] == "unknown"
+
+
+def test_path_as_of_excludes_expired_relationship(tmp_path: Path) -> None:
+    from datetime import timedelta
+
+    vault, ids = _chain_vault(tmp_path)
+    # Replace the undated relationship with a validity-closed one.
+    for existing in (vault / "relationships").glob("*.md"):
+        existing.unlink()
+    _write(vault, "relationships", RelationshipRecord(
+        id=generate_ulid(), title="rel", status="active",
+        sensitivity=Sensitivity.INTERNAL, subject_id=ids["a"], object_id=ids["b"],
+        predicate="partners_with", source_ids=[ids["s"]], evidence_class="user-asserted",
+        valid_from=datetime(2020, 1, 1, tzinfo=timezone.utc),
+        valid_to=datetime(2021, 1, 1, tzinfo=timezone.utc),
+        created_at=NOW, updated_at=NOW,
+    ))
+
+    expired = graph_path(vault, ids["a"], ids["b"], as_of=NOW)
+    assert expired["status"] == "no_path_found"
+    assert expired["excluded_by_as_of"] == 1
+    before = graph_path(vault, ids["a"], ids["b"], as_of=NOW - timedelta(days=365 * 10))
+    assert before["status"] == "no_path_found"  # before valid_from
+    inside = graph_path(
+        vault, ids["a"], ids["b"], as_of=datetime(2020, 6, 1, tzinfo=timezone.utc)
+    )
+    assert inside["status"] == "path_found"
+    assert inside["path"][0]["temporal_status"] == "active"
+
+
 def test_path_traverses_typed_edges_deterministically(tmp_path: Path) -> None:
     vault, ids = _chain_vault(tmp_path)
 

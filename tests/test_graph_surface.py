@@ -72,6 +72,74 @@ def test_projection_cites_canonical_and_claim_derived_edges(tmp_path: Path) -> N
         assert edge["source_ids"]
 
 
+def test_relationship_edges_carry_stable_semantic_ids_and_registry_metadata(tmp_path: Path) -> None:
+    import hashlib
+
+    vault = tmp_path / "vault"
+    initialize_vault(vault)
+    a = _entity(vault, "Alpha")
+    b = _entity(vault, "Beta")
+    source = _entity(vault, "SourceCo")
+    record = RelationshipRecord(
+        id=generate_ulid(), title="advises", status="active",
+        sensitivity=Sensitivity.INTERNAL, subject_id=a, object_id=b,
+        predicate="advises", source_ids=[source], evidence_class="user-asserted",
+        observed_at=NOW, valid_from=NOW, role="board advisor",
+        qualifiers={"capacity": "external"},
+        created_at=NOW, updated_at=NOW,
+    )
+    _write(vault, "relationships", record)
+
+    projection = build_graph_projection(vault)
+    edge = [e for e in projection["edges"] if e["edge_kind"] == "relationship"][0]
+
+    expected_id = hashlib.sha256(
+        f"relationship|{record.id}|{a}|advises|{b}".encode()
+    ).hexdigest()
+    assert edge["edge_id"] == expected_id
+    assert edge["directed"] is True
+    assert edge["inverse_predicate"] == "advised_by"
+    assert edge["registry_status"] == "canonical"
+    assert edge["role"] == "board advisor"
+    assert edge["qualifiers"] == {"capacity": "external"}
+    assert str(edge["observed_at"]).startswith("2026-07-28")
+    assert str(edge["valid_from"]).startswith("2026-07-28")
+    assert edge["valid_to"] is None
+
+    # Rebuild is byte-stable: the same vault yields the same edge_id.
+    again = build_graph_projection(vault)
+    assert again["edges"][0]["edge_id"] == expected_id
+
+
+def test_relationship_edge_registry_status_alias_and_unknown(tmp_path: Path) -> None:
+    vault = tmp_path / "vault"
+    initialize_vault(vault)
+    a = _entity(vault, "Alpha")
+    b = _entity(vault, "Beta")
+    source = _entity(vault, "SourceCo")
+    alias = RelationshipRecord(
+        id=generate_ulid(), title="works", status="active",
+        sensitivity=Sensitivity.INTERNAL, subject_id=a, object_id=b,
+        predicate="works_at", source_ids=[source], evidence_class="user-asserted",
+        created_at=NOW, updated_at=NOW,
+    )
+    unknown = RelationshipRecord(
+        id=generate_ulid(), title="legacy", status="active",
+        sensitivity=Sensitivity.INTERNAL, subject_id=b, object_id=a,
+        predicate="legacy_link", source_ids=[source], evidence_class="user-asserted",
+        created_at=NOW, updated_at=NOW,
+    )
+    _write(vault, "relationships", alias)
+    _write(vault, "relationships", unknown)
+
+    projection = build_graph_projection(vault)
+    by_predicate = {e["predicate"]: e for e in projection["edges"]}
+    assert by_predicate["works_at"]["registry_status"] == "alias"
+    assert by_predicate["legacy_link"]["registry_status"] == "unknown"
+    assert by_predicate["legacy_link"]["directed"] is True
+    assert by_predicate["legacy_link"]["inverse_predicate"] is None
+
+
 def test_projection_enforces_sensitivity_ceiling(tmp_path: Path) -> None:
     vault = tmp_path / "vault"
     initialize_vault(vault)

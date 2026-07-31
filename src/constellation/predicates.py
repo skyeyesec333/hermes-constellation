@@ -254,6 +254,15 @@ def _default_registry() -> PredicateRegistry | None:
         return None
 
 
+def default_registry() -> PredicateRegistry | None:
+    """Return the repository's default registry, or None when unavailable.
+
+    Never raises — read-only surfaces use this to degrade to unannotated
+    behavior instead of failing.
+    """
+    return _default_registry()
+
+
 def canonicalize_predicate(value: str, registry: PredicateRegistry) -> PredicateResolution:
     """Resolve a predicate string without mutating it.
 

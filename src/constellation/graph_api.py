@@ -18,12 +18,14 @@ Candidate policy differs by intent:
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from .graph_surface import build_graph_projection
 
 _MAX_HOPS_LIMIT = 8
+_DIRECTIONS = {"both", "outgoing", "incoming", "directed"}
 
 
 class GraphApiError(RuntimeError):
@@ -34,13 +36,33 @@ def _edge_sort_key(edge: dict[str, Any]) -> tuple[str, str, str]:
     return (str(edge["predicate"]), str(edge["record_id"]), str(edge["object_id"]))
 
 
+def _parse_iso(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else None
+
+
+def _validate_options(direction: str, as_of: datetime | None) -> None:
+    if direction not in _DIRECTIONS:
+        raise GraphApiError(f"unknown direction: {direction}")
+    if as_of is not None and (as_of.tzinfo is None or as_of.utcoffset() is None):
+        raise GraphApiError("as_of must include a timezone")
+
+
 def _filtered_edges(
     vault: Path | str,
     *,
     sensitivity_ceiling: str,
     kinds: set[str] | None,
     include_candidates: bool,
-) -> list[dict[str, Any]]:
+    predicates: set[str] | None = None,
+    as_of: datetime | None = None,
+    min_confidence: float | None = None,
+) -> tuple[list[dict[str, Any]], int]:
     projection = build_graph_projection(
         vault,
         sensitivity_ceiling=sensitivity_ceiling,
@@ -54,7 +76,34 @@ def _filtered_edges(
         edges = [e for e in edges if e["edge_kind"] in kinds]
     if not include_candidates:
         edges = [e for e in edges if not e["candidate"]]
-    return sorted(edges, key=_edge_sort_key)
+    if predicates is not None:
+        edges = [e for e in edges if str(e.get("predicate", "")) in predicates]
+    if min_confidence is not None:
+        edges = [
+            e
+            for e in edges
+            if e.get("confidence") is not None and float(e["confidence"]) >= min_confidence
+        ]
+    excluded_by_as_of = 0
+    if as_of is not None:
+        kept: list[dict[str, Any]] = []
+        for edge in edges:
+            if edge["edge_kind"] != "relationship":
+                kept.append(edge)
+                continue
+            valid_from = _parse_iso(edge.get("valid_from"))
+            valid_to = _parse_iso(edge.get("valid_to"))
+            if valid_from is None and valid_to is None:
+                kept.append({**edge, "temporal_status": "unknown"})
+                continue
+            if (valid_from is not None and valid_from > as_of) or (
+                valid_to is not None and valid_to < as_of
+            ):
+                excluded_by_as_of += 1
+                continue
+            kept.append({**edge, "temporal_status": "active"})
+        edges = kept
+    return sorted(edges, key=_edge_sort_key), excluded_by_as_of
 
 
 def graph_neighbors(
@@ -65,22 +114,35 @@ def graph_neighbors(
     include_candidates: bool = True,
     sensitivity_ceiling: str = "internal",
     limit: int = 50,
+    predicates: set[str] | None = None,
+    direction: str = "both",
+    as_of: datetime | None = None,
+    min_confidence: float | None = None,
 ) -> dict[str, Any]:
     """Return typed edges touching one node, newest-schema first, bounded.
 
     Review-surface semantics: candidates included (flagged) by default.
+    ``directed`` follows subject→object orientation (``outgoing`` here).
     """
     if not 1 <= limit <= 500:
         raise GraphApiError("limit must be between 1 and 500")
-    edges = _filtered_edges(
+    _validate_options(direction, as_of)
+    edges, excluded_by_as_of = _filtered_edges(
         vault,
         sensitivity_ceiling=sensitivity_ceiling,
         kinds=kinds,
         include_candidates=include_candidates,
+        predicates=predicates,
+        as_of=as_of,
+        min_confidence=min_confidence,
     )
+    if direction in {"outgoing", "directed"}:
+        edges = [e for e in edges if str(e["subject_id"]) == node_id]
+    elif direction == "incoming":
+        edges = [e for e in edges if str(e["object_id"]) == node_id]
     touching = [e for e in edges if node_id in {e["subject_id"], e["object_id"]}]
     truncated = len(touching) > limit
-    return {
+    result: dict[str, Any] = {
         "status": "neighbors_found" if touching else "no_edges_found",
         "node_id": node_id,
         "edges": touching[:limit],
@@ -88,7 +150,16 @@ def graph_neighbors(
         "truncated": truncated,
         "candidates_included": include_candidates,
         "sensitivity_ceiling": sensitivity_ceiling,
+        "filters": {
+            "predicates": sorted(predicates) if predicates else None,
+            "direction": direction,
+            "as_of": as_of.isoformat() if as_of else None,
+            "min_confidence": min_confidence,
+        },
     }
+    if as_of is not None:
+        result["excluded_by_as_of"] = excluded_by_as_of
+    return result
 
 
 def graph_path(
@@ -100,26 +171,42 @@ def graph_path(
     kinds: set[str] | None = None,
     include_candidates: bool = False,
     sensitivity_ceiling: str = "internal",
+    predicates: set[str] | None = None,
+    direction: str = "both",
+    as_of: datetime | None = None,
+    min_confidence: float | None = None,
 ) -> dict[str, Any]:
     """Return one deterministic shortest typed-edge chain between two nodes.
 
     Evidence-chain semantics: candidates excluded by default.
+    ``direction`` controls traversal: ``both`` (default) walks either side;
+    ``directed``/``outgoing`` follow subject→object; ``incoming`` follows
+    object→subject.
     """
     if not 1 <= max_hops <= _MAX_HOPS_LIMIT:
         raise GraphApiError(f"max_hops must be between 1 and {_MAX_HOPS_LIMIT}")
     if start_node_id == end_node_id:
         raise GraphApiError("start and end nodes must differ")
-    edges = _filtered_edges(
+    _validate_options(direction, as_of)
+    edges, excluded_by_as_of = _filtered_edges(
         vault,
         sensitivity_ceiling=sensitivity_ceiling,
         kinds=kinds,
         include_candidates=include_candidates,
+        predicates=predicates,
+        as_of=as_of,
+        min_confidence=min_confidence,
     )
 
     adjacency: dict[str, list[tuple[str, dict[str, Any]]]] = {}
     for edge in edges:
-        adjacency.setdefault(str(edge["subject_id"]), []).append((str(edge["object_id"]), edge))
-        adjacency.setdefault(str(edge["object_id"]), []).append((str(edge["subject_id"]), edge))
+        if direction in {"directed", "outgoing"}:
+            adjacency.setdefault(str(edge["subject_id"]), []).append((str(edge["object_id"]), edge))
+        elif direction == "incoming":
+            adjacency.setdefault(str(edge["object_id"]), []).append((str(edge["subject_id"]), edge))
+        else:
+            adjacency.setdefault(str(edge["subject_id"]), []).append((str(edge["object_id"]), edge))
+            adjacency.setdefault(str(edge["object_id"]), []).append((str(edge["subject_id"]), edge))
 
     queue: list[tuple[str, list[dict[str, Any]], frozenset[str]]] = [
         (start_node_id, [], frozenset({start_node_id}))
@@ -133,16 +220,22 @@ def graph_path(
                 continue
             next_chain = [*chain, edge]
             if next_node == end_node_id:
-                return {
+                result: dict[str, Any] = {
                     "status": "path_found",
                     "path": next_chain,
                     "hops": len(next_chain),
                     "candidates_included": include_candidates,
                 }
+                if as_of is not None:
+                    result["excluded_by_as_of"] = excluded_by_as_of
+                return result
             queue.append((next_node, next_chain, seen | {next_node}))
-    return {
+    result = {
         "status": "no_path_found",
         "path": [],
         "hops": 0,
         "candidates_included": include_candidates,
     }
+    if as_of is not None:
+        result["excluded_by_as_of"] = excluded_by_as_of
+    return result

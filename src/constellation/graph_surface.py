@@ -13,6 +13,7 @@ skipped and counted, never silently ignored.
 
 from __future__ import annotations
 
+import hashlib
 import html
 import json
 import math
@@ -87,6 +88,37 @@ def _record_time(record: dict[str, Any], preferred: tuple[str, ...]) -> str:
     return ""
 
 
+def _edge_id(edge_kind: str, record_id: str, subject_id: str, predicate: str, object_id: str) -> str:
+    """Stable visual edge key; survives array-order changes (spec 4.3)."""
+    blob = f"{edge_kind}|{record_id}|{subject_id}|{predicate}|{object_id}"
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def _relationship_semantics(record: dict[str, Any], registry: Any) -> dict[str, Any]:
+    """Registry + temporal enrichment carried by every relationship edge."""
+    predicate = str(record.get("predicate", ""))
+    resolution = registry.resolve(predicate) if registry is not None else None
+    entry = resolution.entry if resolution is not None else None
+
+    def _opt(value: Any) -> str | None:
+        return str(value) if value else None
+
+    return {
+        "directed": entry.directed if entry is not None else True,
+        "inverse_predicate": (
+            entry.inverse if entry is not None and not entry.symmetric else None
+        ),
+        "registry_status": resolution.status if resolution is not None else "unknown",
+        "observed_at": _opt(record.get("observed_at")),
+        "valid_from": _opt(record.get("valid_from")),
+        "valid_to": _opt(record.get("valid_to")),
+        "role": str(record.get("role", "") or ""),
+        "qualifiers": {
+            str(key): str(value) for key, value in (record.get("qualifiers") or {}).items()
+        },
+    }
+
+
 def _edge(
     *,
     edge_kind: str,
@@ -98,12 +130,15 @@ def _edge(
     folder: str,
     time_fields: tuple[str, ...] = ("created_at",),
     candidate: bool = False,
+    relationship_meta: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     confidence = record.get("confidence")
-    return {
+    record_id = str(record["id"])
+    edge = {
+        "edge_id": _edge_id(edge_kind, record_id, subject_id, predicate, object_id),
         "edge_kind": edge_kind,
         "edge_source": edge_source,
-        "record_id": str(record["id"]),
+        "record_id": record_id,
         "title": str(record.get("title", "")),
         "subject_id": subject_id,
         "object_id": object_id,
@@ -117,6 +152,9 @@ def _edge(
         "record_path": f"{folder}/{record['id']}.md",
         "candidate": candidate,
     }
+    if relationship_meta is not None:
+        edge.update(relationship_meta)
+    return edge
 
 
 def _scan_candidate_packets(vault: Path) -> tuple[list[dict[str, Any]], int]:
@@ -226,6 +264,9 @@ def build_graph_projection(
             ))
 
     # canonical relationships
+    from .predicates import default_registry as _default_predicate_registry
+
+    registry = _default_predicate_registry()
     relationships, skipped = _scan_records(vault, "relationships")
     skipped_invalid += skipped
     for record in relationships:
@@ -243,6 +284,7 @@ def build_graph_projection(
             object_id=obj,
             predicate=str(record.get("predicate", "")),
             folder="relationships",
+            relationship_meta=_relationship_semantics(record, registry),
         ))
 
     # claims: entity-to-entity derived edges + citation edges to source-items
@@ -343,6 +385,7 @@ def build_graph_projection(
                         predicate=str(packet.get("predicate", "")),
                         folder=".constellation/candidates",
                         candidate=True,
+                        relationship_meta=_relationship_semantics(packet, registry),
                     ))
                     candidate_count += 1
             else:
