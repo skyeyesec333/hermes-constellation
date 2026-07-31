@@ -31,6 +31,7 @@ Issues = "https://github.com/skyeyesec333/hermes-constellation/issues"
 
 [project.optional-dependencies]
 pdf = ["PyMuPDF>=1.24"]
+graph = ["networkx>=3.2,<4"]
 office = [
   "python-docx>=1.1,<2",
   "python-pptx>=1.0,<2",
